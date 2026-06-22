@@ -1,11 +1,20 @@
+// src/services/api.js
 import axios from 'axios';
 
+// Use environment variable with fallback for production
+const API_URL = process.env.REACT_APP_API_URL || 
+  (process.env.NODE_ENV === 'production' 
+    ? 'https://cbe-school-backend.vercel.app/api' 
+    : 'http://localhost:5000/api');
+
+console.log('🔧 API URL:', API_URL);
+
 const api = axios.create({
-  baseURL: process.env.REACT_APP_API_URL || 'http://localhost:5000/api',
+  baseURL: API_URL,
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 30000, // Increased from 10000 to 30000 (30 seconds)
+  timeout: 30000, // 30 seconds
 });
 
 // Request interceptor
