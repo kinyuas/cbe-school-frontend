@@ -1,0 +1,174 @@
+import React, { useState, useEffect } from 'react';
+import Layout from '../common/Layout';
+import toast from 'react-hot-toast';
+import { FiSearch, FiEye, FiAward } from 'react-icons/fi';
+
+// CBC Learning Areas per grade level
+const cbcLearningAreas = {
+  'PP1-PP2': ['Language Activities', 'Mathematical Activities', 'Environmental Activities', 'Psychomotor and Creative Activities', 'Religious Education Activities'],
+  'Grade 1-3': ['English', 'Kiswahili', 'Mathematics', 'Environmental Activities', 'Hygiene and Nutrition', 'Religious Education', 'Creative Arts'],
+  'Grade 4-6': ['English', 'Kiswahili', 'Mathematics', 'Science and Technology', 'Social Studies', 'Religious Education', 'Creative Arts', 'Physical and Health Education'],
+  'Grade 7-9': ['English', 'Kiswahili', 'Mathematics', 'Integrated Science', 'Social Studies', 'Religious Education', 'Creative Arts', 'Business Studies', 'Pre-technical Studies', 'Agriculture', 'Computer Science'],
+  'Grade 10-12': ['Core Subjects', 'Track Specialization Subjects', 'Electives']
+};
+
+const competenceLevels = [
+  { level: 'Exceeding Expectation', score: 80, color: 'green', description: 'The learner demonstrates in-depth understanding and applies skills independently' },
+  { level: 'Meeting Expectation', score: 60, color: 'blue', description: 'The learner demonstrates understanding and applies skills with minimal support' },
+  { level: 'Approaching Expectation', score: 40, color: 'yellow', description: 'The learner demonstrates partial understanding with some support' },
+  { level: 'Below Expectation', score: 20, color: 'orange', description: 'The learner demonstrates limited understanding with significant support' },
+  { level: 'Well Below Expectation', score: 0, color: 'red', description: 'The learner struggles to demonstrate understanding even with support' }
+];
+
+const Results = () => {
+  const [pupils, setPupils] = useState([]);
+  const [results, setResults] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedPupil, setSelectedPupil] = useState(null);
+  const [selectedCompetence, setSelectedCompetence] = useState(null);
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = () => {
+    const storedPupils = localStorage.getItem('pupils') || '[]';
+    const storedResults = localStorage.getItem('results') || '[]';
+    setPupils(JSON.parse(storedPupils));
+    setResults(JSON.parse(storedResults));
+  };
+
+  const getCompetenceLevel = (marks) => {
+    for (const level of competenceLevels) {
+      if (marks >= level.score) {
+        return level;
+      }
+    }
+    return competenceLevels[competenceLevels.length - 1];
+  };
+
+  const filteredPupils = pupils.filter(pupil =>
+    pupil.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    pupil.admNo.includes(searchTerm) ||
+    (pupil.upi && pupil.upi.includes(searchTerm))
+  );
+
+  const getPupilResults = (pupilId) => {
+    return results.filter(r => r.pupilId === pupilId);
+  };
+
+  return (
+    <Layout title="CBC Learning Outcomes" subtitle="Competency Based Assessment Results">
+      
+      {/* Competence Level Guide */}
+      <div className="bg-gradient-to-r from-blue-50 to-green-50 rounded-xl p-4 mb-6">
+        <h3 className="text-md font-bold text-gray-800 mb-2 flex items-center gap-2">
+          <FiAward className="text-blue-600" /> Competency Level Guide (CBC)
+        </h3>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+          {competenceLevels.map((level) => (
+            <div key={level.level} className="text-center">
+              <div className={`w-3 h-3 rounded-full bg-${level.color}-500 mx-auto mb-1`}></div>
+              <p className="text-xs font-semibold">{level.level}</p>
+              <p className="text-xs text-gray-500">{level.score}+%</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Search Bar */}
+      <div className="bg-white rounded-xl shadow-md p-4 mb-6">
+        <div className="relative">
+          <FiSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search by learner name, admission number, or UPI..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+      </div>
+
+      {/* Results List */}
+      <div className="grid gap-4">
+        {filteredPupils.map(pupil => {
+          const pupilResults = getPupilResults(pupil._id);
+          const averageScore = pupilResults.length > 0 
+            ? pupilResults.reduce((sum, r) => sum + r.marks, 0) / pupilResults.length
+            : 0;
+          const competence = getCompetenceLevel(averageScore);
+          
+          return (
+            <div key={pupil._id} className="bg-white rounded-xl shadow-md p-6 hover:shadow-lg transition-shadow">
+              <div className="flex justify-between items-start">
+                <div>
+                  <h3 className="text-lg font-bold text-gray-800">{pupil.name}</h3>
+                  <p className="text-sm text-gray-500">
+                    Adm: {pupil.admNo} | UPI: {pupil.upi || 'N/A'} | Grade: {pupil.grade}
+                  </p>
+                  <div className="flex items-center gap-2 mt-2">
+                    <span className="text-sm font-medium">Competency Level:</span>
+                    <span className={`px-2 py-1 text-xs rounded-full bg-${competence.color}-100 text-${competence.color}-800`}>
+                      {competence.level}
+                    </span>
+                    <span className="text-sm text-gray-500">({averageScore.toFixed(1)}%)</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedPupil(selectedPupil === pupil._id ? null : pupil._id)}
+                  className="text-blue-600 hover:text-blue-800"
+                >
+                  <FiEye />
+                </button>
+              </div>
+              
+              {selectedPupil === pupil._id && (
+                <div className="mt-4 pt-4 border-t">
+                  <h4 className="font-semibold mb-3">Learning Areas Assessment</h4>
+                  {pupilResults.length > 0 ? (
+                    <div className="space-y-3">
+                      {pupilResults.map(result => {
+                        const resultCompetence = getCompetenceLevel(result.marks);
+                        return (
+                          <div key={result.id} className="p-3 bg-gray-50 rounded-lg">
+                            <div className="flex justify-between items-center mb-2">
+                              <span className="font-medium">{result.subject}</span>
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm">{result.marks}%</span>
+                                <span className={`px-2 py-0.5 text-xs rounded-full bg-${resultCompetence.color}-100 text-${resultCompetence.color}-800`}>
+                                  {resultCompetence.level}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="w-full bg-gray-200 rounded-full h-2">
+                              <div 
+                                className={`bg-${resultCompetence.color}-500 rounded-full h-2 transition-all`}
+                                style={{ width: `${result.marks}%` }}
+                              ></div>
+                            </div>
+                            <p className="text-xs text-gray-500 mt-1">{result.examName || 'Assessment'} - {result.term}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-gray-500 text-center py-4">No learning outcomes recorded yet</p>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        
+        {filteredPupils.length === 0 && (
+          <div className="bg-white rounded-xl shadow-md p-12 text-center">
+            <p className="text-gray-500">No learners found matching your search</p>
+          </div>
+        )}
+      </div>
+    </Layout>
+  );
+};
+
+export default Results;
