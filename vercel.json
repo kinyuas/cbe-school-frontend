@@ -3,7 +3,7 @@
   "builds": [
     {
       "src": "package.json",
-      "use": "@vercel/react"
+      "use": "@vercel/static-build"
     }
   ],
   "routes": [
@@ -11,9 +11,5 @@
       "src": "/(.*)",
       "dest": "/index.html"
     }
-  ],
-  "env": {
-    "REACT_APP_API_URL": "https://cbe-school-backend.vercel.app/api",
-    "REACT_APP_ENV": "production"
-  }
+  ]
 }
