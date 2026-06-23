@@ -15,7 +15,8 @@ import {
   FiSmartphone,
   FiTablet,
   FiAlertCircle,
-  FiRefreshCw
+  FiRefreshCw,
+  FiHourglass
 } from 'react-icons/fi';
 import { useAuth } from '../../context/AuthContext';
 import { Link } from 'react-router-dom';
@@ -84,6 +85,92 @@ const useResponsiveClasses = (deviceInfo) => {
   };
 };
 
+// ===== Time Remaining Calculator =====
+const calculateTimeRemaining = (endDateTime) => {
+  const now = new Date();
+  const end = new Date(endDateTime);
+  const diff = end - now;
+  
+  if (diff <= 0) {
+    return { days: 0, hours: 0, minutes: 0, totalSeconds: 0, isExpired: true };
+  }
+  
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+  const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+  const totalSeconds = Math.floor(diff / 1000);
+  
+  return { days, hours, minutes, totalSeconds, isExpired: false };
+};
+
+// ===== Get Time Remaining Display =====
+const getTimeRemainingDisplay = (exam, examTimers) => {
+  const timer = examTimers[exam._id];
+  if (!timer) return null;
+  
+  if (timer.isExpired) {
+    return { 
+      text: 'Time Expired', 
+      color: 'text-red-600', 
+      bgColor: 'bg-red-50',
+      borderColor: 'border-red-300',
+      icon: FiAlertCircle,
+      urgency: 'expired'
+    };
+  }
+  
+  if (timer.days > 0) {
+    if (timer.days <= 2) {
+      return { 
+        text: `${timer.days}d ${timer.hours}h remaining`, 
+        color: 'text-orange-600',
+        bgColor: 'bg-orange-50',
+        borderColor: 'border-orange-300',
+        icon: FiHourglass,
+        urgency: 'urgent'
+      };
+    }
+    return { 
+      text: `${timer.days}d ${timer.hours}h remaining`, 
+      color: 'text-green-600',
+      bgColor: 'bg-green-50',
+      borderColor: 'border-green-300',
+      icon: FiClock,
+      urgency: 'normal'
+    };
+  }
+  
+  if (timer.hours > 0) {
+    if (timer.hours <= 2) {
+      return { 
+        text: `${timer.hours}h ${timer.minutes}m remaining - CRITICAL!`, 
+        color: 'text-red-600 font-bold',
+        bgColor: 'bg-red-50',
+        borderColor: 'border-red-300',
+        icon: FiAlertCircle,
+        urgency: 'critical'
+      };
+    }
+    return { 
+      text: `${timer.hours}h ${timer.minutes}m remaining`, 
+      color: 'text-orange-600',
+      bgColor: 'bg-orange-50',
+      borderColor: 'border-orange-300',
+      icon: FiHourglass,
+      urgency: 'urgent'
+    };
+  }
+  
+  return { 
+    text: `${timer.minutes}m remaining - HURRY!`, 
+    color: 'text-red-600 font-bold',
+    bgColor: 'bg-red-50',
+    borderColor: 'border-red-300',
+    icon: FiAlertCircle,
+    urgency: 'critical'
+  };
+};
+
 const TeacherDashboard = () => {
   // AI Device Detection
   const deviceInfo = useDeviceDetection();
@@ -102,6 +189,7 @@ const TeacherDashboard = () => {
   });
   
   const [exams, setExams] = useState([]);
+  const [examTimers, setExamTimers] = useState({});
   const [announcements, setAnnouncements] = useState([]);
   const [classPerformance, setClassPerformance] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -115,54 +203,95 @@ const TeacherDashboard = () => {
 
   useEffect(() => {
     loadDashboardData();
-    // Check for exam time alerts every minute
-    const interval = setInterval(checkExamTimeAlerts, 60000);
+    // Check for exam time alerts every 30 seconds for better accuracy
+    const interval = setInterval(() => {
+      checkExamTimeAlerts();
+      updateExamTimers();
+    }, 30000);
     return () => clearInterval(interval);
   }, []);
 
-  // Check exam time alerts
+  // Update timers when exams change
+  useEffect(() => {
+    if (exams.length > 0) {
+      updateExamTimers();
+    }
+  }, [exams]);
+
+  // Update exam timers
+  const updateExamTimers = () => {
+    if (exams.length === 0) return;
+    
+    const newTimers = {};
+    exams.forEach(exam => {
+      if (exam.endDateTime) {
+        newTimers[exam._id] = calculateTimeRemaining(exam.endDateTime);
+      } else if (exam.endDate) {
+        // Fallback for older exam format
+        const endDateTime = new Date(exam.endDate);
+        if (!isNaN(endDateTime.getTime())) {
+          newTimers[exam._id] = calculateTimeRemaining(endDateTime);
+        }
+      }
+    });
+    setExamTimers(newTimers);
+  };
+
+  // Check exam time alerts with enhanced logic
   const checkExamTimeAlerts = () => {
     const now = new Date();
     const alerts = [];
     
     exams.forEach(exam => {
-      if (exam.startDate && exam.endDate) {
-        const start = new Date(exam.startDate);
-        const end = new Date(exam.endDate);
+      if (exam.startDateTime && exam.endDateTime) {
+        const start = new Date(exam.startDateTime);
+        const end = new Date(exam.endDateTime);
         
-        // Check if exam is upcoming within 24 hours
+        // Check if exam is upcoming
         const timeToStart = start - now;
         const hoursToStart = timeToStart / (1000 * 60 * 60);
         
         if (hoursToStart > 0 && hoursToStart <= 24) {
+          const daysToStart = Math.floor(hoursToStart / 24);
+          const remainingHours = Math.floor(hoursToStart % 24);
+          
           alerts.push({
             exam: exam,
             type: 'upcoming',
-            hours: Math.floor(hoursToStart),
-            minutes: Math.floor((timeToStart % (1000 * 60 * 60)) / (1000 * 60))
+            days: daysToStart,
+            hours: remainingHours,
+            minutes: Math.floor((timeToStart % (1000 * 60 * 60)) / (1000 * 60)),
+            urgency: daysToStart === 0 && remainingHours <= 2 ? 'high' : 'medium'
           });
         }
         
         // Check if exam is currently active
         if (start <= now && end >= now) {
           const timeToEnd = end - now;
-          const hoursRemaining = timeToEnd / (1000 * 60 * 60);
+          const daysRemaining = timeToEnd / (1000 * 60 * 60 * 24);
+          const hoursRemaining = (timeToEnd % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60);
           
-          // Alert if less than 2 hours remaining
-          if (hoursRemaining <= 2) {
-            alerts.push({
-              exam: exam,
-              type: 'active',
-              hours: Math.floor(hoursRemaining),
-              minutes: Math.floor((timeToEnd % (1000 * 60 * 60)) / (1000 * 60))
-            });
-          }
+          // Always show alert for active exams
+          alerts.push({
+            exam: exam,
+            type: 'active',
+            days: Math.floor(daysRemaining),
+            hours: Math.floor(hoursRemaining),
+            minutes: Math.floor((timeToEnd % (1000 * 60 * 60)) / (1000 * 60)),
+            urgency: daysRemaining < 1 && hoursRemaining < 2 ? 'critical' : 'high'
+          });
         }
       }
     });
     
-    setExamTimeAlerts(alerts);
-    setShowTimeAlert(alerts.length > 0);
+    // Sort alerts by urgency
+    const sortedAlerts = alerts.sort((a, b) => {
+      const urgencyOrder = { critical: 0, high: 1, medium: 2 };
+      return (urgencyOrder[a.urgency] || 3) - (urgencyOrder[b.urgency] || 3);
+    });
+    
+    setExamTimeAlerts(sortedAlerts);
+    setShowTimeAlert(sortedAlerts.length > 0);
   };
 
   const loadDashboardData = async () => {
@@ -189,6 +318,7 @@ const TeacherDashboard = () => {
       const examsData = examsRes.data?.data || [];
       
       setPupils(learners);
+      setExams(examsData);
       
       // Find all unique classes
       const uniqueClasses = [...new Set(learners.map(l => l.class || l.grade).filter(Boolean))];
@@ -228,11 +358,11 @@ const TeacherDashboard = () => {
         events: events.length
       });
       
-      setExams(examsData.slice(0, 3));
       setAnnouncements(events.slice(0, 3));
       setClassPerformance(performanceData);
       
-      // Check exam alerts
+      // Update timers and check alerts
+      updateExamTimers();
       checkExamTimeAlerts();
       
     } catch (error) {
@@ -289,53 +419,115 @@ const TeacherDashboard = () => {
   else if (currentHour < 17) greeting = "Good Afternoon";
   else greeting = "Good Evening";
 
+  // Count active exams with critical time
+  const criticalExams = exams.filter(exam => {
+    const timer = examTimers[exam._id];
+    if (!timer || timer.isExpired) return false;
+    const isActive = exam.startDateTime && new Date(exam.startDateTime) <= new Date() && new Date(exam.endDateTime) >= new Date();
+    if (!isActive) return false;
+    return timer.days === 0 && timer.hours < 2;
+  });
+
   return (
     <Layout 
       title={`${greeting}, ${user?.name || 'Teacher'}`} 
       subtitle={`CBC Teacher - ${schoolInfo.name || user?.school || 'Competency Based Education'}`}
     >
-      {/* Exam Time Alerts */}
-      {showTimeAlert && examTimeAlerts.length > 0 && (
-        <div className="space-y-2 mb-4">
-          {examTimeAlerts.map((alert, index) => (
-            <div 
-              key={index} 
-              className={`rounded-lg p-3 flex items-start gap-3 border ${
-                alert.type === 'active' 
-                  ? 'bg-red-50 border-red-200' 
-                  : 'bg-yellow-50 border-yellow-200'
-              }`}
-            >
-              <FiAlertCircle className={`w-5 h-5 flex-shrink-0 mt-0.5 ${
-                alert.type === 'active' ? 'text-red-600' : 'text-yellow-600'
-              }`} />
-              <div className="flex-1">
-                <p className={`text-sm font-semibold ${
-                  alert.type === 'active' ? 'text-red-800' : 'text-yellow-800'
-                }`}>
-                  {alert.type === 'active' ? '⚠️ EXAM IN PROGRESS' : '📝 UPCOMING EXAM'}
-                </p>
-                <p className={`text-sm ${
-                  alert.type === 'active' ? 'text-red-700' : 'text-yellow-700'
-                }`}>
-                  <strong>{alert.exam.title}</strong>
-                  {alert.type === 'active' 
-                    ? ` - ${alert.hours}h ${alert.minutes}m remaining!` 
-                    : ` - Starts in ${alert.hours}h ${alert.minutes}m`}
-                </p>
-                {alert.type === 'active' && alert.hours < 1 && (
-                  <p className="text-xs text-red-600 font-semibold mt-1">
-                    ⚠️ Less than 1 hour remaining! Submit results quickly.
-                  </p>
-                )}
-              </div>
+      {/* Critical Exam Alert Banner */}
+      {criticalExams.length > 0 && (
+        <div className="mb-4 bg-red-50 border-l-4 border-red-600 p-4 rounded-lg">
+          <div className="flex items-start gap-3">
+            <FiAlertCircle className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5 animate-pulse" />
+            <div>
+              <p className="text-sm font-bold text-red-800">
+                ⚠️ {criticalExams.length} Exam{criticalExams.length > 1 ? 's' : ''} Ending Soon!
+              </p>
+              <p className="text-sm text-red-700">
+                {criticalExams.map((exam, idx) => {
+                  const timer = examTimers[exam._id];
+                  return `${idx + 1}. ${exam.title} - ${timer.hours}h ${timer.minutes}m remaining`;
+                }).join(' | ')}
+              </p>
+              <p className="text-xs text-red-600 mt-1">
+                Please ensure all results are submitted before the exam ends.
+              </p>
             </div>
-          ))}
+          </div>
         </div>
       )}
 
-      {/* Refresh Button */}
-      <div className="flex justify-end mb-4">
+      {/* Exam Time Alerts - Enhanced */}
+      {showTimeAlert && examTimeAlerts.length > 0 && (
+        <div className="space-y-2 mb-4">
+          {examTimeAlerts.slice(0, 5).map((alert, index) => {
+            const isCritical = alert.urgency === 'critical';
+            const isHigh = alert.urgency === 'high';
+            
+            return (
+              <div 
+                key={index} 
+                className={`rounded-lg p-3 flex items-start gap-3 border ${
+                  isCritical 
+                    ? 'bg-red-50 border-red-300 animate-pulse' 
+                    : isHigh 
+                      ? 'bg-orange-50 border-orange-300' 
+                      : 'bg-yellow-50 border-yellow-200'
+                }`}
+              >
+                <FiAlertCircle className={`w-5 h-5 flex-shrink-0 mt-0.5 ${
+                  isCritical ? 'text-red-600' : isHigh ? 'text-orange-600' : 'text-yellow-600'
+                }`} />
+                <div className="flex-1">
+                  <p className={`text-sm font-semibold ${
+                    isCritical ? 'text-red-800' : isHigh ? 'text-orange-800' : 'text-yellow-800'
+                  }`}>
+                    {alert.type === 'active' ? '⏰ EXAM IN PROGRESS' : '📝 UPCOMING EXAM'}
+                    {isCritical && ' - CRITICAL!'}
+                  </p>
+                  <p className={`text-sm ${
+                    isCritical ? 'text-red-700' : isHigh ? 'text-orange-700' : 'text-yellow-700'
+                  }`}>
+                    <strong>{alert.exam.title}</strong>
+                    {alert.type === 'active' 
+                      ? ` - ${alert.days > 0 ? `${alert.days}d ` : ''}${alert.hours}h ${alert.minutes}m remaining!` 
+                      : ` - Starts in ${alert.days > 0 ? `${alert.days}d ` : ''}${alert.hours}h ${alert.minutes}m`}
+                  </p>
+                  {alert.type === 'active' && alert.days === 0 && alert.hours < 1 && (
+                    <p className="text-xs text-red-600 font-bold mt-1 animate-pulse">
+                      ⚠️ Less than 1 hour remaining! Submit results immediately!
+                    </p>
+                  )}
+                  {alert.type === 'active' && alert.days === 0 && alert.hours < 2 && alert.hours >= 1 && (
+                    <p className="text-xs text-orange-600 font-semibold mt-1">
+                      ⏰ Less than 2 hours remaining! Submit results quickly.
+                    </p>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Device Detection Badge - Optional */}
+      <div className="flex justify-between items-center mb-4">
+        <div className={`flex items-center gap-2 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-gray-500 bg-gray-100 px-3 py-1 rounded-full`}>
+          {deviceInfo.isMobile ? (
+            <>
+              <FiSmartphone className="w-4 h-4" /> Mobile View
+            </>
+          ) : deviceInfo.isTablet ? (
+            <>
+              <FiTablet className="w-4 h-4" /> Tablet View
+            </>
+          ) : (
+            <>
+              <FiMonitor className="w-4 h-4" /> Desktop View
+            </>
+          )}
+        </div>
+        
+        {/* Refresh Button */}
         <button
           onClick={handleRefresh}
           disabled={refreshing}
@@ -344,7 +536,7 @@ const TeacherDashboard = () => {
           }`}
         >
           <FiRefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-          {refreshing ? 'Refreshing...' : 'Refresh Dashboard'}
+          {refreshing ? 'Refreshing...' : 'Refresh'}
         </button>
       </div>
 
@@ -456,51 +648,109 @@ const TeacherDashboard = () => {
           </Link>
         </div>
 
-        {/* Upcoming Tests Section - AI Responsive */}
+        {/* Upcoming Tests Section - Enhanced with Time Remaining in Days and Hours */}
         <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding}`}>
           <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-4 flex items-center gap-2`}>
             <FiCalendar className="text-orange-600" /> Upcoming Assessments
           </h2>
           {exams.length > 0 ? (
             <div className="space-y-3">
-              {exams.map((exam, index) => {
+              {exams.slice(0, 5).map((exam, index) => {
                 const now = new Date();
-                const startDate = exam.startDate ? new Date(exam.startDate) : null;
-                const endDate = exam.endDate ? new Date(exam.endDate) : null;
+                const startDate = exam.startDateTime ? new Date(exam.startDateTime) : null;
+                const endDate = exam.endDateTime ? new Date(exam.endDateTime) : null;
                 const isActive = startDate && endDate && startDate <= now && endDate >= now;
                 const isUpcoming = startDate && startDate > now;
+                const isExpired = endDate && endDate < now;
+                
+                const timeDisplay = endDate ? getTimeRemainingDisplay(exam, examTimers) : null;
+                const timer = examTimers[exam._id];
+                
+                // Determine urgency level for visual feedback
+                let urgencyLevel = 'normal';
+                if (isActive && timer && !timer.isExpired) {
+                  if (timer.days === 0 && timer.hours < 2) urgencyLevel = 'critical';
+                  else if (timer.days === 0 && timer.hours < 6) urgencyLevel = 'urgent';
+                }
                 
                 return (
-                  <div key={index} className={`border-l-4 ${isActive ? 'border-red-500' : isUpcoming ? 'border-orange-500' : 'border-gray-300'} pl-3 py-2`}>
+                  <div 
+                    key={index} 
+                    className={`border-l-4 ${
+                      isActive ? 'border-green-500' : 
+                      isUpcoming ? 'border-blue-500' : 
+                      isExpired ? 'border-gray-300' : 'border-gray-300'
+                    } pl-3 py-2 ${urgencyLevel === 'critical' ? 'bg-red-50 rounded-r-lg' : ''} ${urgencyLevel === 'urgent' ? 'bg-orange-50 rounded-r-lg' : ''}`}
+                  >
                     <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-1' : 'justify-between items-start'}`}>
                       <h3 className={`${deviceInfo.isMobile ? 'text-sm' : 'text-base'} font-semibold text-gray-800`}>
                         {exam.title}
                         {isActive && (
-                          <span className="ml-2 text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">ACTIVE</span>
+                          <span className={`ml-2 text-xs ${urgencyLevel === 'critical' ? 'bg-red-500 text-white animate-pulse' : urgencyLevel === 'urgent' ? 'bg-orange-500 text-white' : 'bg-green-500 text-white'} px-2 py-0.5 rounded-full`}>
+                            {urgencyLevel === 'critical' ? '⚠️ CRITICAL' : urgencyLevel === 'urgent' ? '⚠️ URGENT' : 'LIVE'}
+                          </span>
                         )}
                         {isUpcoming && (
-                          <span className="ml-2 text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">UPCOMING</span>
+                          <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">UPCOMING</span>
+                        )}
+                        {isExpired && (
+                          <span className="ml-2 text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">EXPIRED</span>
                         )}
                       </h3>
                     </div>
                     <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-600`}>
                       {exam.type || 'Competency Assessment'} • {exam.term || 'Current Term'}
                     </p>
-                    <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-1' : 'items-center gap-3'} mt-1`}>
-                      <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500`}>
-                        📅 {startDate ? startDate.toLocaleDateString() : 'Date TBA'}
+                    <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-1' : 'flex-wrap items-center gap-3'} mt-1`}>
+                      <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500 flex items-center gap-1`}>
+                        <FiCalendar className="w-3 h-3" />
+                        {startDate ? startDate.toLocaleDateString() : 'Date TBA'}
+                        {startDate && (
+                          <span className="text-gray-400 ml-1">
+                            {startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        )}
                       </p>
                       {endDate && (
-                        <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500`}>
+                        <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500 flex items-center gap-1`}>
+                          <FiClock className="w-3 h-3" />
                           Ends: {endDate.toLocaleDateString()}
-                        </p>
-                      )}
-                      {isActive && endDate && (
-                        <p className="text-xs text-red-600 font-semibold">
-                          ⏰ {Math.max(0, Math.floor((endDate - now) / (1000 * 60 * 60)))}h remaining
+                          <span className="text-gray-400 ml-1">
+                            {endDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
                         </p>
                       )}
                     </div>
+                    
+                    {/* Enhanced Time Remaining Display */}
+                    {timeDisplay && !isExpired && exam.isActive !== false && (
+                      <div className={`mt-2 flex items-center gap-2 ${timeDisplay.color} ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} ${timeDisplay.bgColor} p-2 rounded-lg border ${timeDisplay.borderColor}`}>
+                        <timeDisplay.icon className={`${deviceInfo.isMobile ? 'w-3 h-3' : 'w-4 h-4'} flex-shrink-0`} />
+                        <span className="font-semibold">{timeDisplay.text}</span>
+                        {isActive && (
+                          <span className={`ml-auto text-xs font-bold ${timeDisplay.color} ${timeDisplay.urgency === 'critical' ? 'animate-pulse' : ''}`}>
+                            {urgencyLevel === 'critical' ? '⏰ HURRY!' : urgencyLevel === 'urgent' ? '⏳ Time running out!' : '✓ In progress'}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    
+                    {/* Progress Bar for Active Exams */}
+                    {isActive && endDate && timer && !timer.isExpired && (
+                      <div className="mt-2">
+                        <div className="w-full bg-gray-200 rounded-full h-1.5">
+                          <div 
+                            className={`h-1.5 rounded-full transition-all duration-1000 ${
+                              urgencyLevel === 'critical' ? 'bg-red-500' : 
+                              urgencyLevel === 'urgent' ? 'bg-orange-500' : 'bg-green-500'
+                            }`}
+                            style={{ 
+                              width: `${Math.max(0, Math.min(100, 100 - ((timer.totalSeconds / ((new Date(exam.endDateTime) - new Date(exam.startDateTime)) / 1000)) * 100)))}%` 
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -508,8 +758,8 @@ const TeacherDashboard = () => {
           ) : (
             <p className="text-gray-500 text-center py-4">No upcoming assessments scheduled</p>
           )}
-          <Link to="/teacher/results" className={`block text-center ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-orange-600 hover:text-orange-800 mt-4`}>
-            Record New Test Results →
+          <Link to="/teacher/exams" className={`block text-center ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-orange-600 hover:text-orange-800 mt-4`}>
+            View All Assessments →
           </Link>
         </div>
       </div>
@@ -544,9 +794,6 @@ const TeacherDashboard = () => {
             View All Announcements →
           </Link>
         </div>
-
-        {/* Recent Competency Records Section - REMOVED */}
-        {/* The entire Recent Competency Records section has been removed */}
       </div>
 
       {/* Quick Actions - AI Responsive */}
@@ -569,10 +816,10 @@ const TeacherDashboard = () => {
             Performance Reports
           </p>
         </Link>
-        <Link to="/teacher/announcements" className="bg-orange-100 hover:bg-orange-200 p-3 rounded-lg text-center transition-colors">
+        <Link to="/teacher/exams" className="bg-orange-100 hover:bg-orange-200 p-3 rounded-lg text-center transition-colors">
           <FiCalendar className={`${deviceInfo.isMobile ? 'w-4 h-4' : 'w-5 h-5'} text-orange-600 mx-auto mb-1`} />
           <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} font-medium text-orange-700`}>
-            School Events
+            View Exams
           </p>
         </Link>
       </div>
@@ -606,6 +853,13 @@ const TeacherDashboard = () => {
         }
         .stat-card:hover {
           transform: translateY(-2px);
+        }
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
+        }
+        .animate-pulse {
+          animation: pulse 1.5s ease-in-out infinite;
         }
       `}</style>
     </Layout>
