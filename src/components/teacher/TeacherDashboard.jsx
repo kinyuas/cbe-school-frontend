@@ -106,7 +106,6 @@ const TeacherDashboard = () => {
   const [classPerformance, setClassPerformance] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [recentActivities, setRecentActivities] = useState([]);
   const [pupils, setPupils] = useState([]);
   const [schoolInfo, setSchoolInfo] = useState({ name: '', classes: [] });
   
@@ -232,13 +231,6 @@ const TeacherDashboard = () => {
       setExams(examsData.slice(0, 3));
       setAnnouncements(events.slice(0, 3));
       setClassPerformance(performanceData);
-      
-      // Get recent activities (last 5)
-      const recent = [...results].sort((a, b) => 
-        new Date(b.createdAt || 0) - new Date(a.createdAt || 0)
-      ).slice(0, 5);
-      
-      setRecentActivities(recent);
       
       // Check exam alerts
       checkExamTimeAlerts();
@@ -522,7 +514,7 @@ const TeacherDashboard = () => {
         </div>
       </div>
 
-      <div className={`grid ${deviceInfo.isMobile ? 'grid-cols-1' : 'lg:grid-cols-2'} gap-6 mb-6`}>
+      <div className={`grid ${deviceInfo.isMobile ? 'grid-cols-1' : 'lg:grid-cols-1'} gap-6 mb-6`}>
         
         {/* School Announcements Section - AI Responsive */}
         <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding}`}>
@@ -553,44 +545,8 @@ const TeacherDashboard = () => {
           </Link>
         </div>
 
-        {/* Recent Activities - AI Responsive */}
-        <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding}`}>
-          <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-4 flex items-center gap-2`}>
-            <FiClock className="text-purple-600" /> Recent Competency Records
-          </h2>
-          {recentActivities.length > 0 ? (
-            <div className="space-y-2">
-              {recentActivities.map((activity, index) => {
-                const student = pupils.find(l => l._id === activity.pupilId);
-                return (
-                  <div key={index} className={`flex ${deviceInfo.isMobile ? 'flex-col gap-1' : 'items-center justify-between'} p-2 bg-gray-50 rounded-lg`}>
-                    <div>
-                      <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} font-medium text-gray-800`}>
-                        {student?.name || 'Unknown Student'}
-                      </p>
-                      <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500`}>
-                        {activity.subject || activity.learningArea}
-                      </p>
-                    </div>
-                    <div className={`text-right ${deviceInfo.isMobile ? 'mt-1' : ''}`}>
-                      <span className={`px-2 py-0.5 text-[10px] rounded-full ${getBadgeColor(activity.marks)}`}>
-                        {getPerformanceText(activity.marks)}
-                      </span>
-                      <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-400 mt-0.5`}>
-                        Score: {activity.marks}%
-                      </p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="text-gray-500 text-center py-4">No competency records yet</p>
-          )}
-          <Link to="/teacher/results" className={`block text-center ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-purple-600 hover:text-purple-800 mt-4`}>
-            Record New Competencies →
-          </Link>
-        </div>
+        {/* Recent Competency Records Section - REMOVED */}
+        {/* The entire Recent Competency Records section has been removed */}
       </div>
 
       {/* Quick Actions - AI Responsive */}
