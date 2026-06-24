@@ -22,7 +22,11 @@ import {
   FiMonitor,
   FiSmartphone,
   FiTablet,
-  FiRefreshCw
+  FiRefreshCw,
+  FiUser,
+  FiMail,
+  FiPhone,
+  FiBriefcase
 } from 'react-icons/fi';
 import { Link } from 'react-router-dom';
 
@@ -98,11 +102,14 @@ const AdminDashboard = () => {
     learners: 0,
     teachers: 0,
     events: 0,
-    outcomes: 0,
     exams: 0,
     alumni: 0,
     transferred: 0
   });
+  
+  // Store lists of students and teachers
+  const [recentStudents, setRecentStudents] = useState([]);
+  const [recentTeachers, setRecentTeachers] = useState([]);
   
   // Store upcoming exams and events
   const [upcomingExams, setUpcomingExams] = useState([]);
@@ -138,7 +145,6 @@ const AdminDashboard = () => {
         pupilsResponse,
         teachersResponse,
         eventsResponse,
-        resultsResponse,
         examsResponse,
         alumniResponse,
         transferredResponse
@@ -146,7 +152,6 @@ const AdminDashboard = () => {
         api.get('/pupils').catch(() => ({ data: { data: [] } })),
         api.get('/teachers').catch(() => ({ data: { data: [] } })),
         api.get('/events').catch(() => ({ data: { data: [] } })),
-        api.get('/results').catch(() => ({ data: { data: [] } })),
         api.get('/exams').catch(() => ({ data: { data: [] } })),
         api.get('/alumni').catch(() => ({ data: { data: [] } })),
         api.get('/transferred').catch(() => ({ data: { data: [] } }))
@@ -155,10 +160,17 @@ const AdminDashboard = () => {
       const pupils = pupilsResponse.data?.data || [];
       const teachers = teachersResponse.data?.data || [];
       const events = eventsResponse.data?.data || [];
-      const results = resultsResponse.data?.data || [];
       const exams = examsResponse.data?.data || [];
       const alumni = alumniResponse.data?.data || [];
       const transferred = transferredResponse.data?.data || [];
+      
+      // Get recent students (last 5)
+      const recentPupils = pupils.slice(0, 5);
+      setRecentStudents(recentPupils);
+      
+      // Get recent teachers (last 5)
+      const recentTeachersList = teachers.slice(0, 5);
+      setRecentTeachers(recentTeachersList);
       
       // Filter upcoming exams (not expired) - limit to 5
       const now = new Date();
@@ -168,7 +180,7 @@ const AdminDashboard = () => {
         return examEnd >= now;
       }).slice(0, 5);
       
-      // Show ALL events (sorted by date) - limit to 5
+      // Show all events sorted by date
       const allEvents = [...events].sort((a, b) => {
         const dateA = a.date ? new Date(a.date) : new Date(0);
         const dateB = b.date ? new Date(b.date) : new Date(0);
@@ -178,12 +190,11 @@ const AdminDashboard = () => {
       setUpcomingExams(activeExams);
       setUpcomingEvents(allEvents);
       
-      // Update all numbers on the dashboard
+      // Update all numbers on the dashboard (removed outcomes/results)
       setStats({
         learners: pupils.length,
         teachers: teachers.length,
         events: events.length,
-        outcomes: results.length,
         exams: exams.length,
         alumni: alumni.length,
         transferred: transferred.length
@@ -268,7 +279,7 @@ const AdminDashboard = () => {
     );
   }
 
-  // Get stats cards array for responsive rendering - REMOVED Results
+  // Get stats cards array for responsive rendering (removed Results)
   const statCards = [
     { title: 'Students', value: stats.learners, icon: FiUsers, color: 'text-blue-500', link: '/admin/pupils' },
     { title: 'Teachers', value: stats.teachers, icon: FiUserCheck, color: 'text-green-500', link: '/admin/teachers' },
@@ -283,7 +294,7 @@ const AdminDashboard = () => {
       title={`${schoolName} - Control Panel`} 
       subtitle={`CBC - Competency Based Education | ${schoolMotto}`}
     >
-      {/* Refresh Button */}
+      {/* Header with Refresh Button */}
       <div className="flex items-center justify-end mb-4">
         <button
           onClick={handleRefresh}
@@ -297,47 +308,9 @@ const AdminDashboard = () => {
         </button>
       </div>
 
-      {/* Welcome Message - AI Responsive */}
-      <div className={`bg-gradient-to-r from-green-600 to-blue-600 text-white rounded-xl ${deviceInfo.isMobile ? 'p-3' : 'p-4'} mb-6`}>
-        <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'items-center justify-between'}`}>
-          <div>
-            <h2 className={`${deviceInfo.isMobile ? 'text-base' : 'text-xl'} font-bold`}>
-              Competency Based Curriculum (CBC) Dashboard
-            </h2>
-            <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-sm'} opacity-90`}>
-              Track student progress, manage teachers, and view competencies all in one place
-            </p>
-          </div>
-          <div className={`flex items-center gap-2 ${deviceInfo.isMobile ? 'mt-1' : ''}`}>
-            <FiTarget className={`${deviceInfo.isMobile ? 'w-6 h-6' : 'w-10 h-10'} opacity-80`} />
-            <span className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} font-semibold bg-white/20 px-3 py-1 rounded-full`}>
-              {schoolName}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* ===== QUICK ACTIONS - MOVED TO TOP ===== */}
+      {/* Quick Actions - Moved to Top */}
       <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding} mb-6`}>
-        <div className={`flex ${deviceInfo.isMobile ? 'flex-col' : 'items-center justify-between'} mb-4`}>
-          <h2 className={`${responsive.headingSize} font-bold text-gray-800 flex items-center gap-2`}>
-            <FiTarget className="text-blue-600" /> Quick Actions
-          </h2>
-          {/* Summary: Total Students & Teachers */}
-          <div className={`flex ${deviceInfo.isMobile ? 'gap-3 mt-2' : 'gap-4'}`}>
-            <div className="flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded-lg">
-              <FiUsers className="text-blue-600 w-4 h-4" />
-              <span className="text-sm font-semibold text-gray-700">{stats.learners}</span>
-              <span className="text-xs text-gray-500">Students</span>
-            </div>
-            <div className="flex items-center gap-2 bg-green-50 px-3 py-1.5 rounded-lg">
-              <FiUserCheck className="text-green-600 w-4 h-4" />
-              <span className="text-sm font-semibold text-gray-700">{stats.teachers}</span>
-              <span className="text-xs text-gray-500">Teachers</span>
-            </div>
-          </div>
-        </div>
-        
+        <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-4`}>Quick Actions</h2>
         <div className={`grid ${deviceInfo.isMobile ? 'grid-cols-2 gap-2' : 'grid-cols-3 md:grid-cols-6 gap-3'}`}>
           <button 
             onClick={() => setShowAddStudentModal(true)}
@@ -366,6 +339,26 @@ const AdminDashboard = () => {
         </div>
       </div>
 
+      {/* Welcome Message - AI Responsive */}
+      <div className={`bg-gradient-to-r from-green-600 to-blue-600 text-white rounded-xl ${deviceInfo.isMobile ? 'p-3' : 'p-4'} mb-6`}>
+        <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'items-center justify-between'}`}>
+          <div>
+            <h2 className={`${deviceInfo.isMobile ? 'text-base' : 'text-xl'} font-bold`}>
+              Competency Based Curriculum (CBC) Dashboard
+            </h2>
+            <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-sm'} opacity-90`}>
+              Track student progress, manage teachers, and view competencies all in one place
+            </p>
+          </div>
+          <div className={`flex items-center gap-2 ${deviceInfo.isMobile ? 'mt-1' : ''}`}>
+            <FiTarget className={`${deviceInfo.isMobile ? 'w-6 h-6' : 'w-10 h-10'} opacity-80`} />
+            <span className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} font-semibold bg-white/20 px-3 py-1 rounded-full`}>
+              {schoolName}
+            </span>
+          </div>
+        </div>
+      </div>
+      
       {/* Quick Stats Cards - AI Responsive */}
       <div className={`grid ${responsive.statsGrid} ${responsive.gridGap} mb-6`}>
         {statCards.map((stat, index) => (
@@ -387,7 +380,108 @@ const AdminDashboard = () => {
 
       <div className={`grid ${deviceInfo.isMobile ? 'grid-cols-1' : 'lg:grid-cols-2'} gap-6`}>
         
-        {/* Upcoming Exams Section - AI Responsive */}
+        {/* Recent Students Section - Replaces Competency Levels */}
+        <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding}`}>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className={`${responsive.headingSize} font-bold text-gray-800 flex items-center gap-2`}>
+              <FiUsers className="text-blue-600" /> Recent Students
+            </h2>
+            <Link to="/admin/pupils" className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-blue-600 hover:text-blue-800`}>
+              View All →
+            </Link>
+          </div>
+          {recentStudents.length > 0 ? (
+            <div className="space-y-3">
+              {recentStudents.map((student, index) => (
+                <div key={student._id || index} className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 transition-colors border-b border-gray-100 last:border-0">
+                  <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                    <FiUser className="text-blue-600 text-sm" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} font-medium text-gray-800 truncate`}>
+                      {student.name || student.fullName || 'Unknown Student'}
+                    </p>
+                    <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-0.5' : 'items-center gap-2'} text-[10px] text-gray-500`}>
+                      <span>Class: {student.class || student.grade || 'N/A'}</span>
+                      {student.admNo && <span>• Adm: {student.admNo}</span>}
+                    </div>
+                  </div>
+                  <Link 
+                    to={`/admin/pupils/${student._id}`}
+                    className="text-xs text-blue-600 hover:text-blue-800 flex-shrink-0"
+                  >
+                    View
+                  </Link>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-6">
+              <FiUsers className={`${deviceInfo.isMobile ? 'w-8 h-8' : 'w-10 h-10'} text-gray-300 mx-auto mb-2`} />
+              <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-gray-500`}>No students registered yet</p>
+              <button 
+                onClick={() => setShowAddStudentModal(true)}
+                className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-blue-600 hover:text-blue-800 mt-2 inline-block`}
+              >
+                Add First Student →
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Recent Teachers Section - Replaces Upcoming Exams */}
+        <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding}`}>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className={`${responsive.headingSize} font-bold text-gray-800 flex items-center gap-2`}>
+              <FiUserCheck className="text-green-600" /> Recent Teachers
+            </h2>
+            <Link to="/admin/teachers" className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-green-600 hover:text-green-800`}>
+              View All →
+            </Link>
+          </div>
+          {recentTeachers.length > 0 ? (
+            <div className="space-y-3">
+              {recentTeachers.map((teacher, index) => (
+                <div key={teacher._id || index} className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 transition-colors border-b border-gray-100 last:border-0">
+                  <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
+                    <FiUserCheck className="text-green-600 text-sm" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} font-medium text-gray-800 truncate`}>
+                      {teacher.name || teacher.fullName || 'Unknown Teacher'}
+                    </p>
+                    <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-0.5' : 'items-center gap-2'} text-[10px] text-gray-500`}>
+                      <span>TSC: {teacher.tscNumber || 'N/A'}</span>
+                      {teacher.phone && <span>• {teacher.phone}</span>}
+                    </div>
+                  </div>
+                  <Link 
+                    to={`/admin/teachers/${teacher._id}`}
+                    className="text-xs text-green-600 hover:text-green-800 flex-shrink-0"
+                  >
+                    View
+                  </Link>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-6">
+              <FiUserCheck className={`${deviceInfo.isMobile ? 'w-8 h-8' : 'w-10 h-10'} text-gray-300 mx-auto mb-2`} />
+              <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-gray-500`}>No teachers registered yet</p>
+              <button 
+                onClick={() => setShowAddTeacherModal(true)}
+                className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-green-600 hover:text-green-800 mt-2 inline-block`}
+              >
+                Add First Teacher →
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className={`grid ${deviceInfo.isMobile ? 'grid-cols-1' : 'lg:grid-cols-2'} gap-6 mt-6`}>
+        
+        {/* Upcoming Exams Section */}
         <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding}`}>
           <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-4 flex items-center gap-2`}>
             <FiFileText className="text-indigo-600" /> Upcoming Assessments
@@ -424,9 +518,12 @@ const AdminDashboard = () => {
               </Link>
             </div>
           )}
+          <Link to="/admin/exams" className={`block text-center ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-indigo-600 hover:text-indigo-800 mt-4`}>
+            View All Assessments →
+          </Link>
         </div>
 
-        {/* Upcoming Events Section - AI Responsive */}
+        {/* Upcoming Events Section */}
         <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding}`}>
           <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-4 flex items-center gap-2`}>
             <FiCalendar className="text-pink-600" /> Recent & Upcoming Events
