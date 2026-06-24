@@ -21,79 +21,30 @@ import {
   FiX
 } from 'react-icons/fi';
 
-// ===== AI Device Detection Hook =====
-const useDeviceDetection = () => {
-  const [deviceInfo, setDeviceInfo] = useState({
-    type: 'desktop',
-    isMobile: false,
-    isTablet: false,
-    isDesktop: true,
-    viewportWidth: 0,
-    viewportHeight: 0,
-    isTouchDevice: false
-  });
-
-  useEffect(() => {
-    const detectDevice = () => {
-      const width = window.innerWidth;
-      const height = window.innerHeight;
-      
-      const isMobile = width < 768;
-      const isTablet = width >= 768 && width < 1024;
-      const isDesktop = !isMobile && !isTablet;
-      const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-      
-      let type = 'desktop';
-      if (isMobile) type = 'mobile';
-      else if (isTablet) type = 'tablet';
-      
-      setDeviceInfo({
-        type,
-        isMobile,
-        isTablet,
-        isDesktop,
-        viewportWidth: width,
-        viewportHeight: height,
-        isTouchDevice
-      });
-    };
-
-    detectDevice();
-    window.addEventListener('resize', detectDevice);
-    
-    return () => window.removeEventListener('resize', detectDevice);
-  }, []);
-
-  return deviceInfo;
-};
-
-const Sidebar = () => {
+const Sidebar = ({ isMobile, isOpen, onClose }) => {
   const { user, logout } = useAuth();
-  const deviceInfo = useDeviceDetection();
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   // Close sidebar on route change on mobile
   useEffect(() => {
-    if (deviceInfo.isMobile) {
-      setIsSidebarOpen(false);
+    if (isMobile && isOpen) {
+      // We'll close it when route changes via the NavLink onClick
     }
-  }, [window.location.pathname, deviceInfo.isMobile]);
+  }, [isMobile, isOpen]);
 
   // Close sidebar when clicking outside on mobile
   useEffect(() => {
     const handleClickOutside = (e) => {
-      if (deviceInfo.isMobile && isSidebarOpen) {
+      if (isMobile && isOpen) {
         const sidebar = document.getElementById('sidebar');
-        const toggleBtn = document.getElementById('sidebar-toggle');
-        if (sidebar && !sidebar.contains(e.target) && toggleBtn && !toggleBtn.contains(e.target)) {
-          setIsSidebarOpen(false);
+        if (sidebar && !sidebar.contains(e.target)) {
+          onClose();
         }
       }
     };
     
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [deviceInfo.isMobile, isSidebarOpen]);
+  }, [isMobile, isOpen, onClose]);
 
   const adminMenu = [
     { path: '/admin/dashboard', icon: FiHome, label: 'Dashboard' },
@@ -118,26 +69,16 @@ const Sidebar = () => {
   ];
 
   const menuItems = user?.role === 'admin' ? adminMenu : teacherMenu;
-  const isMobile = deviceInfo.isMobile;
 
-  // Mobile: Show hamburger menu - NO SIDEBAR, ONLY TOGGLE BUTTON
+  // Mobile sidebar with overlay
   if (isMobile) {
     return (
       <>
-        {/* Hamburger Menu Button - Positioned top-left */}
-        <button
-          id="sidebar-toggle"
-          onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-          className="fixed top-4 left-4 z-50 p-2 bg-gradient-to-r from-blue-600 to-green-600 rounded-lg text-white shadow-lg hover:shadow-xl transition-all"
-        >
-          {isSidebarOpen ? <FiX className="w-5 h-5" /> : <FiMenu className="w-5 h-5" />}
-        </button>
-
         {/* Overlay */}
-        {isSidebarOpen && (
+        {isOpen && (
           <div 
             className="fixed inset-0 bg-black/50 z-40"
-            onClick={() => setIsSidebarOpen(false)}
+            onClick={onClose}
           />
         )}
 
@@ -145,7 +86,7 @@ const Sidebar = () => {
         <aside 
           id="sidebar"
           className={`fixed top-0 left-0 h-full w-72 bg-gradient-to-b from-blue-900 via-blue-800 to-green-800 text-white z-50 transform transition-transform duration-300 ease-in-out shadow-2xl ${
-            isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+            isOpen ? 'translate-x-0' : '-translate-x-full'
           }`}
         >
           {/* Logo Section */}
@@ -161,7 +102,7 @@ const Sidebar = () => {
             </div>
             {/* Close button inside sidebar for mobile */}
             <button
-              onClick={() => setIsSidebarOpen(false)}
+              onClick={onClose}
               className="absolute top-3 right-3 p-1.5 hover:bg-white/10 rounded-lg transition-colors"
             >
               <FiX className="w-4 h-4 text-blue-300" />
@@ -179,7 +120,7 @@ const Sidebar = () => {
               <NavLink
                 key={item.path}
                 to={item.path}
-                onClick={() => setIsSidebarOpen(false)}
+                onClick={onClose}
                 className={({ isActive }) =>
                   `flex items-center gap-3 px-3 py-2.5 mx-1.5 rounded-lg transition-all duration-200 ${
                     isActive
