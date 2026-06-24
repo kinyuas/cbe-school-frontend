@@ -350,6 +350,13 @@ const Login = () => {
               </button>
             </div>
           </div>
+          
+          {/* Footer */}
+          <div className="mt-6 pt-4 border-t border-gray-200 text-center">
+            <p className="text-[10px] text-gray-400 leading-relaxed">
+              Fusion XE CBE System: Transforming Learning Through Technology. Developed by Stancylus Kalong'o | Contact: 0746919850
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -412,6 +419,13 @@ const Login = () => {
                 Resend Code
               </button>
             </div>
+          </div>
+          
+          {/* Footer */}
+          <div className="mt-6 pt-4 border-t border-gray-200 text-center">
+            <p className="text-[10px] text-gray-400 leading-relaxed">
+              Fusion XE CBE System: Transforming Learning Through Technology. Developed by Stancylus Kalong'o | Contact: 0746919850
+            </p>
           </div>
         </div>
       </div>
@@ -527,6 +541,13 @@ const Login = () => {
             >
               {loading ? 'Sending...' : 'Send Verification Code'}
             </button>
+          </div>
+          
+          {/* Footer */}
+          <div className="mt-6 pt-4 border-t border-gray-200 text-center">
+            <p className="text-[10px] text-gray-400 leading-relaxed">
+              Fusion XE CBE System: Transforming Learning Through Technology. Developed by Stancylus Kalong'o | Contact: 0746919850
+            </p>
           </div>
         </div>
       </div>
@@ -712,7 +733,12 @@ const Login = () => {
           </form>
         )}
 
-        {/* No "Register New School" on the initial screen with two cards */}
+        {/* Footer - Displayed on Main Login */}
+        <div className="mt-6 pt-4 border-t border-gray-200 text-center">
+          <p className={`${deviceInfo.isMobile ? 'text-[8px]' : 'text-[10px]'} text-gray-400 leading-relaxed`}>
+            Fusion XE CBE System: Transforming Learning Through Technology. Developed by Stancylus Kalong'o | Contact: 0746919850
+          </p>
+        </div>
       </div>
     </div>
   );
