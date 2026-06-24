@@ -319,8 +319,8 @@ const AdminDashboard = () => {
       title={`${schoolName} - Control Panel`} 
       subtitle={`CBC - Competency Based Education | ${schoolMotto}`}
     >
-      {/* Refresh Button - AI Responsive */}
-      <div className="flex justify-end mb-4">
+      {/* Header with Refresh Button - Aligned with Hamburger on mobile */}
+      <div className="flex items-center justify-end mb-4">
         <button
           onClick={handleRefresh}
           disabled={refreshing}

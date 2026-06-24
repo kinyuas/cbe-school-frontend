@@ -443,6 +443,20 @@ const TeacherDashboard = () => {
       title={`${greeting}, ${user?.name || 'Teacher'}`} 
       subtitle={`CBC Teacher - ${schoolInfo.name || user?.school || 'Competency Based Education'}`}
     >
+      {/* Header with Refresh Button - Aligned with Hamburger on mobile */}
+      <div className="flex items-center justify-end mb-4">
+        <button
+          onClick={handleRefresh}
+          disabled={refreshing}
+          className={`bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center gap-2 transition-colors disabled:opacity-50 ${
+            deviceInfo.isMobile ? 'px-3 py-2 text-xs' : 'px-4 py-2 text-sm'
+          }`}
+        >
+          <FiRefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+          {refreshing ? 'Refreshing...' : 'Refresh Dashboard'}
+        </button>
+      </div>
+
       {/* Exam Time Alerts - Enhanced with Days and Hours */}
       {showTimeAlert && examTimeAlerts.length > 0 && (
         <div className="space-y-2 mb-4">
@@ -506,20 +520,6 @@ const TeacherDashboard = () => {
           })}
         </div>
       )}
-
-      {/* Refresh Button */}
-      <div className="flex justify-end mb-4">
-        <button
-          onClick={handleRefresh}
-          disabled={refreshing}
-          className={`bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center gap-2 transition-colors disabled:opacity-50 ${
-            deviceInfo.isMobile ? 'px-3 py-2 text-xs' : 'px-4 py-2 text-sm'
-          }`}
-        >
-          <FiRefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-          {refreshing ? 'Refreshing...' : 'Refresh Dashboard'}
-        </button>
-      </div>
 
       {/* Welcome Banner - AI Responsive */}
       <div className={`bg-gradient-to-r from-green-600 to-blue-600 rounded-xl ${deviceInfo.isMobile ? 'p-4' : 'p-5'} mb-6 text-white`}>
@@ -696,7 +696,7 @@ const TeacherDashboard = () => {
                     )}
                     
                     {isExpired && (
-                      <div className="mt-2 flex items-center gap-2 text-red-600 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}">
+                      <div className={`mt-2 flex items-center gap-2 text-red-600 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>
                         <FiAlertCircle className={deviceInfo.isMobile ? 'w-3 h-3' : 'w-4 h-4'} />
                         <span className="font-semibold">This exam has ended</span>
                       </div>
