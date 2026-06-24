@@ -308,7 +308,27 @@ const AdminDashboard = () => {
         </button>
       </div>
 
-      {/* Quick Actions - Moved to Top */}
+      {/* Welcome Message - CBC Dashboard Card */}
+      <div className={`bg-gradient-to-r from-green-600 to-blue-600 text-white rounded-xl ${deviceInfo.isMobile ? 'p-3' : 'p-4'} mb-6`}>
+        <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'items-center justify-between'}`}>
+          <div>
+            <h2 className={`${deviceInfo.isMobile ? 'text-base' : 'text-xl'} font-bold`}>
+              Competency Based Curriculum (CBC) Dashboard
+            </h2>
+            <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-sm'} opacity-90`}>
+              Track student progress, manage teachers, and view competencies all in one place
+            </p>
+          </div>
+          <div className={`flex items-center gap-2 ${deviceInfo.isMobile ? 'mt-1' : ''}`}>
+            <FiTarget className={`${deviceInfo.isMobile ? 'w-6 h-6' : 'w-10 h-10'} opacity-80`} />
+            <span className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} font-semibold bg-white/20 px-3 py-1 rounded-full`}>
+              {schoolName}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Quick Actions - Below CBC Dashboard Card */}
       <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding} mb-6`}>
         <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-4`}>Quick Actions</h2>
         <div className={`grid ${deviceInfo.isMobile ? 'grid-cols-2 gap-2' : 'grid-cols-3 md:grid-cols-6 gap-3'}`}>
@@ -336,26 +356,6 @@ const AdminDashboard = () => {
           <Link to="/admin/pupils" className={`bg-purple-600 text-white rounded-lg text-center hover:bg-purple-700 transition-colors flex items-center justify-center gap-2 ${deviceInfo.isMobile ? 'px-2 py-2 text-xs' : 'px-4 py-3 text-sm'}`}>
             <FiUsers className="w-4 h-4" /> Students
           </Link>
-        </div>
-      </div>
-
-      {/* Welcome Message - AI Responsive */}
-      <div className={`bg-gradient-to-r from-green-600 to-blue-600 text-white rounded-xl ${deviceInfo.isMobile ? 'p-3' : 'p-4'} mb-6`}>
-        <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'items-center justify-between'}`}>
-          <div>
-            <h2 className={`${deviceInfo.isMobile ? 'text-base' : 'text-xl'} font-bold`}>
-              Competency Based Curriculum (CBC) Dashboard
-            </h2>
-            <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-sm'} opacity-90`}>
-              Track student progress, manage teachers, and view competencies all in one place
-            </p>
-          </div>
-          <div className={`flex items-center gap-2 ${deviceInfo.isMobile ? 'mt-1' : ''}`}>
-            <FiTarget className={`${deviceInfo.isMobile ? 'w-6 h-6' : 'w-10 h-10'} opacity-80`} />
-            <span className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} font-semibold bg-white/20 px-3 py-1 rounded-full`}>
-              {schoolName}
-            </span>
-          </div>
         </div>
       </div>
       
