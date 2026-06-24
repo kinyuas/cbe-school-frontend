@@ -84,7 +84,7 @@ const useResponsiveClasses = (deviceInfo) => {
     textSize: deviceInfo.isMobile ? 'text-xs' : 'text-sm',
     buttonSize: deviceInfo.isMobile ? 'px-2 py-1.5 text-xs' : 'px-4 py-3 text-sm',
     gridGap: deviceInfo.isMobile ? 'gap-2' : 'gap-3',
-    statsGrid: deviceInfo.isMobile ? 'grid-cols-2' : 'grid-cols-2 md:grid-cols-4 lg:grid-cols-7'
+    statsGrid: deviceInfo.isMobile ? 'grid-cols-2' : 'grid-cols-2 md:grid-cols-4 lg:grid-cols-6'
   };
 };
 
@@ -104,14 +104,6 @@ const AdminDashboard = () => {
     transferred: 0
   });
   
-  // Store how students are performing
-  const [competencyStats, setCompetencyStats] = useState({
-    exceeding: 0,
-    meeting: 0,
-    approaching: 0,
-    below: 0
-  });
-  
   // Store upcoming exams and events
   const [upcomingExams, setUpcomingExams] = useState([]);
   const [upcomingEvents, setUpcomingEvents] = useState([]);
@@ -128,14 +120,6 @@ const AdminDashboard = () => {
   useEffect(() => {
     loadDashboardData();
   }, []);
-
-  // Figure out student's performance level based on their marks
-  const getStudentLevel = (marks) => {
-    if (marks >= 80) return 'exceeding';
-    if (marks >= 60) return 'meeting';
-    if (marks >= 40) return 'approaching';
-    return 'below';
-  };
 
   // Fetch all data from database API
   const loadDashboardData = async () => {
@@ -184,32 +168,15 @@ const AdminDashboard = () => {
         return examEnd >= now;
       }).slice(0, 5);
       
-      // ===== FIX: Show ALL events like the Events page =====
-      // Instead of filtering future events, show all events (sorted by date)
-      // This matches what the Events page displays
+      // Show ALL events (sorted by date) - limit to 5
       const allEvents = [...events].sort((a, b) => {
         const dateA = a.date ? new Date(a.date) : new Date(0);
         const dateB = b.date ? new Date(b.date) : new Date(0);
         return dateB - dateA; // Newest first
-      }).slice(0, 5); // Show only 5 most recent events
+      }).slice(0, 5);
       
       setUpcomingExams(activeExams);
-      setUpcomingEvents(allEvents); // Now shows all events like Events page
-      
-      // Count how many students are at each performance level
-      const levelCounts = { exceeding: 0, meeting: 0, approaching: 0, below: 0 };
-      
-      // Go through each student to see their performance
-      pupils.forEach(student => {
-        const studentResults = results.filter(r => r.pupilId === student._id);
-        
-        if (studentResults.length > 0) {
-          const totalScore = studentResults.reduce((sum, r) => sum + (r.marks || 0), 0);
-          const averageScore = totalScore / studentResults.length;
-          const level = getStudentLevel(averageScore);
-          levelCounts[level]++;
-        }
-      });
+      setUpcomingEvents(allEvents);
       
       // Update all numbers on the dashboard
       setStats({
@@ -221,8 +188,6 @@ const AdminDashboard = () => {
         alumni: alumni.length,
         transferred: transferred.length
       });
-      
-      setCompetencyStats(levelCounts);
       
     } catch (error) {
       console.error('Error loading dashboard data:', error);
@@ -303,12 +268,11 @@ const AdminDashboard = () => {
     );
   }
 
-  // Get stats cards array for responsive rendering
+  // Get stats cards array for responsive rendering - REMOVED Results
   const statCards = [
     { title: 'Students', value: stats.learners, icon: FiUsers, color: 'text-blue-500', link: '/admin/pupils' },
     { title: 'Teachers', value: stats.teachers, icon: FiUserCheck, color: 'text-green-500', link: '/admin/teachers' },
     { title: 'Assessments', value: stats.exams, icon: FiFileText, color: 'text-indigo-500', link: '/admin/exams' },
-    { title: 'Results', value: stats.outcomes, icon: FiBookOpen, color: 'text-orange-500', link: '/admin/modify-results' },
     { title: 'Graduates', value: stats.alumni, icon: FiAward, color: 'text-purple-500', link: '/admin/alumni' },
     { title: 'Transferred', value: stats.transferred, icon: FiTrendingUp, color: 'text-yellow-500', link: '/admin/transferred-learners' },
     { title: 'Events', value: stats.events, icon: FiCalendar, color: 'text-pink-500', link: '/admin/events' },
@@ -319,7 +283,7 @@ const AdminDashboard = () => {
       title={`${schoolName} - Control Panel`} 
       subtitle={`CBC - Competency Based Education | ${schoolMotto}`}
     >
-      {/* Header with Refresh Button - Aligned with Hamburger on mobile */}
+      {/* Refresh Button */}
       <div className="flex items-center justify-end mb-4">
         <button
           onClick={handleRefresh}
@@ -352,7 +316,56 @@ const AdminDashboard = () => {
           </div>
         </div>
       </div>
-      
+
+      {/* ===== QUICK ACTIONS - MOVED TO TOP ===== */}
+      <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding} mb-6`}>
+        <div className={`flex ${deviceInfo.isMobile ? 'flex-col' : 'items-center justify-between'} mb-4`}>
+          <h2 className={`${responsive.headingSize} font-bold text-gray-800 flex items-center gap-2`}>
+            <FiTarget className="text-blue-600" /> Quick Actions
+          </h2>
+          {/* Summary: Total Students & Teachers */}
+          <div className={`flex ${deviceInfo.isMobile ? 'gap-3 mt-2' : 'gap-4'}`}>
+            <div className="flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded-lg">
+              <FiUsers className="text-blue-600 w-4 h-4" />
+              <span className="text-sm font-semibold text-gray-700">{stats.learners}</span>
+              <span className="text-xs text-gray-500">Students</span>
+            </div>
+            <div className="flex items-center gap-2 bg-green-50 px-3 py-1.5 rounded-lg">
+              <FiUserCheck className="text-green-600 w-4 h-4" />
+              <span className="text-sm font-semibold text-gray-700">{stats.teachers}</span>
+              <span className="text-xs text-gray-500">Teachers</span>
+            </div>
+          </div>
+        </div>
+        
+        <div className={`grid ${deviceInfo.isMobile ? 'grid-cols-2 gap-2' : 'grid-cols-3 md:grid-cols-6 gap-3'}`}>
+          <button 
+            onClick={() => setShowAddStudentModal(true)}
+            className={`bg-blue-600 text-white rounded-lg text-center hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 ${deviceInfo.isMobile ? 'px-2 py-2 text-xs' : 'px-4 py-3 text-sm'}`}
+          >
+            <FiPlus className="w-4 h-4" /> Add Student
+          </button>
+          <button 
+            onClick={() => setShowAddTeacherModal(true)}
+            className={`bg-green-600 text-white rounded-lg text-center hover:bg-green-700 transition-colors flex items-center justify-center gap-2 ${deviceInfo.isMobile ? 'px-2 py-2 text-xs' : 'px-4 py-3 text-sm'}`}
+          >
+            <FiPlus className="w-4 h-4" /> Add Teacher
+          </button>
+          <Link to="/admin/exams" className={`bg-indigo-600 text-white rounded-lg text-center hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2 ${deviceInfo.isMobile ? 'px-2 py-2 text-xs' : 'px-4 py-3 text-sm'}`}>
+            <FiFileText className="w-4 h-4" /> Assessment
+          </Link>
+          <Link to="/admin/modify-results" className={`bg-orange-600 text-white rounded-lg text-center hover:bg-orange-700 transition-colors flex items-center justify-center gap-2 ${deviceInfo.isMobile ? 'px-2 py-2 text-xs' : 'px-4 py-3 text-sm'}`}>
+            <FiEdit3 className="w-4 h-4" /> Results
+          </Link>
+          <Link to="/admin/reports" className={`bg-teal-600 text-white rounded-lg text-center hover:bg-teal-700 transition-colors flex items-center justify-center gap-2 ${deviceInfo.isMobile ? 'px-2 py-2 text-xs' : 'px-4 py-3 text-sm'}`}>
+            <FiBarChart2 className="w-4 h-4" /> Reports
+          </Link>
+          <Link to="/admin/pupils" className={`bg-purple-600 text-white rounded-lg text-center hover:bg-purple-700 transition-colors flex items-center justify-center gap-2 ${deviceInfo.isMobile ? 'px-2 py-2 text-xs' : 'px-4 py-3 text-sm'}`}>
+            <FiUsers className="w-4 h-4" /> Students
+          </Link>
+        </div>
+      </div>
+
       {/* Quick Stats Cards - AI Responsive */}
       <div className={`grid ${responsive.statsGrid} ${responsive.gridGap} mb-6`}>
         {statCards.map((stat, index) => (
@@ -374,74 +387,6 @@ const AdminDashboard = () => {
 
       <div className={`grid ${deviceInfo.isMobile ? 'grid-cols-1' : 'lg:grid-cols-2'} gap-6`}>
         
-        {/* Student Performance Section - AI Responsive */}
-        <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding}`}>
-          <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-4 flex items-center gap-2`}>
-            <FiTarget className="text-blue-600" /> Competency Levels
-          </h2>
-          <div className="space-y-3">
-            <div>
-              <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-0.5' : 'justify-between'} text-sm mb-1`}>
-                <span className="flex items-center gap-1">
-                  <span className="text-lg">⭐</span> 
-                  <span className={deviceInfo.isMobile ? 'text-xs' : 'text-sm'}>Exceeding (80%+)</span>
-                </span>
-                <span className="text-green-600 font-bold">{competencyStats.exceeding}</span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2.5">
-                <div className="bg-green-500 rounded-full h-2.5 transition-all" 
-                     style={{ width: `${stats.learners ? (competencyStats.exceeding / stats.learners) * 100 : 0}%` }}>
-                </div>
-              </div>
-            </div>
-            <div>
-              <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-0.5' : 'justify-between'} text-sm mb-1`}>
-                <span className="flex items-center gap-1">
-                  <span className="text-lg">✅</span> 
-                  <span className={deviceInfo.isMobile ? 'text-xs' : 'text-sm'}>Meeting (60-79%)</span>
-                </span>
-                <span className="text-blue-600 font-bold">{competencyStats.meeting}</span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2.5">
-                <div className="bg-blue-500 rounded-full h-2.5 transition-all" 
-                     style={{ width: `${stats.learners ? (competencyStats.meeting / stats.learners) * 100 : 0}%` }}>
-                </div>
-              </div>
-            </div>
-            <div>
-              <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-0.5' : 'justify-between'} text-sm mb-1`}>
-                <span className="flex items-center gap-1">
-                  <span className="text-lg">📚</span> 
-                  <span className={deviceInfo.isMobile ? 'text-xs' : 'text-sm'}>Approaching (40-59%)</span>
-                </span>
-                <span className="text-yellow-600 font-bold">{competencyStats.approaching}</span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2.5">
-                <div className="bg-yellow-500 rounded-full h-2.5 transition-all" 
-                     style={{ width: `${stats.learners ? (competencyStats.approaching / stats.learners) * 100 : 0}%` }}>
-                </div>
-              </div>
-            </div>
-            <div>
-              <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-0.5' : 'justify-between'} text-sm mb-1`}>
-                <span className="flex items-center gap-1">
-                  <span className="text-lg">⚠️</span> 
-                  <span className={deviceInfo.isMobile ? 'text-xs' : 'text-sm'}>Below (Below 40%)</span>
-                </span>
-                <span className="text-red-600 font-bold">{competencyStats.below}</span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2.5">
-                <div className="bg-red-500 rounded-full h-2.5 transition-all" 
-                     style={{ width: `${stats.learners ? (competencyStats.below / stats.learners) * 100 : 0}%` }}>
-                </div>
-              </div>
-            </div>
-          </div>
-          <Link to="/admin/reports" className={`block text-center ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-blue-600 hover:text-blue-800 mt-4`}>
-            View Full Report →
-          </Link>
-        </div>
-
         {/* Upcoming Exams Section - AI Responsive */}
         <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding}`}>
           <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-4 flex items-center gap-2`}>
@@ -480,10 +425,7 @@ const AdminDashboard = () => {
             </div>
           )}
         </div>
-      </div>
 
-      <div className={`grid ${deviceInfo.isMobile ? 'grid-cols-1' : 'lg:grid-cols-2'} gap-6 mt-6`}>
-        
         {/* Upcoming Events Section - AI Responsive */}
         <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding}`}>
           <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-4 flex items-center gap-2`}>
@@ -539,37 +481,6 @@ const AdminDashboard = () => {
           <Link to="/admin/events" className={`block text-center ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-pink-600 hover:text-pink-800 mt-4`}>
             View All Events →
           </Link>
-        </div>
-
-        {/* Quick Actions - AI Responsive */}
-        <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding}`}>
-          <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-4`}>Quick Actions</h2>
-          <div className={`grid ${deviceInfo.isMobile ? 'grid-cols-2 gap-2' : 'grid-cols-2 gap-3'}`}>
-            <button 
-              onClick={() => setShowAddStudentModal(true)}
-              className={`bg-blue-600 text-white rounded-lg text-center hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 ${deviceInfo.isMobile ? 'px-2 py-2 text-xs' : 'px-4 py-3 text-sm'}`}
-            >
-              <FiPlus className="w-4 h-4" /> Add Student
-            </button>
-            <button 
-              onClick={() => setShowAddTeacherModal(true)}
-              className={`bg-green-600 text-white rounded-lg text-center hover:bg-green-700 transition-colors flex items-center justify-center gap-2 ${deviceInfo.isMobile ? 'px-2 py-2 text-xs' : 'px-4 py-3 text-sm'}`}
-            >
-              <FiPlus className="w-4 h-4" /> Add Teacher
-            </button>
-            <Link to="/admin/exams" className={`bg-indigo-600 text-white rounded-lg text-center hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2 ${deviceInfo.isMobile ? 'px-2 py-2 text-xs' : 'px-4 py-3 text-sm'}`}>
-              <FiFileText className="w-4 h-4" /> Assessment
-            </Link>
-            <Link to="/admin/modify-results" className={`bg-orange-600 text-white rounded-lg text-center hover:bg-orange-700 transition-colors flex items-center justify-center gap-2 ${deviceInfo.isMobile ? 'px-2 py-2 text-xs' : 'px-4 py-3 text-sm'}`}>
-              <FiEdit3 className="w-4 h-4" /> Results
-            </Link>
-            <Link to="/admin/reports" className={`bg-teal-600 text-white rounded-lg text-center hover:bg-teal-700 transition-colors flex items-center justify-center gap-2 ${deviceInfo.isMobile ? 'px-2 py-2 text-xs' : 'px-4 py-3 text-sm'}`}>
-              <FiBarChart2 className="w-4 h-4" /> Reports
-            </Link>
-            <Link to="/admin/pupils" className={`bg-purple-600 text-white rounded-lg text-center hover:bg-purple-700 transition-colors flex items-center justify-center gap-2 ${deviceInfo.isMobile ? 'px-2 py-2 text-xs' : 'px-4 py-3 text-sm'}`}>
-              <FiUsers className="w-4 h-4" /> Students
-            </Link>
-          </div>
         </div>
       </div>
 
