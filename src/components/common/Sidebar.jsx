@@ -95,11 +95,6 @@ const Sidebar = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [deviceInfo.isMobile, isSidebarOpen]);
 
-  // Function to handle logout
-  const handleLogout = () => {
-    logout();
-  };
-
   const adminMenu = [
     { path: '/admin/dashboard', icon: FiHome, label: 'Dashboard' },
     { path: '/admin/pupils', icon: FiUsers, label: 'Students' },
@@ -125,15 +120,16 @@ const Sidebar = () => {
   const menuItems = user?.role === 'admin' ? adminMenu : teacherMenu;
   const isMobile = deviceInfo.isMobile;
 
-  // Mobile: Show hamburger menu button in top-right
+  // Mobile: Show hamburger menu
   if (isMobile) {
     return (
       <>
-        {/* Hamburger Menu Button - positioned top-right, beside refresh */}
+        {/* Hamburger Menu Button - Positioned at top left */}
         <button
           id="sidebar-toggle"
           onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-          className="fixed top-4 right-4 z-50 p-2 bg-gradient-to-r from-blue-600 to-green-600 rounded-lg text-white shadow-lg hover:shadow-xl transition-all"
+          className="fixed top-4 left-4 z-50 p-2 bg-gradient-to-r from-blue-600 to-green-600 rounded-lg text-white shadow-lg hover:shadow-xl transition-all"
+          style={{ marginTop: '0' }}
         >
           {isSidebarOpen ? <FiX className="w-5 h-5" /> : <FiMenu className="w-5 h-5" />}
         </button>
@@ -214,7 +210,7 @@ const Sidebar = () => {
                 </p>
               </div>
               <button
-                onClick={handleLogout}
+                onClick={logout}
                 className="p-1.5 hover:bg-red-500/20 rounded-lg transition-colors flex-shrink-0"
                 title="Logout"
               >
@@ -283,7 +279,7 @@ const Sidebar = () => {
             </p>
           </div>
           <button
-            onClick={handleLogout}
+            onClick={logout}
             className="p-1.5 hover:bg-red-500/20 rounded-lg transition-colors flex-shrink-0"
             title="Logout"
           >
