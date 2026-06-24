@@ -583,7 +583,6 @@ const Login = () => {
                   <FiUserCheck className={`${responsive.iconSize} mx-auto`} />
                 </div>
                 <div className={`${deviceInfo.isMobile ? 'text-sm' : 'text-base'} font-semibold text-gray-800`}>Admin Portal</div>
-                <div className={`${deviceInfo.isMobile ? 'text-[8px]' : 'text-[10px]'} text-gray-400 mt-1`}>Email + Password + Verification</div>
               </div>
             </button>
             
@@ -597,7 +596,6 @@ const Login = () => {
                   <FiUsers className={`${responsive.iconSize} mx-auto`} />
                 </div>
                 <div className={`${deviceInfo.isMobile ? 'text-sm' : 'text-base'} font-semibold text-gray-800`}>Teacher Portal</div>
-                <div className={`${deviceInfo.isMobile ? 'text-[8px]' : 'text-[10px]'} text-gray-400 mt-1`}>Email + TSC Number</div>
               </div>
             </button>
           </div>
@@ -608,7 +606,6 @@ const Login = () => {
           <form onSubmit={handleLoginSubmit} className="space-y-4">
             <div className="text-center mb-4">
               <h2 className="text-lg font-bold text-green-600">Admin Login</h2>
-              <p className="text-xs text-gray-400">Email + Password + Verification</p>
             </div>
             
             <div>
@@ -678,7 +675,6 @@ const Login = () => {
           <form onSubmit={handleLoginSubmit} className="space-y-4">
             <div className="text-center mb-4">
               <h2 className="text-lg font-bold text-blue-600">Teacher Login</h2>
-              <p className="text-xs text-gray-400">Email + TSC Number</p>
             </div>
             
             <div>
@@ -697,21 +693,18 @@ const Login = () => {
             </div>
             
             <div>
-              <label className={`block text-gray-700 font-medium ${deviceInfo.isMobile ? 'text-sm' : 'text-base'} mb-1`}>TSC Number</label>
+              <label className={`block text-gray-700 font-medium ${deviceInfo.isMobile ? 'text-sm' : 'text-base'} mb-1`}>Password</label>
               <div className="relative">
-                <FiHash className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                <FiLock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
                 <input
-                  type="text"
+                  type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className={`w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${deviceInfo.isMobile ? 'text-base' : ''}`}
-                  placeholder="Enter your TSC number"
+                  placeholder="Enter your password"
                   required
                 />
               </div>
-              <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-400 mt-1`}>
-                Enter your TSC number to login directly
-              </p>
             </div>
             
             <div className="flex gap-3 pt-2">
