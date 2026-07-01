@@ -45,9 +45,11 @@ const ModifyRecords = () => {
   // Track changes locally
   const [localScores, setLocalScores] = useState({});
 
-  // CBC Subjects by Grade Level - INCLUDING EARLY YEARS
+  // CBC Subjects by Grade Level - INCLUDING PLAY GROUP (PG)
   const subjectsByGrade = {
-    // Early Years Education (Pre-Primary)
+    // Early Years Education (Play Group / Pre-Primary)
+    'PG': ['Language Activities', 'Mathematical Activities', 'Environmental Activities', 'Psychomotor and Creative Activities', 'Religious Education Activities', 'Social Skills'],
+    'Play Group': ['Language Activities', 'Mathematical Activities', 'Environmental Activities', 'Psychomotor and Creative Activities', 'Religious Education Activities', 'Social Skills'],
     'PP1': ['Language Activities', 'Mathematical Activities', 'Environmental Activities', 'Psychomotor and Creative Activities', 'Religious Education Activities'],
     'PP2': ['Language Activities', 'Mathematical Activities', 'Environmental Activities', 'Psychomotor and Creative Activities', 'Religious Education Activities'],
     'Pre-Primary 1': ['Language Activities', 'Mathematical Activities', 'Environmental Activities', 'Psychomotor and Creative Activities', 'Religious Education Activities'],
@@ -94,7 +96,7 @@ const ModifyRecords = () => {
     loadAllData();
   }, []);
 
-  // Update subjects when class changes - INCLUDES EARLY YEARS
+  // Update subjects when class changes - INCLUDES PLAY GROUP
   useEffect(() => {
     if (selectedClass) {
       // Check if the class exists in subjectsByGrade, if not use empty array
@@ -465,20 +467,19 @@ const ModifyRecords = () => {
           <FiFilter className="text-green-600" /> Select Criteria
         </h2>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+          {/* Year - First */}
           <select value={selectedYear} onChange={(e) => setSelectedYear(parseInt(e.target.value))} className="input-field text-sm py-2">
             <option value="">Year</option>
             {years.map(year => <option key={year} value={year}>{year}</option>)}
           </select>
+          
+          {/* Class - Second */}
           <select value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)} className="input-field text-sm py-2">
             <option value="">Select Class</option>
             {availableClasses.map(cls => <option key={cls} value={cls}>{cls}</option>)}
           </select>
-          <select value={selectedSubject} onChange={(e) => setSelectedSubject(e.target.value)} className="input-field text-sm py-2" disabled={!selectedClass}>
-            <option value="">Select Subject</option>
-            {availableSubjects.map(sub => <option key={sub} value={sub}>{sub}</option>)}
-          </select>
           
-          {/* Stream Selector - Always visible and includes all available streams */}
+          {/* Stream - Third */}
           <select 
             value={selectedStream} 
             onChange={(e) => setSelectedStream(e.target.value)} 
@@ -488,17 +489,33 @@ const ModifyRecords = () => {
             {availableStreams.map(stream => <option key={stream} value={stream}>{stream}</option>)}
           </select>
           
+          {/* Term - Fourth */}
           <select value={selectedTerm} onChange={(e) => setSelectedTerm(e.target.value)} className="input-field text-sm py-2">
             <option value="">Term</option>
             {availableTerms.map(term => <option key={term} value={term}>{term}</option>)}
           </select>
+          
+          {/* Exam Type - Fifth */}
           <select value={selectedExamType} onChange={(e) => setSelectedExamType(e.target.value)} className="input-field text-sm py-2">
             <option value="">Exam Type</option>
             {availableExamTypes.map(type => <option key={type} value={type}>{type}</option>)}
           </select>
+          
+          {/* Exam Name - Sixth */}
           <select value={selectedExamName} onChange={(e) => setSelectedExamName(e.target.value)} className="input-field text-sm py-2" disabled={!selectedExamType}>
             <option value="">{!selectedExamType ? 'Select type first' : 'Exam Name'}</option>
             {availableExamNames.map(name => <option key={name} value={name}>{name}</option>)}
+          </select>
+          
+          {/* Subject - LAST (Seventh) */}
+          <select 
+            value={selectedSubject} 
+            onChange={(e) => setSelectedSubject(e.target.value)} 
+            className="input-field text-sm py-2" 
+            disabled={!selectedClass}
+          >
+            <option value="">Select Subject</option>
+            {availableSubjects.map(sub => <option key={sub} value={sub}>{sub}</option>)}
           </select>
         </div>
         
