@@ -45,20 +45,33 @@ const ModifyRecords = () => {
   // Track changes locally
   const [localScores, setLocalScores] = useState({});
 
-  // CBC Subjects by Grade Level
+  // CBC Subjects by Grade Level - INCLUDING EARLY YEARS
   const subjectsByGrade = {
-    'PG': ['Language Activities', 'Mathematical Activities', 'Environmental Activities', 'Psychomotor and Creative Activities'],
-    'PP1': ['Language Activities', 'Mathematical Activities', 'Environmental Activities', 'Psychomotor and Creative Activities'],
-    'PP2': ['Language Activities', 'Mathematical Activities', 'Environmental Activities', 'Psychomotor and Creative Activities'],
+    // Early Years Education (Pre-Primary)
+    'PP1': ['Language Activities', 'Mathematical Activities', 'Environmental Activities', 'Psychomotor and Creative Activities', 'Religious Education Activities'],
+    'PP2': ['Language Activities', 'Mathematical Activities', 'Environmental Activities', 'Psychomotor and Creative Activities', 'Religious Education Activities'],
+    'Pre-Primary 1': ['Language Activities', 'Mathematical Activities', 'Environmental Activities', 'Psychomotor and Creative Activities', 'Religious Education Activities'],
+    'Pre-Primary 2': ['Language Activities', 'Mathematical Activities', 'Environmental Activities', 'Psychomotor and Creative Activities', 'Religious Education Activities'],
+    
+    // Lower Primary (Grade 1-3)
     'Grade 1': ['English', 'Kiswahili', 'Mathematics', 'Environmental Activities', 'Hygiene and Nutrition', 'Religious Education', 'Creative Arts'],
     'Grade 2': ['English', 'Kiswahili', 'Mathematics', 'Environmental Activities', 'Hygiene and Nutrition', 'Religious Education', 'Creative Arts'],
     'Grade 3': ['English', 'Kiswahili', 'Mathematics', 'Environmental Activities', 'Hygiene and Nutrition', 'Religious Education', 'Creative Arts'],
+    
+    // Upper Primary (Grade 4-6)
     'Grade 4': ['English', 'Kiswahili', 'Mathematics', 'Science and Technology', 'Social Studies', 'Religious Education', 'Creative Arts', 'Physical and Health Education'],
     'Grade 5': ['English', 'Kiswahili', 'Mathematics', 'Science and Technology', 'Social Studies', 'Religious Education', 'Creative Arts', 'Physical and Health Education', 'Agriculture and Nutrition'],
     'Grade 6': ['English', 'Kiswahili', 'Mathematics', 'Science and Technology', 'Social Studies', 'Religious Education', 'Creative Arts', 'Physical and Health Education', 'Agriculture and Nutrition'],
+    
+    // Junior Secondary (Grade 7-9)
     'Grade 7': ['English', 'Kiswahili', 'Mathematics', 'Integrated Science', 'Health Education', 'Pre-Technical Studies', 'Social Studies', 'Religious Education', 'Creative Arts and Sports', 'Business Studies', 'Agriculture', 'Computer Science'],
     'Grade 8': ['English', 'Kiswahili', 'Mathematics', 'Integrated Science', 'Health Education', 'Pre-Technical Studies', 'Social Studies', 'Religious Education', 'Creative Arts and Sports', 'Business Studies', 'Agriculture', 'Computer Science'],
     'Grade 9': ['English', 'Kiswahili', 'Mathematics', 'Integrated Science', 'Health Education', 'Pre-Technical Studies', 'Social Studies', 'Religious Education', 'Creative Arts and Sports', 'Business Studies', 'Agriculture', 'Computer Science'],
+    
+    // Senior Secondary (Grade 10-12)
+    'Grade 10': ['English', 'Kiswahili', 'Mathematics', 'Biology', 'Chemistry', 'Physics', 'History', 'Geography', 'Religious Education', 'Business Studies', 'Computer Studies', 'Agriculture'],
+    'Grade 11': ['English', 'Kiswahili', 'Mathematics', 'Biology', 'Chemistry', 'Physics', 'History', 'Geography', 'Religious Education', 'Business Studies', 'Computer Studies', 'Agriculture'],
+    'Grade 12': ['English', 'Kiswahili', 'Mathematics', 'Biology', 'Chemistry', 'Physics', 'History', 'Geography', 'Religious Education', 'Business Studies', 'Computer Studies', 'Agriculture']
   };
 
   const competencyLevels = [
@@ -81,9 +94,10 @@ const ModifyRecords = () => {
     loadAllData();
   }, []);
 
-  // Update subjects when class changes
+  // Update subjects when class changes - INCLUDES EARLY YEARS
   useEffect(() => {
     if (selectedClass) {
+      // Check if the class exists in subjectsByGrade, if not use empty array
       const subjects = subjectsByGrade[selectedClass] || [];
       setAvailableSubjects(subjects);
       setSelectedSubject('');
@@ -186,9 +200,11 @@ const ModifyRecords = () => {
     setLoading(true);
     
     try {
-      // Filter learners by class
+      // Filter learners by class and stream
       let filteredLearners = learners.filter(l => l.class === selectedClass);
-      if (selectedStream && selectedStream !== 'all') {
+      
+      // Apply stream filter if selected
+      if (selectedStream && selectedStream !== 'all' && selectedStream !== '') {
         filteredLearners = filteredLearners.filter(l => l.stream === selectedStream);
       }
       
@@ -206,7 +222,8 @@ const ModifyRecords = () => {
         year: selectedYear
       };
       
-      if (selectedStream && selectedStream !== 'all') {
+      // Add stream filter if selected
+      if (selectedStream && selectedStream !== 'all' && selectedStream !== '') {
         params.stream = selectedStream;
       }
       if (selectedTerm) {
@@ -460,13 +477,17 @@ const ModifyRecords = () => {
             <option value="">Select Subject</option>
             {availableSubjects.map(sub => <option key={sub} value={sub}>{sub}</option>)}
           </select>
-          {availableStreams.length > 0 && (
-            <select value={selectedStream} onChange={(e) => setSelectedStream(e.target.value)} className="input-field text-sm py-2">
-              <option value="">Stream</option>
-              <option value="all">All Streams</option>
-              {availableStreams.map(stream => <option key={stream} value={stream}>{stream}</option>)}
-            </select>
-          )}
+          
+          {/* Stream Selector - Always visible and includes all available streams */}
+          <select 
+            value={selectedStream} 
+            onChange={(e) => setSelectedStream(e.target.value)} 
+            className="input-field text-sm py-2"
+          >
+            <option value="">All Streams</option>
+            {availableStreams.map(stream => <option key={stream} value={stream}>{stream}</option>)}
+          </select>
+          
           <select value={selectedTerm} onChange={(e) => setSelectedTerm(e.target.value)} className="input-field text-sm py-2">
             <option value="">Term</option>
             {availableTerms.map(term => <option key={term} value={term}>{term}</option>)}
@@ -515,6 +536,7 @@ const ModifyRecords = () => {
             <div className="flex justify-between items-center flex-wrap gap-2">
               <h3 className="font-semibold text-gray-800">
                 {selectedClass} - {selectedSubject} ({filteredBySearch.length} student{filteredBySearch.length !== 1 ? 's' : ''})
+                {selectedStream && selectedStream !== '' && selectedStream !== 'all' && ` | Stream: ${selectedStream}`}
                 {selectedTerm && ` | ${selectedTerm}`}
                 {selectedExamName && ` | ${selectedExamName}`}
               </h3>

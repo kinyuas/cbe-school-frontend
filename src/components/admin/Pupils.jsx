@@ -36,13 +36,11 @@ const useDeviceDetection = () => {
       const height = window.innerHeight;
       const pixelRatio = window.devicePixelRatio || 1;
       
-      // Detect device type
       const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua) || width < 768;
       const isTablet = /iPad|Android(?!.*Mobile)|Tablet/i.test(ua) || (width >= 768 && width < 1024);
       const isDesktop = !isMobile && !isTablet;
       const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
       
-      // Detect OS
       let os = 'unknown';
       if (/Windows/i.test(ua)) os = 'windows';
       else if (/Mac OS X/i.test(ua)) os = 'macos';
@@ -50,7 +48,6 @@ const useDeviceDetection = () => {
       else if (/Android/i.test(ua)) os = 'android';
       else if (/iOS|iPhone|iPad/i.test(ua)) os = 'ios';
       
-      // Detect Browser
       let browser = 'unknown';
       if (/Chrome/i.test(ua) && !/Edge/i.test(ua)) browser = 'chrome';
       else if (/Firefox/i.test(ua)) browser = 'firefox';
@@ -58,7 +55,6 @@ const useDeviceDetection = () => {
       else if (/Edge/i.test(ua)) browser = 'edge';
       else if (/Opera|OPR/i.test(ua)) browser = 'opera';
       
-      // Detect connection type
       let connectionType = 'unknown';
       if (navigator.connection) {
         connectionType = navigator.connection.effectiveType || 'unknown';
@@ -94,22 +90,7 @@ const useDeviceDetection = () => {
   return deviceInfo;
 };
 
-// ===== AI Responsive Component Wrapper =====
-const ResponsiveWrapper = ({ children, deviceInfo, className = '' }) => {
-  const getResponsiveClass = () => {
-    if (deviceInfo.isMobile) return 'mobile-view';
-    if (deviceInfo.isTablet) return 'tablet-view';
-    return 'desktop-view';
-  };
-
-  return (
-    <div className={`responsive-wrapper ${getResponsiveClass()} ${className}`}>
-      {children}
-    </div>
-  );
-};
-
-// ===== AI Grid Layout Helper =====
+// ===== AI Responsive Grid Helper =====
 const useResponsiveGrid = (deviceInfo) => {
   if (deviceInfo.isMobile) return 'grid-cols-1';
   if (deviceInfo.isTablet) return 'grid-cols-2 md:grid-cols-2';
@@ -119,12 +100,9 @@ const useResponsiveGrid = (deviceInfo) => {
 const Pupils = () => {
   const navigate = useNavigate();
   
-  // AI Device Detection
   const deviceInfo = useDeviceDetection();
   const responsiveGrid = useResponsiveGrid(deviceInfo);
-  const [showDeviceInfo, setShowDeviceInfo] = useState(false);
   
-  // State variables
   const [pupils, setPupils] = useState([]);
   const [transferredLearners, setTransferredLearners] = useState([]);
   const [alumni, setAlumni] = useState([]);
@@ -141,7 +119,6 @@ const Pupils = () => {
   const [sortOrder, setSortOrder] = useState('asc');
   const [loading, setLoading] = useState(true);
   
-  // Data retention state - stores previously entered data
   const [retainedData, setRetainedData] = useState({
     studentName: '',
     admNo: '',
@@ -158,13 +135,11 @@ const Pupils = () => {
     previousSchool: ''
   });
 
-  // Data retention helper - saves form data when modal closes
   const saveRetainedData = (formData) => {
     setRetainedData(prev => ({
       ...prev,
       ...formData
     }));
-    // Also save to localStorage for persistence across page refreshes
     try {
       localStorage.setItem('retainedStudentData', JSON.stringify({ ...retainedData, ...formData }));
     } catch (e) {
@@ -172,7 +147,6 @@ const Pupils = () => {
     }
   };
 
-  // Load retained data from localStorage on mount
   useEffect(() => {
     try {
       const saved = localStorage.getItem('retainedStudentData');
@@ -186,7 +160,6 @@ const Pupils = () => {
     }
   }, []);
 
-  // Clear retained data after successful save
   const clearRetainedData = () => {
     setRetainedData({
       studentName: '',
@@ -210,13 +183,11 @@ const Pupils = () => {
     }
   };
 
-  // Promote/Graduate Modal State
   const [showPromoteModal, setShowPromoteModal] = useState(false);
   const [promoteClassData, setPromoteClassData] = useState(null);
   const [selectedStudents, setSelectedStudents] = useState([]);
   const [promoteAction, setPromoteAction] = useState('promote');
   
-  // Transfer Modal State
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [selectedPupil, setSelectedPupil] = useState(null);
   const [transferData, setTransferData] = useState({
@@ -225,18 +196,15 @@ const Pupils = () => {
     remarks: ''
   });
   
-  // Student Detail Modal
   const [showStudentDetail, setShowStudentDetail] = useState(false);
   const [viewingStudent, setViewingStudent] = useState(null);
   
-  // Download Modal State
   const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [downloadFormat, setDownloadFormat] = useState('excel');
   const [downloadClass, setDownloadClass] = useState('');
   const [downloadStream, setDownloadStream] = useState('');
   const [availableStreamsForDownload, setAvailableStreamsForDownload] = useState([]);
 
-  // Load data from API on mount
   useEffect(() => {
     loadData();
   }, []);
@@ -270,16 +238,16 @@ const Pupils = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      const storedSchool = localStorage.getItem('schoolInfo');
-      if (storedSchool) {
-        const school = JSON.parse(storedSchool);
+      // Load school info from API
+      const schoolRes = await api.get('/school/settings');
+      if (schoolRes.data?.success && schoolRes.data?.data) {
+        const school = schoolRes.data.data;
         setSchoolInfo(school);
-        const activeClasses = (school.classes || [])
+        const classes = school.classes || [];
+        const activeClasses = classes
           .filter(c => c.isActive !== false)
           .map(c => c.name);
         setAvailableClasses(activeClasses);
-      } else {
-        setAvailableClasses(['Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6', 'Grade 7', 'Grade 8', 'Grade 9']);
       }
       
       const pupilsResponse = await api.get('/pupils');
@@ -449,16 +417,7 @@ const Pupils = () => {
       }
     } catch (error) {
       console.error('Error updating student:', error);
-      
-      // Enhanced error handling with field-specific feedback
-      if (error.response?.data?.errors) {
-        const errors = error.response.data.errors;
-        Object.keys(errors).forEach(field => {
-          toast.error(`${field}: ${errors[field]}`);
-        });
-      } else {
-        toast.error(error.response?.data?.message || 'Failed to update student');
-      }
+      toast.error(error.response?.data?.message || 'Failed to update student');
     }
   };
 
@@ -482,33 +441,21 @@ const Pupils = () => {
       const response = await api.post('/pupils', pupilData);
       if (response.data.success) {
         toast.success('Student added successfully');
-        // Clear retained data on successful save
         clearRetainedData();
         loadData();
         setIsModalOpen(false);
       }
     } catch (error) {
       console.error('Error adding student:', error);
-      
-      // Enhanced error handling with field-specific feedback
       if (error.response?.data?.errors) {
         const errors = error.response.data.errors;
-        let errorMessages = [];
         Object.keys(errors).forEach(field => {
-          errorMessages.push(`${field}: ${errors[field]}`);
           toast.error(`${field}: ${errors[field]}`);
         });
-        
-        // Show a summary toast with all errors
-        toast.error(`Please fix ${Object.keys(errors).length} field(s) and try again.`);
-        
-        // Save the data that was entered for retention
-        saveRetainedData(pupilData);
       } else {
         toast.error(error.response?.data?.message || 'Failed to add student');
-        // Save the data that was entered for retention
-        saveRetainedData(pupilData);
       }
+      saveRetainedData(pupilData);
     }
   };
 
@@ -557,7 +504,7 @@ const Pupils = () => {
       studentsToDownload = pupils;
     } else {
       studentsToDownload = pupils.filter(p => p.class === downloadClass);
-      if (downloadStream && downloadStream !== 'all') {
+      if (downloadStream && downloadStream !== 'all' && downloadStream !== '') {
         studentsToDownload = studentsToDownload.filter(p => p.stream === downloadStream);
       }
     }
@@ -567,10 +514,9 @@ const Pupils = () => {
       return;
     }
     
-    const fileName = `${downloadClass}${downloadStream && downloadStream !== 'all' ? `_${downloadStream}` : ''}_students`;
-    const titleText = `${downloadClass}${downloadStream && downloadStream !== 'all' ? ` - ${downloadStream}` : ''} Student List`;
+    const fileName = `${downloadClass}${downloadStream && downloadStream !== 'all' && downloadStream !== '' ? `_${downloadStream}` : ''}_students`;
+    const titleText = `${downloadClass}${downloadStream && downloadStream !== 'all' && downloadStream !== '' ? ` - ${downloadStream}` : ''} Student List`;
     
-    // Get school info for header
     const schoolName = schoolInfo.name || 'SCHOOL NAME';
     const schoolMotto = schoolInfo.motto || 'Excellence in Education';
     const schoolPoBox = schoolInfo.poBox || 'P.O. Box 00000';
@@ -609,125 +555,32 @@ const Pupils = () => {
       URL.revokeObjectURL(url);
       toast.success(`Downloaded ${studentsToDownload.length} students`);
     } else {
-      // Word format - EXACT DIMENSIONS AS IMAGE
+      // Word format
       const htmlContent = `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
   <title>${titleText} - ${schoolName}</title>
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-    body {
-      font-family: 'Times New Roman', 'Arial', serif;
-      margin: 0;
-      padding: 20px;
-      background: white;
-    }
-    
-    .header {
-      text-align: center;
-      width: 100%;
-      margin-bottom: 20px;
-      padding-bottom: 15px;
-      border-bottom: 2px solid #000;
-    }
-    .school-name {
-      font-size: 24px;
-      font-weight: bold;
-      text-transform: uppercase;
-      margin-bottom: 5px;
-    }
-    .motto {
-      font-size: 12px;
-      font-style: italic;
-      margin-bottom: 8px;
-    }
-    .address {
-      font-size: 10px;
-      margin-bottom: 10px;
-    }
-    .title {
-      font-size: 18px;
-      font-weight: bold;
-      text-decoration: underline;
-      margin: 10px 0;
-      text-transform: uppercase;
-    }
-    .info-row {
-      font-size: 10px;
-      margin-bottom: 5px;
-      display: flex;
-      justify-content: space-between;
-    }
-    
-    .student-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 11px;
-      margin-top: 15px;
-    }
-    
-    .student-table th,
-    .student-table td {
-      border: 1px solid #000;
-      padding: 8px 4px;
-      vertical-align: top;
-    }
-    
-    .student-table th:first-child,
-    .student-table td:first-child {
-      width: 5%;
-      text-align: center;
-    }
-    .student-table th:nth-child(2),
-    .student-table td:nth-child(2) {
-      width: 25%;
-      text-align: left;
-    }
-    .student-table th:nth-child(3),
-    .student-table td:nth-child(3) {
-      width: 8%;
-      text-align: center;
-    }
-    .student-table th:nth-child(4),
-    .student-table td:nth-child(4) {
-      width: 5%;
-      text-align: center;
-    }
-    .student-table th:nth-child(5),
-    .student-table td:nth-child(5) {
-      width: 7%;
-      text-align: center;
-    }
-    .student-table th:nth-child(6),
-    .student-table td:nth-child(6) {
-      width: 50%;
-      text-align: left;
-    }
-    
-    .student-table td {
-      height: 35px;
-    }
-    
-    .signature-line {
-      margin-top: 40px;
-      display: flex;
-      justify-content: space-between;
-      font-size: 11px;
-      width: 100%;
-    }
-    .footer {
-      margin-top: 20px;
-      padding-top: 10px;
-      border-top: 1px solid #ccc;
-      font-size: 9px;
-      text-align: center;
-      width: 100%;
-    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Times New Roman', 'Arial', serif; margin: 0; padding: 20px; background: white; }
+    .header { text-align: center; width: 100%; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 2px solid #000; }
+    .school-name { font-size: 24px; font-weight: bold; text-transform: uppercase; margin-bottom: 5px; }
+    .motto { font-size: 12px; font-style: italic; margin-bottom: 8px; }
+    .address { font-size: 10px; margin-bottom: 10px; }
+    .title { font-size: 18px; font-weight: bold; text-decoration: underline; margin: 10px 0; text-transform: uppercase; }
+    .info-row { font-size: 10px; margin-bottom: 5px; display: flex; justify-content: space-between; }
+    .student-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 15px; }
+    .student-table th, .student-table td { border: 1px solid #000; padding: 8px 4px; vertical-align: top; }
+    .student-table th:first-child, .student-table td:first-child { width: 5%; text-align: center; }
+    .student-table th:nth-child(2), .student-table td:nth-child(2) { width: 25%; text-align: left; }
+    .student-table th:nth-child(3), .student-table td:nth-child(3) { width: 8%; text-align: center; }
+    .student-table th:nth-child(4), .student-table td:nth-child(4) { width: 5%; text-align: center; }
+    .student-table th:nth-child(5), .student-table td:nth-child(5) { width: 7%; text-align: center; }
+    .student-table th:nth-child(6), .student-table td:nth-child(6) { width: 50%; text-align: left; }
+    .student-table td { height: 35px; }
+    .signature-line { margin-top: 40px; display: flex; justify-content: space-between; font-size: 11px; width: 100%; }
+    .footer { margin-top: 20px; padding-top: 10px; border-top: 1px solid #ccc; font-size: 9px; text-align: center; width: 100%; }
   </style>
 </head>
 <body>
@@ -765,7 +618,7 @@ const Pupils = () => {
           <td style="text-align: center;">${student.admNo || '-'}</td>
           <td style="text-align: center;">${student.gender === 'Male' ? 'M' : (student.gender === 'Female' ? 'F' : (student.gender || '-'))}</td>
           <td style="text-align: center;">${student.stream || '-'}</td>
-          <td>&nbsp;<!-- Empty space for teacher's remarks --></td>
+          <td>&nbsp;</td>
         </tr>
       `).join('')}
     </tbody>
@@ -797,7 +650,6 @@ const Pupils = () => {
     setDownloadStream('');
   };
 
-  // Download Modal Component
   const DownloadModal = () => (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white rounded-xl p-6 w-full max-w-md">
@@ -826,12 +678,9 @@ const Pupils = () => {
                   downloadFormat === 'word' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300'
                 }`}
               >
-                <FiFileText className="w-4 h-4" /> WORD (1/3-2/3 Layout)
+                <FiFileText className="w-4 h-4" /> WORD
               </button>
             </div>
-            <p className="text-xs text-gray-400 mt-1">
-              Note: Word format displays student details on left third with blank space on right for notes
-            </p>
           </div>
           
           <div>
@@ -867,11 +716,6 @@ const Pupils = () => {
                   <option key={stream} value={stream}>{stream}</option>
                 ))}
               </select>
-              <p className="text-xs text-gray-400 mt-1">
-                {downloadStream && downloadStream !== 'all' 
-                  ? '✓ When downloading a specific stream, the Stream column will be excluded' 
-                  : 'Select a stream to download only that stream'}
-              </p>
             </div>
           )}
         </div>
@@ -891,9 +735,6 @@ const Pupils = () => {
   const StudentDetailModal = () => {
     if (!viewingStudent) return null;
     
-    const studentResults = JSON.parse(localStorage.getItem('results') || '[]').filter(r => r.pupilId === viewingStudent._id);
-    const years = [...new Set(studentResults.map(r => r.year || new Date(r.createdAt).getFullYear()))];
-    
     return (
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto">
         <div className="bg-white rounded-xl w-full max-w-4xl m-4 max-h-[90vh] overflow-y-auto">
@@ -901,7 +742,7 @@ const Pupils = () => {
             <div>
               <h2 className="text-2xl font-bold text-gray-800">{viewingStudent.name}</h2>
               <p className="text-sm text-gray-500">
-                Admission: {viewingStudent.admNo} • Birth Cert: {viewingStudent.birthCertNo || 'N/A'} • Gender: {viewingStudent.gender === 'Male' ? 'M' : (viewingStudent.gender === 'Female' ? 'F' : (viewingStudent.gender || 'N/A'))}
+                Admission: {viewingStudent.admNo} • Gender: {viewingStudent.gender === 'Male' ? 'M' : (viewingStudent.gender === 'Female' ? 'F' : (viewingStudent.gender || 'N/A'))}
                 <br />Current: {viewingStudent.class}
               </p>
             </div>
@@ -912,37 +753,20 @@ const Pupils = () => {
           
           <div className="p-6">
             <div className="mb-6 bg-blue-50 rounded-lg p-4">
-              <h3 className="font-semibold text-gray-800 mb-2">Academic Summary</h3>
-              <div className="grid grid-cols-2 gap-4">
+              <h3 className="font-semibold text-gray-800 mb-2">Student Information</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <p className="text-sm text-gray-500">Total Academic Years</p>
-                  <p className="text-lg font-bold text-blue-600">{years.length || 1}</p>
+                  <p className="text-sm text-gray-500">Date of Birth</p>
+                  <p className="font-medium">{viewingStudent.dateOfBirth || 'N/A'}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-500">Academic Progression</p>
-                  <p className="text-sm">{years.map(y => `${y}: ${viewingStudent.previousClass || viewingStudent.class}`).join(' → ')}</p>
+                  <p className="text-sm text-gray-500">Birth Certificate</p>
+                  <p className="font-medium">{viewingStudent.birthCertNo || 'N/A'}</p>
                 </div>
-              </div>
-            </div>
-            
-            {years.length > 0 && (
-              <div className="mb-6">
-                <h3 className="font-semibold text-gray-800 mb-3">Academic Results by Year</h3>
-                {years.map(year => (
-                  <div key={year} className="mb-4 border rounded-lg overflow-hidden">
-                    <div className="bg-gray-100 px-4 py-2 font-semibold">Academic Year {year}</div>
-                    <div className="p-3">
-                      <p className="text-sm">Class: {viewingStudent.class}</p>
-                      <p className="text-sm text-gray-500">Subjects: {studentResults.filter(r => r.year === year).length || 0} assessments</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-            
-            <div className="mb-6">
-              <h3 className="font-semibold text-gray-800 mb-3">Student Information</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-gray-50 rounded-lg p-4">
+                <div>
+                  <p className="text-sm text-gray-500">Stream</p>
+                  <p className="font-medium">{viewingStudent.stream || 'N/A'}</p>
+                </div>
                 <div>
                   <p className="text-sm text-gray-500">Parent Name</p>
                   <p className="font-medium">{viewingStudent.parentName || 'N/A'}</p>
@@ -954,18 +778,6 @@ const Pupils = () => {
                 <div>
                   <p className="text-sm text-gray-500">Parent Email</p>
                   <p className="font-medium">{viewingStudent.parentEmail || 'N/A'}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">Date of Birth</p>
-                  <p className="font-medium">{viewingStudent.dateOfBirth || 'N/A'}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">Birth Certificate</p>
-                  <p className="font-medium">{viewingStudent.birthCertNo || 'N/A'}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">Gender</p>
-                  <p className="font-medium">{viewingStudent.gender === 'Male' ? 'M' : (viewingStudent.gender === 'Female' ? 'F' : (viewingStudent.gender || 'N/A'))}</p>
                 </div>
               </div>
             </div>
@@ -980,23 +792,8 @@ const Pupils = () => {
               <button onClick={() => { setShowStudentDetail(false); handlePromoteClass(viewingStudent.class); }} className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-green-700">
                 PROMOTE
               </button>
-              <button className="bg-purple-600 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-purple-700">
-                CAREER INSIGHTS
-              </button>
-              <button className="bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-indigo-700">
-                FEE BALANCE
-              </button>
-              <button className="bg-gray-600 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-gray-700">
-                ACADEMIC HISTORY
-              </button>
-            </div>
-            
-            <div className="flex justify-between mt-4 pt-4 border-t">
-              <button className="text-red-600 hover:text-red-800 text-xs flex items-center gap-1">
-                <FiAlertTriangle className="w-3 h-3" /> REPORT INDISCIPLINE
-              </button>
-              <button onClick={() => { setShowStudentDetail(false); handleDeleteStudent(viewingStudent._id); }} className="text-red-600 hover:text-red-800 text-xs flex items-center gap-1">
-                <FiTrash2 className="w-3 h-3" /> DELETE STUDENT
+              <button onClick={() => { setShowStudentDetail(false); handleDeleteStudent(viewingStudent._id); }} className="text-red-600 hover:text-red-800 text-xs flex items-center gap-1 border border-red-300 px-3 py-1.5 rounded-lg">
+                <FiTrash2 className="w-3 h-3" /> DELETE
               </button>
             </div>
           </div>
@@ -1009,14 +806,10 @@ const Pupils = () => {
     if (!promoteClassData) return null;
     
     return (
-      <div className={`fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 ${
-        deviceInfo.isMobile ? 'p-2' : ''
-      }`}>
-        <div className={`bg-white rounded-xl p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto ${
-          deviceInfo.isMobile ? 'mx-2' : ''
-        }`}>
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2">
+        <div className="bg-white rounded-xl p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto">
           <div className="flex justify-between items-center mb-4">
-            <h2 className={`${deviceInfo.isMobile ? 'text-xl' : 'text-2xl'} font-bold text-gray-800`}>
+            <h2 className="text-xl md:text-2xl font-bold text-gray-800">
               {promoteAction === 'graduate' ? 'Graduate Class' : 'Promote Class'}
             </h2>
             <button onClick={() => setShowPromoteModal(false)} className="text-gray-500 hover:text-gray-700">
@@ -1046,13 +839,7 @@ const Pupils = () => {
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-10">Select</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Adm</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
-                  {!deviceInfo.isMobile && (
-                    <>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Gender</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Stream</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Parent Contact</th>
-                    </>
-                  )}
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Stream</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
@@ -1068,24 +855,18 @@ const Pupils = () => {
                     </td>
                     <td className="px-3 py-2 text-sm">{student.admNo}</td>
                     <td className="px-3 py-2 text-sm font-medium">{student.name}</td>
-                    {!deviceInfo.isMobile && (
-                      <>
-                        <td className="px-3 py-2 text-sm">{student.gender === 'Male' ? 'M' : (student.gender === 'Female' ? 'F' : (student.gender || 'N/A'))}</td>
-                        <td className="px-3 py-2 text-sm">{student.stream || 'N/A'}</td>
-                        <td className="px-3 py-2 text-sm">{student.parentPhone || 'N/A'}</td>
-                      </>
-                    )}
+                    <td className="px-3 py-2 text-sm">{student.stream || 'N/A'}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
           
-          <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'space-x-3'} mt-6`}>
-            <button onClick={confirmPromotion} className={`${deviceInfo.isMobile ? 'w-full' : 'flex-1'} bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700`}>
+          <div className="flex flex-col md:flex-row gap-2 mt-6">
+            <button onClick={confirmPromotion} className="w-full md:flex-1 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700">
               {promoteAction === 'graduate' ? 'GRADUATE SELECTED' : 'PROMOTE SELECTED'}
             </button>
-            <button onClick={() => setShowPromoteModal(false)} className={`${deviceInfo.isMobile ? 'w-full' : 'flex-1'} bg-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-400`}>
+            <button onClick={() => setShowPromoteModal(false)} className="w-full md:flex-1 bg-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-400">
               CANCEL
             </button>
           </div>
@@ -1098,14 +879,10 @@ const Pupils = () => {
     if (!selectedPupil) return null;
     
     return (
-      <div className={`fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 ${
-        deviceInfo.isMobile ? 'p-2' : ''
-      }`}>
-        <div className={`bg-white rounded-xl p-6 w-full max-w-md ${
-          deviceInfo.isMobile ? 'mx-2' : ''
-        }`}>
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2">
+        <div className="bg-white rounded-xl p-6 w-full max-w-md">
           <div className="flex justify-between items-center mb-4">
-            <h2 className={`${deviceInfo.isMobile ? 'text-xl' : 'text-2xl'} font-bold text-gray-800`}>Transfer Learner</h2>
+            <h2 className="text-xl md:text-2xl font-bold text-gray-800">Transfer Learner</h2>
             <button onClick={() => setShowTransferModal(false)} className="text-gray-500 hover:text-gray-700">
               <FiX className="w-6 h-6" />
             </button>
@@ -1114,7 +891,7 @@ const Pupils = () => {
           <div className="mb-4 p-3 bg-yellow-50 rounded-lg flex items-start gap-2">
             <FiAlertTriangle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
             <p className="text-sm text-yellow-800">
-              You are transferring 1 learner. This will move them to the transferred learners section.
+              Transferring: <strong>{selectedPupil.name}</strong> ({selectedPupil.admNo})
             </p>
           </div>
           
@@ -1159,23 +936,17 @@ const Pupils = () => {
             </div>
           </div>
           
-          <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'space-x-3'} mt-6`}>
-            <button onClick={handleTransferSubmit} className={`${deviceInfo.isMobile ? 'w-full' : 'flex-1'} bg-yellow-600 text-white px-4 py-2 rounded-lg hover:bg-yellow-700`}>
-              TRANSFER 1 LEARNER
+          <div className="flex flex-col md:flex-row gap-2 mt-6">
+            <button onClick={handleTransferSubmit} className="w-full md:flex-1 bg-yellow-600 text-white px-4 py-2 rounded-lg hover:bg-yellow-700">
+              TRANSFER LEARNER
             </button>
-            <button onClick={() => setShowTransferModal(false)} className={`${deviceInfo.isMobile ? 'w-full' : 'flex-1'} bg-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-400`}>
+            <button onClick={() => setShowTransferModal(false)} className="w-full md:flex-1 bg-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-400">
               CANCEL
             </button>
           </div>
         </div>
       </div>
     );
-  };
-
-  // AI Responsive get button size helper
-  const getButtonSize = () => {
-    if (deviceInfo.isMobile) return 'px-4 py-2.5 text-sm';
-    return 'px-4 py-2 text-sm';
   };
 
   if (loading) {
@@ -1188,155 +959,38 @@ const Pupils = () => {
     );
   }
 
-  if (pupils.length === 0) {
-    return (
-      <Layout title="All Students" subtitle="Manage and view all students">
-        {/* AI Device Info Bar */}
-        <div className="bg-gray-50 rounded-xl p-3 mb-4 flex justify-between items-center">
-          <div className="flex items-center gap-2 text-sm">
-            {deviceInfo.isMobile ? (
-              <FiSmartphone className="text-blue-600" />
-            ) : deviceInfo.isTablet ? (
-              <FiTablet className="text-blue-600" />
-            ) : (
-              <FiMonitor className="text-blue-600" />
-            )}
-            <span className="text-gray-600">{deviceInfo.type.charAt(0).toUpperCase() + deviceInfo.type.slice(1)} View</span>
-            {deviceInfo.isTouchDevice && (
-              <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Touch</span>
-            )}
-          </div>
-          <button onClick={() => setShowDeviceInfo(!showDeviceInfo)} className="text-xs bg-gray-200 hover:bg-gray-300 px-2 py-1 rounded-full">
-            {showDeviceInfo ? 'Hide' : 'Show'} Info
-          </button>
-        </div>
-
-        {showDeviceInfo && (
-          <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4 text-xs grid grid-cols-2 md:grid-cols-4 gap-2">
-            <div><span className="font-semibold">Device:</span> {deviceInfo.type}</div>
-            <div><span className="font-semibold">OS:</span> {deviceInfo.os}</div>
-            <div><span className="font-semibold">Browser:</span> {deviceInfo.browser}</div>
-            <div><span className="font-semibold">Viewport:</span> {deviceInfo.viewportWidth}x{deviceInfo.viewportHeight}</div>
-          </div>
-        )}
-
-        <div className={`flex flex-wrap ${deviceInfo.isMobile ? 'flex-col gap-3' : 'justify-between items-center gap-4'} mb-6`}>
-          <button onClick={() => setShowDownloadModal(true)} className={`${deviceInfo.isMobile ? 'w-full' : ''} bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center justify-center gap-2 ${getButtonSize()}`}>
-            <FiDownload /> DOWNLOAD LISTS
-          </button>
-          <button onClick={() => setIsModalOpen(true)} className={`${deviceInfo.isMobile ? 'w-full' : ''} btn-primary flex items-center justify-center gap-2 ${getButtonSize()}`}>
-            <FiUsers /> + ADD NEW STUDENT
-          </button>
-        </div>
-        
-        <div className="bg-white rounded-xl shadow-md p-4 mb-6">
-          <div className="relative">
-            <FiSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-            <input 
-              type="text" 
-              placeholder="Search students..." 
-              value={searchTerm} 
-              onChange={(e) => setSearchTerm(e.target.value)} 
-              className={`w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                deviceInfo.isMobile ? 'text-base' : ''
-              }`} 
-            />
-          </div>
-        </div>
-        
-        <div className="bg-white rounded-xl shadow-md p-12 text-center">
-          <div className="flex flex-col items-center">
-            <div className="bg-gray-100 p-4 rounded-full mb-4"><FiUsers className="w-12 h-12 text-gray-400" /></div>
-            <h3 className="text-xl font-semibold text-gray-800 mb-2">No Students Yet</h3>
-            <p className="text-gray-500 mb-6">Click the "ADD NEW STUDENT" button to get started</p>
-            <button onClick={() => setIsModalOpen(true)} className="btn-primary">Add Your First Student</button>
-          </div>
-        </div>
-        
-        <AddPupilModal 
-          isOpen={isModalOpen} 
-          onClose={() => setIsModalOpen(false)} 
-          onSave={handleAddPupil}
-          retainedData={retainedData}
-          onDataChange={saveRetainedData}
-        />
-        {showDownloadModal && <DownloadModal />}
-      </Layout>
-    );
-  }
-
-  // Main display
   return (
     <Layout title="All Students" subtitle="Manage and view all students">
-      {/* AI Device Info Bar */}
-      <div className="bg-gray-50 rounded-xl p-3 mb-4 flex flex-wrap justify-between items-center gap-2">
-        <div className="flex items-center gap-2 text-sm">
-          {deviceInfo.isMobile ? (
-            <FiSmartphone className="text-blue-600" />
-          ) : deviceInfo.isTablet ? (
-            <FiTablet className="text-blue-600" />
-          ) : (
-            <FiMonitor className="text-blue-600" />
-          )}
-          <span className="text-gray-600">{deviceInfo.type.charAt(0).toUpperCase() + deviceInfo.type.slice(1)} View</span>
-          {deviceInfo.isTouchDevice && (
-            <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">Touch</span>
-          )}
-          <span className="text-xs text-gray-400 ml-2">
-            {deviceInfo.viewportWidth}×{deviceInfo.viewportHeight}
-          </span>
-        </div>
-        <button onClick={() => setShowDeviceInfo(!showDeviceInfo)} className="text-xs bg-gray-200 hover:bg-gray-300 px-3 py-1 rounded-full">
-          {showDeviceInfo ? 'Hide' : 'Show'} Device Info
-        </button>
-      </div>
-
-      {showDeviceInfo && (
-        <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4 text-xs grid grid-cols-2 md:grid-cols-4 gap-2">
-          <div><span className="font-semibold">Device:</span> {deviceInfo.type}</div>
-          <div><span className="font-semibold">OS:</span> {deviceInfo.os}</div>
-          <div><span className="font-semibold">Browser:</span> {deviceInfo.browser}</div>
-          <div><span className="font-semibold">Viewport:</span> {deviceInfo.viewportWidth}x{deviceInfo.viewportHeight}</div>
-          <div><span className="font-semibold">Connection:</span> {deviceInfo.connectionType}</div>
-          <div><span className="font-semibold">Touch:</span> {deviceInfo.isTouchDevice ? 'Yes' : 'No'}</div>
-        </div>
-      )}
-
-      <div className={`flex flex-wrap ${deviceInfo.isMobile ? 'flex-col gap-3' : 'justify-between items-center gap-4'} mb-6`}>
-        <button onClick={() => setShowDownloadModal(true)} className={`${deviceInfo.isMobile ? 'w-full' : ''} bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center justify-center gap-2 ${getButtonSize()}`}>
+      <div className="flex flex-wrap justify-between items-center gap-3 mb-6">
+        <button onClick={() => setShowDownloadModal(true)} className="bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center justify-center gap-2 px-4 py-2 text-sm">
           <FiDownload /> DOWNLOAD LISTS
         </button>
-        <button onClick={() => setIsModalOpen(true)} className={`${deviceInfo.isMobile ? 'w-full' : ''} btn-primary flex items-center justify-center gap-2 ${getButtonSize()}`}>
+        <button onClick={() => setIsModalOpen(true)} className="btn-primary flex items-center justify-center gap-2 px-4 py-2 text-sm">
           <FiUsers /> + ADD NEW STUDENT
         </button>
       </div>
 
-      {/* Search and Filters - AI Responsive */}
+      {/* Search and Filters */}
       <div className="bg-white rounded-xl shadow-md p-4 mb-6">
-        <div className={`flex flex-wrap ${deviceInfo.isMobile ? 'flex-col' : ''} gap-4 items-center`}>
-          <div className={`${deviceInfo.isMobile ? 'w-full' : 'flex-1 min-w-[200px]'}`}>
+        <div className="flex flex-col md:flex-row gap-4 items-center">
+          <div className="w-full md:flex-1 min-w-[200px]">
             <div className="relative">
               <FiSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
               <input 
                 type="text" 
-                placeholder={`${deviceInfo.isMobile ? 'Search...' : 'Search students by name or admission...'}`} 
+                placeholder="Search students by name or admission..." 
                 value={searchTerm} 
                 onChange={(e) => setSearchTerm(e.target.value)} 
-                className={`w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                  deviceInfo.isMobile ? 'text-base' : ''
-                }`} 
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" 
               />
             </div>
           </div>
           
-          {/* Class Filter */}
           {availableClasses.length > 0 && (
             <select
               value={selectedClass}
               onChange={(e) => setSelectedClass(e.target.value)}
-              className={`px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white ${
-                deviceInfo.isMobile ? 'w-full text-base' : ''
-              }`}
+              className="w-full md:w-auto px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
             >
               <option value="all">All Classes</option>
               {availableClasses.map(cls => (
@@ -1345,14 +999,11 @@ const Pupils = () => {
             </select>
           )}
           
-          {/* Stream Filter - appears when class is selected */}
           {selectedClass !== 'all' && availableStreams.length > 0 && (
             <select
               value={selectedStream}
               onChange={(e) => setSelectedStream(e.target.value)}
-              className={`px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white ${
-                deviceInfo.isMobile ? 'w-full text-base' : ''
-              }`}
+              className="w-full md:w-auto px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
             >
               <option value="">All Streams</option>
               {availableStreams.map(stream => (
@@ -1361,28 +1012,22 @@ const Pupils = () => {
             </select>
           )}
           
-          {/* Sort Controls */}
-          <div className={`flex ${deviceInfo.isMobile ? 'w-full justify-between' : 'gap-2 ml-auto'}`}>
+          <div className="flex w-full md:w-auto gap-2">
             <button 
               onClick={() => { setSortBy('name'); setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc'); }} 
-              className={`px-2 py-1.5 text-sm bg-gray-100 rounded-lg hover:bg-gray-200 ${
-                deviceInfo.isMobile ? 'flex-1 text-center' : ''
-              }`}
+              className="flex-1 md:flex-none px-3 py-1.5 text-sm bg-gray-100 rounded-lg hover:bg-gray-200"
             >
               Name {sortBy === 'name' && (sortOrder === 'asc' ? '↑' : '↓')}
             </button>
             <button 
               onClick={() => { setSortBy('admission'); setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc'); }} 
-              className={`px-2 py-1.5 text-sm bg-gray-100 rounded-lg hover:bg-gray-200 ${
-                deviceInfo.isMobile ? 'flex-1 text-center' : ''
-              }`}
+              className="flex-1 md:flex-none px-3 py-1.5 text-sm bg-gray-100 rounded-lg hover:bg-gray-200"
             >
               Adm {sortBy === 'admission' && (sortOrder === 'asc' ? '↑' : '↓')}
             </button>
           </div>
         </div>
         
-        {/* Filter Summary */}
         {(selectedClass !== 'all' || selectedStream) && (
           <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-2 flex-wrap">
             <span className="text-sm text-gray-500">Filters:</span>
@@ -1406,48 +1051,45 @@ const Pupils = () => {
         )}
       </div>
 
-      {/* Class-wise Student Cards - AI Responsive Grid */}
+      {/* Class-wise Student Cards */}
       {Object.entries(groupedPupils).map(([className, classPupils]) => (
         <div key={className} className="mb-8">
-          <div className={`flex flex-wrap ${deviceInfo.isMobile ? 'flex-col gap-2' : 'justify-between'} items-center mb-4`}>
-            <h2 className={`${deviceInfo.isMobile ? 'text-lg' : 'text-xl'} font-bold text-gray-800`}>
+          <div className="flex flex-wrap justify-between items-center gap-2 mb-4">
+            <h2 className="text-lg md:text-xl font-bold text-gray-800">
               {className} <span className="text-sm font-normal text-gray-500">({classPupils.length})</span>
             </h2>
-            <div className={`flex ${deviceInfo.isMobile ? 'w-full justify-start' : ''} gap-2`}>
+            <div className="flex gap-2">
               <button 
                 onClick={() => handlePromoteClass(className)}
                 className="bg-blue-600 text-white px-3 py-1 rounded-lg text-xs hover:bg-blue-700 flex items-center gap-1"
               >
-                <FiArrowRight className="w-3 h-3" /> {deviceInfo.isMobile ? 'PROMOTE' : 'PROMOTE'}
+                <FiArrowRight className="w-3 h-3" /> PROMOTE
               </button>
               <button 
                 onClick={() => handleGraduateClass(className)}
                 className="bg-purple-600 text-white px-3 py-1 rounded-lg text-xs hover:bg-purple-700 flex items-center gap-1"
               >
-                <FiAward className="w-3 h-3" /> {deviceInfo.isMobile ? 'GRAD' : 'GRADUATE'}
+                <FiAward className="w-3 h-3" /> GRADUATE
               </button>
             </div>
           </div>
           
-          {/* AI Responsive Grid */}
           <div className={`grid ${responsiveGrid} gap-3`}>
             {classPupils.map((pupil) => (
               <div
                 key={pupil._id}
-                className={`bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow overflow-hidden cursor-pointer border border-gray-100 ${
-                  deviceInfo.isMobile ? 'p-3' : 'p-3'
-                }`}
+                className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow overflow-hidden cursor-pointer border border-gray-100 p-3"
                 onClick={() => handleViewStudent(pupil)}
               >
                 <div className="flex justify-between items-start">
                   <div className="flex-1 min-w-0">
-                    <h3 className={`${deviceInfo.isMobile ? 'text-sm' : 'text-sm'} font-bold text-gray-800 truncate`}>
+                    <h3 className="text-sm font-bold text-gray-800 truncate">
                       {pupil.name}
                     </h3>
-                    <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-xs'} text-gray-500`}>
+                    <p className="text-xs text-gray-500">
                       Adm: {pupil.admNo}
                     </p>
-                    <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-xs'} text-gray-400 mt-1`}>
+                    <p className="text-xs text-gray-400 mt-1">
                       {pupil.gender === 'Male' ? 'M' : (pupil.gender === 'Female' ? 'F' : (pupil.gender || 'N/A'))} 
                       {pupil.stream && ` • ${pupil.stream}`}
                     </p>
@@ -1463,6 +1105,17 @@ const Pupils = () => {
           </div>
         </div>
       ))}
+
+      {pupils.length === 0 && (
+        <div className="bg-white rounded-xl shadow-md p-12 text-center">
+          <div className="flex flex-col items-center">
+            <div className="bg-gray-100 p-4 rounded-full mb-4"><FiUsers className="w-12 h-12 text-gray-400" /></div>
+            <h3 className="text-xl font-semibold text-gray-800 mb-2">No Students Yet</h3>
+            <p className="text-gray-500 mb-6">Click the "ADD NEW STUDENT" button to get started</p>
+            <button onClick={() => setIsModalOpen(true)} className="btn-primary">Add Your First Student</button>
+          </div>
+        </div>
+      )}
 
       <AddPupilModal 
         isOpen={isModalOpen} 
@@ -1483,34 +1136,6 @@ const Pupils = () => {
       {showTransferModal && <TransferModal />}
       {showStudentDetail && <StudentDetailModal />}
       {showDownloadModal && <DownloadModal />}
-
-      {/* AI Responsive CSS */}
-      <style jsx>{`
-        @media (max-width: 768px) {
-          .mobile-view .p-4 {
-            padding: 12px !important;
-          }
-          .mobile-view .gap-3 {
-            gap: 8px !important;
-          }
-          .mobile-view .text-base {
-            font-size: 16px !important;
-          }
-          .mobile-view input, .mobile-view select {
-            font-size: 16px !important;
-          }
-        }
-        
-        @media (min-width: 769px) and (max-width: 1024px) {
-          .tablet-view .grid-cols-2 {
-            grid-template-columns: repeat(2, 1fr) !important;
-          }
-        }
-        
-        .responsive-wrapper {
-          transition: all 0.3s ease;
-        }
-      `}</style>
     </Layout>
   );
 };
