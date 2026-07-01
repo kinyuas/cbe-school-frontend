@@ -3,7 +3,7 @@ import Layout from '../common/Layout';
 import toast from 'react-hot-toast';
 import { 
   FiSearch, FiFilter, FiSave, FiX, FiAward, FiTarget, 
-  FiBookOpen, FiFileText, FiLock, FiEdit2
+  FiBookOpen, FiFileText, FiLock, FiEdit2, FiRefreshCw
 } from 'react-icons/fi';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
@@ -40,6 +40,7 @@ const ModifyRecords = () => {
   const [showResults, setShowResults] = useState(false);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   
   // Track changes locally
   const [localScores, setLocalScores] = useState({});
@@ -75,10 +76,12 @@ const ModifyRecords = () => {
     return competencyLevels.find(l => score >= l.minScore && score <= l.maxScore);
   };
 
+  // Load initial data
   useEffect(() => {
     loadAllData();
   }, []);
 
+  // Update subjects when class changes
   useEffect(() => {
     if (selectedClass) {
       const subjects = subjectsByGrade[selectedClass] || [];
@@ -87,6 +90,7 @@ const ModifyRecords = () => {
     }
   }, [selectedClass]);
 
+  // Update streams when class changes
   useEffect(() => {
     if (selectedClass) {
       const learnersInClass = learners.filter(l => l.class === selectedClass);
@@ -96,36 +100,76 @@ const ModifyRecords = () => {
     }
   }, [selectedClass, learners]);
 
+  // Update exam names when exam type changes
+  useEffect(() => {
+    if (selectedExamType) {
+      const filteredExams = exams.filter(e => e.type === selectedExamType);
+      const examNames = [...new Set(filteredExams.map(e => e.title).filter(Boolean))];
+      setAvailableExamNames(examNames);
+      setSelectedExamName('');
+    } else {
+      setAvailableExamNames([]);
+      setSelectedExamName('');
+    }
+  }, [selectedExamType, exams]);
+
   const loadAllData = async () => {
+    setLoading(true);
     try {
-      const storedSchool = localStorage.getItem('schoolInfo');
-      if (storedSchool) {
-        const school = JSON.parse(storedSchool);
+      console.log('Loading data for Modify Results...');
+      
+      // Load school info
+      const schoolRes = await api.get('/school/settings');
+      if (schoolRes.data?.success && schoolRes.data?.data) {
+        const school = schoolRes.data.data;
         setSchoolInfo(school);
-        const activeClasses = (school.classes || [])
+        const classes = school.classes || [];
+        const activeClasses = classes
           .filter(c => c.isActive !== false)
           .map(c => c.name);
         setAvailableClasses(activeClasses);
       }
       
+      // Load learners
       const learnersRes = await api.get('/pupils');
-      setLearners(learnersRes.data?.data || []);
+      if (learnersRes.data?.success) {
+        setLearners(learnersRes.data.data || []);
+        console.log(`Loaded ${learnersRes.data.data?.length || 0} learners`);
+      }
       
+      // Load results
       const resultsRes = await api.get('/results');
-      setResults(resultsRes.data?.data || []);
+      if (resultsRes.data?.success) {
+        setResults(resultsRes.data.data || []);
+        console.log(`Loaded ${resultsRes.data.data?.length || 0} results`);
+      }
       
+      // Load exams
       const examsRes = await api.get('/exams');
-      setExams(examsRes.data?.data || []);
+      if (examsRes.data?.success) {
+        const examsData = examsRes.data.data || [];
+        setExams(examsData);
+        
+        // Extract exam types from loaded exams
+        const examTypes = [...new Set(examsData.map(e => e.type).filter(Boolean))];
+        setAvailableExamTypes(examTypes);
+        console.log(`Loaded ${examsData.length} exams, ${examTypes.length} exam types`);
+      }
       
-      const examTypes = [...new Set(examsRes.data?.data?.map(e => e.type).filter(Boolean))];
-      const examNames = [...new Set(examsRes.data?.data?.map(e => e.title).filter(Boolean))];
-      setAvailableExamTypes(examTypes);
-      setAvailableExamNames(examNames);
-      
+      toast.success('Data loaded successfully');
     } catch (error) {
       console.error('Error loading data:', error);
-      toast.error('Failed to load data');
+      toast.error('Failed to load data from server');
+    } finally {
+      setLoading(false);
     }
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await loadAllData();
+    setRefreshing(false);
+    toast.success('Data refreshed');
   };
 
   const loadResults = async () => {
@@ -142,47 +186,72 @@ const ModifyRecords = () => {
     setLoading(true);
     
     try {
+      // Filter learners by class
       let filteredLearners = learners.filter(l => l.class === selectedClass);
       if (selectedStream && selectedStream !== 'all') {
         filteredLearners = filteredLearners.filter(l => l.stream === selectedStream);
       }
       
-      const response = await api.get('/results', {
-        params: {
-          subject: selectedSubject,
-          examType: selectedExamType,
-          examName: selectedExamName,
-          term: selectedTerm,
-          year: selectedYear,
-          class: selectedClass,
-          stream: selectedStream
-        }
-      });
+      if (filteredLearners.length === 0) {
+        toast.error('No learners found for the selected criteria');
+        setShowResults(false);
+        setLoading(false);
+        return;
+      }
       
+      // Build query parameters for results
+      const params = {
+        class: selectedClass,
+        subject: selectedSubject,
+        year: selectedYear
+      };
+      
+      if (selectedStream && selectedStream !== 'all') {
+        params.stream = selectedStream;
+      }
+      if (selectedTerm) {
+        params.term = selectedTerm;
+      }
+      if (selectedExamType) {
+        params.examType = selectedExamType;
+      }
+      if (selectedExamName) {
+        params.examName = selectedExamName;
+      }
+      
+      console.log('Fetching results with params:', params);
+      
+      // Fetch results from API
+      const response = await api.get('/results', { params });
       const existingResults = response.data?.data || [];
+      console.log(`Found ${existingResults.length} existing results`);
+      
+      // Create a map of pupilId to result
       const resultsMap = new Map();
       existingResults.forEach(r => {
         const pupilId = r.pupilId?._id || r.pupilId;
         resultsMap.set(pupilId, r);
       });
       
+      // Build the results list for each learner
       const learnerResults = filteredLearners.map(learner => {
         const existingResult = resultsMap.get(learner._id);
-        const marks = existingResult?.marks !== undefined ? existingResult.marks : '';
+        const marks = existingResult?.marks !== undefined && existingResult?.marks !== null ? existingResult.marks : '';
         
         return {
           _id: existingResult?._id,
           pupilId: learner._id,
-          learnerName: learner.name,
-          admNo: learner.admNo,
-          stream: learner.stream,
-          class: learner.class,
+          learnerName: learner.name || learner.fullName || 'Unknown',
+          admNo: learner.admNo || learner.admissionNumber || 'N/A',
+          stream: learner.stream || '',
+          class: learner.class || selectedClass,
           marks: marks,
-          competencyLevel: existingResult?.competencyLevel || getCompetencyFromMarks(marks)?.level || 'Not Assessed',
-          examType: selectedExamType,
-          examName: selectedExamName,
-          term: selectedTerm,
-          year: selectedYear
+          competencyLevel: existingResult?.competencyLevel || 
+            (marks !== '' ? getCompetencyFromMarks(marks)?.level : 'Not Assessed') || 'Not Assessed',
+          examType: selectedExamType || existingResult?.examType || '',
+          examName: selectedExamName || existingResult?.examName || '',
+          term: selectedTerm || existingResult?.term || '',
+          year: selectedYear || existingResult?.year || new Date().getFullYear()
         };
       });
       
@@ -191,16 +260,16 @@ const ModifyRecords = () => {
       // Initialize local scores with existing marks
       const initialScores = {};
       learnerResults.forEach(r => {
-        initialScores[r.pupilId] = r.marks !== '' ? r.marks : '';
+        initialScores[r.pupilId] = r.marks !== '' && r.marks !== null && r.marks !== undefined ? r.marks : '';
       });
       setLocalScores(initialScores);
       
       setShowResults(true);
-      toast.success(`Found ${learnerResults.length} learners`);
+      toast.success(`Found ${learnerResults.length} learners with ${existingResults.length} existing results`);
       
     } catch (error) {
       console.error('Error loading results:', error);
-      toast.error('Failed to load results');
+      toast.error('Failed to load results: ' + (error.response?.data?.message || error.message));
     } finally {
       setLoading(false);
     }
@@ -230,6 +299,7 @@ const ModifyRecords = () => {
     setSaving(true);
     let savedCount = 0;
     let errorCount = 0;
+    let skippedCount = 0;
     
     for (const result of filteredResults) {
       const newMarks = localScores[result.pupilId];
@@ -237,11 +307,13 @@ const ModifyRecords = () => {
       
       // Skip if no change
       if (newMarks === oldMarks || (newMarks === '' && oldMarks === '')) {
+        skippedCount++;
         continue;
       }
       
       // Skip if empty
       if (newMarks === '' || newMarks === null || newMarks === undefined) {
+        skippedCount++;
         continue;
       }
       
@@ -254,30 +326,35 @@ const ModifyRecords = () => {
       const competencyLevel = getCompetencyFromMarks(marks)?.level || 'Not Assessed';
       
       try {
+        const resultData = {
+          pupilId: result.pupilId,
+          subject: selectedSubject,
+          marks: marks,
+          competencyLevel: competencyLevel,
+          class: selectedClass,
+          stream: selectedStream || result.stream || '',
+          examType: selectedExamType || result.examType || '',
+          examName: selectedExamName || result.examName || '',
+          term: selectedTerm || result.term || '',
+          year: selectedYear || result.year || new Date().getFullYear(),
+          updatedBy: user?.name || 'Admin'
+        };
+        
         if (result._id) {
           // Update existing result
-          await api.put(`/results/${result._id}`, { 
-            marks, 
-            competencyLevel,
-            updatedBy: user?.name || 'Admin'
-          });
+          await api.put(`/results/${result._id}`, resultData);
+          console.log(`Updated result for ${result.learnerName}`);
         } else {
           // Create new result
           await api.post('/results', {
-            pupilId: result.pupilId,
-            subject: selectedSubject,
-            marks,
-            competencyLevel,
-            examType: selectedExamType,
-            examName: selectedExamName,
-            term: selectedTerm,
-            year: selectedYear,
+            ...resultData,
             createdBy: user?.name || 'Admin'
           });
+          console.log(`Created new result for ${result.learnerName}`);
         }
         savedCount++;
       } catch (error) {
-        console.error('Error saving result:', error);
+        console.error('Error saving result for', result.learnerName, error);
         errorCount++;
       }
     }
@@ -288,6 +365,8 @@ const ModifyRecords = () => {
       await loadResults();
     } else if (errorCount > 0) {
       toast.error(`Failed to save ${errorCount} result(s)`);
+    } else if (skippedCount > 0) {
+      toast.info(`No changes to save (${skippedCount} skipped)`);
     } else {
       toast.info('No changes to save');
     }
@@ -316,11 +395,23 @@ const ModifyRecords = () => {
     result.admNo?.toString().includes(searchTerm)
   );
 
-  const years = [2023, 2024, 2025, 2026];
+  const years = [2023, 2024, 2025, 2026, 2027];
 
   return (
     <Layout title="Modify Class Results" subtitle="Edit or update student assessment results">
       
+      {/* Refresh Button */}
+      <div className="flex justify-end mb-4">
+        <button
+          onClick={handleRefresh}
+          disabled={refreshing}
+          className="bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center gap-2 px-4 py-2 text-sm transition-colors disabled:opacity-50"
+        >
+          <FiRefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+          {refreshing ? 'Refreshing...' : 'Refresh Data'}
+        </button>
+      </div>
+
       {!isAdmin && (
         <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6 flex items-start gap-3">
           <FiLock className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
@@ -385,16 +476,19 @@ const ModifyRecords = () => {
             {availableExamTypes.map(type => <option key={type} value={type}>{type}</option>)}
           </select>
           <select value={selectedExamName} onChange={(e) => setSelectedExamName(e.target.value)} className="input-field text-sm py-2" disabled={!selectedExamType}>
-            <option value="">Exam Name</option>
+            <option value="">{!selectedExamType ? 'Select type first' : 'Exam Name'}</option>
             {availableExamNames.map(name => <option key={name} value={name}>{name}</option>)}
           </select>
         </div>
         
-        <div className="flex gap-3 mt-4">
-          <button onClick={loadResults} disabled={loading} className="btn-primary text-sm py-2">
+        <div className="flex gap-3 mt-4 flex-wrap">
+          <button onClick={loadResults} disabled={loading} className="btn-primary text-sm py-2 px-4">
             <FiSearch className="inline mr-1" /> {loading ? 'Loading...' : 'LOAD RESULTS'}
           </button>
-          <button onClick={resetFilters} className="bg-gray-500 text-white px-4 py-2 rounded-lg text-sm">RESET</button>
+          <button onClick={resetFilters} className="bg-gray-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-gray-600 transition-colors">RESET</button>
+          <button onClick={loadAllData} className="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-600 transition-colors flex items-center gap-1">
+            <FiRefreshCw className="w-3 h-3" /> RELOAD DATA
+          </button>
         </div>
       </div>
 
@@ -408,7 +502,7 @@ const ModifyRecords = () => {
               placeholder="Search by name or admission..." 
               value={searchTerm} 
               onChange={(e) => setSearchTerm(e.target.value)} 
-              className="w-full pl-10 pr-4 py-2 border rounded-lg text-sm" 
+              className="w-full pl-10 pr-4 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" 
             />
           </div>
         </div>
@@ -418,10 +512,15 @@ const ModifyRecords = () => {
       {showResults && filteredBySearch.length > 0 && (
         <div className="bg-white rounded-lg shadow-md overflow-hidden">
           <div className="p-3 bg-gray-50 border-b">
-            <div className="flex justify-between items-center">
+            <div className="flex justify-between items-center flex-wrap gap-2">
               <h3 className="font-semibold text-gray-800">
                 {selectedClass} - {selectedSubject} ({filteredBySearch.length} student{filteredBySearch.length !== 1 ? 's' : ''})
+                {selectedTerm && ` | ${selectedTerm}`}
+                {selectedExamName && ` | ${selectedExamName}`}
               </h3>
+              <div className="text-xs text-gray-500">
+                {filteredResults.filter(r => r._id).length} have results • {filteredResults.filter(r => !r._id).length} pending
+              </div>
             </div>
           </div>
           
@@ -429,21 +528,27 @@ const ModifyRecords = () => {
             <table className="w-full">
               <thead className="bg-gray-50 border-b">
                 <tr>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">#</th>
                   <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Student Name</th>
                   <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Admission No</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Stream</th>
                   <th className="px-4 py-3 text-center text-sm font-semibold text-gray-700 w-32">Score (%)</th>
                   <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Competency Level</th>
+                  <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {filteredBySearch.map((result) => {
+                {filteredBySearch.map((result, index) => {
                   const currentScore = localScores[result.pupilId] !== undefined ? localScores[result.pupilId] : (result.marks !== '' ? result.marks : '');
                   const competency = getCompetencyFromMarks(currentScore);
+                  const hasExistingResult = !!result._id;
                   
                   return (
                     <tr key={result.pupilId} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-sm text-gray-500">{index + 1}</td>
                       <td className="px-4 py-3 text-sm font-medium text-gray-800">{result.learnerName}</td>
                       <td className="px-4 py-3 text-sm text-gray-600">{result.admNo}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600">{result.stream || '-'}</td>
                       <td className="px-4 py-3 text-center">
                         <input
                           type="number"
@@ -466,6 +571,13 @@ const ModifyRecords = () => {
                           <span className="text-gray-400 text-sm">Enter score</span>
                         )}
                       </td>
+                      <td className="px-4 py-3 text-sm">
+                        {hasExistingResult ? (
+                          <span className="text-green-600 text-xs font-medium">✓ Saved</span>
+                        ) : (
+                          <span className="text-yellow-600 text-xs font-medium">⏳ Pending</span>
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
@@ -475,11 +587,17 @@ const ModifyRecords = () => {
           
           {/* Save Button */}
           {isAdmin && filteredBySearch.length > 0 && (
-            <div className="p-4 bg-gray-50 border-t flex justify-end">
+            <div className="p-4 bg-gray-50 border-t flex justify-between items-center flex-wrap gap-2">
+              <div className="text-xs text-gray-500">
+                {filteredBySearch.filter(r => {
+                  const current = localScores[r.pupilId];
+                  return current !== '' && current !== null && current !== undefined;
+                }).length} students have scores entered
+              </div>
               <button 
                 onClick={handleSaveAllChanges} 
                 disabled={saving}
-                className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 disabled:opacity-50"
+                className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 disabled:opacity-50 transition-colors"
               >
                 <FiSave className="w-4 h-4" /> {saving ? 'SAVING...' : 'SAVE ALL CHANGES'}
               </button>
@@ -492,6 +610,7 @@ const ModifyRecords = () => {
         <div className="bg-yellow-50 rounded-xl p-8 text-center">
           <FiFileText className="w-12 h-12 text-yellow-500 mx-auto mb-3" />
           <p className="text-gray-600">No students found for the selected criteria.</p>
+          <p className="text-sm text-gray-400 mt-1">Try adjusting your filters or load more data.</p>
         </div>
       )}
 
