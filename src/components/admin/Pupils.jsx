@@ -8,7 +8,7 @@ import {
   FiX, FiSearch, FiUsers, FiAlertCircle, FiDownload, FiFileText, 
   FiFile, FiArrowRight, FiAward, FiUserPlus, FiInfo,
   FiEdit2, FiTrash2, FiCheckCircle, FiAlertTriangle, FiSend,
-  FiFilter, FiMonitor, FiSmartphone, FiTablet
+  FiFilter, FiMonitor, FiSmartphone, FiTablet, FiBookOpen
 } from 'react-icons/fi';
 
 // ===== AI Device Detection Hook =====
@@ -118,6 +118,7 @@ const Pupils = () => {
   const [sortBy, setSortBy] = useState('name');
   const [sortOrder, setSortOrder] = useState('asc');
   const [loading, setLoading] = useState(true);
+  const [highestClass, setHighestClass] = useState('');
   
   const [retainedData, setRetainedData] = useState({
     studentName: '',
@@ -248,6 +249,11 @@ const Pupils = () => {
           .filter(c => c.isActive !== false)
           .map(c => c.name);
         setAvailableClasses(activeClasses);
+        
+        // Determine the highest class from the school settings
+        if (activeClasses.length > 0) {
+          setHighestClass(activeClasses[activeClasses.length - 1]);
+        }
       }
       
       const pupilsResponse = await api.get('/pupils');
@@ -302,6 +308,12 @@ const Pupils = () => {
   };
 
   const handleGraduateClass = (className) => {
+    // Only allow graduation if this is the highest class
+    if (className !== highestClass) {
+      toast.error(`Graduation is only available for the highest class: ${highestClass}`);
+      return;
+    }
+    
     const classStudents = pupils.filter(p => p.class === className);
     if (classStudents.length === 0) {
       toast.error(`No students found in ${className}`);
@@ -517,11 +529,11 @@ const Pupils = () => {
     const fileName = `${downloadClass}${downloadStream && downloadStream !== 'all' && downloadStream !== '' ? `_${downloadStream}` : ''}_students`;
     const titleText = `${downloadClass}${downloadStream && downloadStream !== 'all' && downloadStream !== '' ? ` - ${downloadStream}` : ''} Student List`;
     
-    const schoolName = schoolInfo.name || 'SCHOOL NAME';
+    const schoolName = schoolInfo.name || schoolInfo.schoolName || 'SCHOOL NAME';
     const schoolMotto = schoolInfo.motto || 'Excellence in Education';
     const schoolPoBox = schoolInfo.poBox || 'P.O. Box 00000';
-    const schoolPhone = schoolInfo.phone || '+254 XXX XXX XXX';
-    const schoolEmail = schoolInfo.email || 'info@school.ac.ke';
+    const schoolPhone = schoolInfo.phone || schoolInfo.phoneNumber || '+254 XXX XXX XXX';
+    const schoolEmail = schoolInfo.email || schoolInfo.schoolEmail || 'info@school.ac.ke';
     
     if (downloadFormat === 'excel') {
       const downloadData = studentsToDownload.map((student, index) => ({
@@ -789,9 +801,15 @@ const Pupils = () => {
               <button onClick={() => { setShowStudentDetail(false); handleTransferClick(viewingStudent); }} className="bg-yellow-600 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-yellow-700">
                 TRANSFER
               </button>
-              <button onClick={() => { setShowStudentDetail(false); handlePromoteClass(viewingStudent.class); }} className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-green-700">
-                PROMOTE
-              </button>
+              {viewingStudent.class === highestClass ? (
+                <button onClick={() => { setShowStudentDetail(false); handleGraduateClass(viewingStudent.class); }} className="bg-purple-600 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-purple-700">
+                  <FiAward className="inline mr-1 w-3 h-3" /> GRADUATE
+                </button>
+              ) : (
+                <button onClick={() => { setShowStudentDetail(false); handlePromoteClass(viewingStudent.class); }} className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-green-700">
+                  <FiArrowRight className="inline mr-1 w-3 h-3" /> PROMOTE
+                </button>
+              )}
               <button onClick={() => { setShowStudentDetail(false); handleDeleteStudent(viewingStudent._id); }} className="text-red-600 hover:text-red-800 text-xs flex items-center gap-1 border border-red-300 px-3 py-1.5 rounded-lg">
                 <FiTrash2 className="w-3 h-3" /> DELETE
               </button>
@@ -823,6 +841,11 @@ const Pupils = () => {
                 ? `${promoteClassData.className} → Graduate to Alumni`
                 : `${promoteClassData.className} → ${promoteClassData.nextClass}`}
             </p>
+            {promoteAction === 'graduate' && (
+              <p className="text-sm text-purple-600 mt-1">
+                <FiAward className="inline mr-1" /> This action will move selected students to the Alumni section.
+              </p>
+            )}
           </div>
           
           <div className="mb-4 flex justify-between items-center">
@@ -961,6 +984,31 @@ const Pupils = () => {
 
   return (
     <Layout title="All Students" subtitle="Manage and view all students">
+      {/* School Info Banner */}
+      <div className="bg-gradient-to-r from-blue-50 to-green-50 rounded-xl p-4 mb-6 border border-blue-100">
+        <div className="flex flex-wrap justify-between items-center">
+          <div>
+            <h3 className="text-lg font-bold text-gray-800">
+              {schoolInfo.name || schoolInfo.schoolName || 'School Name'}
+            </h3>
+            <p className="text-sm text-gray-600">
+              {schoolInfo.motto || 'Excellence in Education'}
+            </p>
+            <div className="flex flex-wrap gap-3 mt-1 text-xs text-gray-500">
+              {schoolInfo.poBox && <span>📬 {schoolInfo.poBox}</span>}
+              {schoolInfo.phone && <span>📞 {schoolInfo.phone}</span>}
+              {schoolInfo.email && <span>✉️ {schoolInfo.email}</span>}
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <FiBookOpen className="text-blue-600 w-5 h-5" />
+            <span className="text-sm font-medium text-gray-700">
+              Classes: {availableClasses.length} • Highest: {highestClass || 'N/A'}
+            </span>
+          </div>
+        </div>
+      </div>
+
       <div className="flex flex-wrap justify-between items-center gap-3 mb-6">
         <button onClick={() => setShowDownloadModal(true)} className="bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center justify-center gap-2 px-4 py-2 text-sm">
           <FiDownload /> DOWNLOAD LISTS
@@ -1052,59 +1100,81 @@ const Pupils = () => {
       </div>
 
       {/* Class-wise Student Cards */}
-      {Object.entries(groupedPupils).map(([className, classPupils]) => (
-        <div key={className} className="mb-8">
-          <div className="flex flex-wrap justify-between items-center gap-2 mb-4">
-            <h2 className="text-lg md:text-xl font-bold text-gray-800">
-              {className} <span className="text-sm font-normal text-gray-500">({classPupils.length})</span>
-            </h2>
-            <div className="flex gap-2">
-              <button 
-                onClick={() => handlePromoteClass(className)}
-                className="bg-blue-600 text-white px-3 py-1 rounded-lg text-xs hover:bg-blue-700 flex items-center gap-1"
-              >
-                <FiArrowRight className="w-3 h-3" /> PROMOTE
-              </button>
-              <button 
-                onClick={() => handleGraduateClass(className)}
-                className="bg-purple-600 text-white px-3 py-1 rounded-lg text-xs hover:bg-purple-700 flex items-center gap-1"
-              >
-                <FiAward className="w-3 h-3" /> GRADUATE
-              </button>
+      {Object.entries(groupedPupils).map(([className, classPupils]) => {
+        const isHighestClass = className === highestClass;
+        const isGraduationClass = isHighestClass && classPupils.length > 0;
+        
+        return (
+          <div key={className} className="mb-8">
+            <div className="flex flex-wrap justify-between items-center gap-2 mb-4">
+              <h2 className="text-lg md:text-xl font-bold text-gray-800">
+                {className} <span className="text-sm font-normal text-gray-500">({classPupils.length})</span>
+                {isHighestClass && (
+                  <span className="ml-2 text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">
+                    Highest Class
+                  </span>
+                )}
+              </h2>
+              <div className="flex gap-2">
+                {!isHighestClass ? (
+                  <button 
+                    onClick={() => handlePromoteClass(className)}
+                    className="bg-blue-600 text-white px-3 py-1 rounded-lg text-xs hover:bg-blue-700 flex items-center gap-1"
+                  >
+                    <FiArrowRight className="w-3 h-3" /> PROMOTE
+                  </button>
+                ) : (
+                  <button 
+                    onClick={() => handleGraduateClass(className)}
+                    className="bg-purple-600 text-white px-3 py-1 rounded-lg text-xs hover:bg-purple-700 flex items-center gap-1"
+                  >
+                    <FiAward className="w-3 h-3" /> GRADUATE
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
-          
-          <div className={`grid ${responsiveGrid} gap-3`}>
-            {classPupils.map((pupil) => (
-              <div
-                key={pupil._id}
-                className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow overflow-hidden cursor-pointer border border-gray-100 p-3"
-                onClick={() => handleViewStudent(pupil)}
-              >
-                <div className="flex justify-between items-start">
-                  <div className="flex-1 min-w-0">
-                    <h3 className="text-sm font-bold text-gray-800 truncate">
-                      {pupil.name}
-                    </h3>
-                    <p className="text-xs text-gray-500">
-                      Adm: {pupil.admNo}
-                    </p>
-                    <p className="text-xs text-gray-400 mt-1">
-                      {pupil.gender === 'Male' ? 'M' : (pupil.gender === 'Female' ? 'F' : (pupil.gender || 'N/A'))} 
-                      {pupil.stream && ` • ${pupil.stream}`}
-                    </p>
-                  </div>
-                  <div className="text-right flex-shrink-0 ml-2">
-                    <span className="text-xs bg-gray-100 px-2 py-0.5 rounded whitespace-nowrap">
-                      {pupil.class}
-                    </span>
+            
+            <div className={`grid ${responsiveGrid} gap-3`}>
+              {classPupils.map((pupil) => (
+                <div
+                  key={pupil._id}
+                  className={`bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow overflow-hidden cursor-pointer border ${
+                    isHighestClass ? 'border-purple-200' : 'border-gray-100'
+                  } p-3`}
+                  onClick={() => handleViewStudent(pupil)}
+                >
+                  <div className="flex justify-between items-start">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="text-sm font-bold text-gray-800 truncate">
+                        {pupil.name}
+                      </h3>
+                      <p className="text-xs text-gray-500">
+                        Adm: {pupil.admNo}
+                      </p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        {pupil.gender === 'Male' ? 'M' : (pupil.gender === 'Female' ? 'F' : (pupil.gender || 'N/A'))} 
+                        {pupil.stream && ` • ${pupil.stream}`}
+                      </p>
+                    </div>
+                    <div className="text-right flex-shrink-0 ml-2">
+                      <span className="text-xs bg-gray-100 px-2 py-0.5 rounded whitespace-nowrap">
+                        {pupil.class}
+                      </span>
+                      {isHighestClass && (
+                        <div className="mt-1">
+                          <span className="text-[8px] bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded whitespace-nowrap">
+                            Graduating
+                          </span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
 
       {pupils.length === 0 && (
         <div className="bg-white rounded-xl shadow-md p-12 text-center">
