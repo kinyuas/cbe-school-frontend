@@ -271,7 +271,7 @@ const AdminDashboard = () => {
 
   if (loading) {
     return (
-      <Layout title="Control Panel" subtitle="CBC - Competency Based Education">
+      <Layout title="Control Panel" subtitle="CBE - Competency Based Education">
         <div className="flex justify-center items-center h-64">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
         </div>
@@ -292,7 +292,7 @@ const AdminDashboard = () => {
   return (
     <Layout 
       title={`${schoolName} - Control Panel`} 
-      subtitle={`CBC - Competency Based Education | ${schoolMotto}`}
+      subtitle={`CBE - Competency Based Education | ${schoolMotto}`}
     >
       {/* Header with Refresh Button */}
       <div className="flex items-center justify-end mb-4">
@@ -308,12 +308,12 @@ const AdminDashboard = () => {
         </button>
       </div>
 
-      {/* Welcome Message - CBC Dashboard Card */}
+      {/* Welcome Message - CBE Dashboard Card */}
       <div className={`bg-gradient-to-r from-green-600 to-blue-600 text-white rounded-xl ${deviceInfo.isMobile ? 'p-3' : 'p-4'} mb-6`}>
         <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'items-center justify-between'}`}>
           <div>
             <h2 className={`${deviceInfo.isMobile ? 'text-base' : 'text-xl'} font-bold`}>
-              Competency Based Curriculum (CBC) Dashboard
+              Competency Based Curriculum (CBE) Dashboard
             </h2>
             <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-sm'} opacity-90`}>
               Track student progress, manage teachers, and view competencies all in one place
@@ -328,7 +328,7 @@ const AdminDashboard = () => {
         </div>
       </div>
 
-      {/* Quick Actions - Below CBC Dashboard Card */}
+      {/* Quick Actions - Below CBE Dashboard Card */}
       <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding} mb-6`}>
         <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-4`}>Quick Actions</h2>
         <div className={`grid ${deviceInfo.isMobile ? 'grid-cols-2 gap-2' : 'grid-cols-3 md:grid-cols-6 gap-3'}`}>

@@ -75,8 +75,8 @@ const useResponsiveClasses = (deviceInfo) => {
   };
 };
 
-// ===== COMPLETE CBC SUBJECT CONFIGURATION =====
-const CBC_SUBJECTS_BY_GRADE = {
+// ===== COMPLETE CBE SUBJECT CONFIGURATION =====
+const E_SUBJECTS_BY_GRADE = {
   'Play Group': [
     'Language Activities',
     'Mathematical Activities',
@@ -323,8 +323,8 @@ const ClassPerformance = () => {
   // Update available subjects when class changes
   useEffect(() => {
     if (selectedClass) {
-      // Get subjects from the CBC configuration
-      const subjects = CBC_SUBJECTS_BY_GRADE[selectedClass] || [];
+      // Get subjects from the CBE configuration
+      const subjects = CBE_SUBJECTS_BY_GRADE[selectedClass] || [];
       setAvailableSubjects(subjects);
       
       // If current selected subject is not in the list, clear it
@@ -1415,7 +1415,7 @@ const ClassPerformance = () => {
 
       {/* Competency Guide - AI Responsive */}
       <div className={`mt-4 bg-white rounded-xl shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-4'}`}>
-        <h3 className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} font-semibold text-gray-700 mb-2`}>CBC Competency Levels Guide</h3>
+        <h3 className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} font-semibold text-gray-700 mb-2`}>CBE Competency Levels Guide</h3>
         <div className={`grid ${deviceInfo.isMobile ? 'grid-cols-2 gap-1' : 'grid-cols-2 md:grid-cols-5 gap-2'}`}>
           {competencyLevels.map(level => (
             <div key={level.level} className={`flex items-center gap-1 ${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'}`}>

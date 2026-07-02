@@ -606,7 +606,7 @@ const MyStudents = () => {
 
   if (loading) {
     return (
-      <Layout title="My Learners" subtitle="CBC - View all learners by class">
+      <Layout title="My Learners" subtitle="CBE - View all learners by class">
         <div className="flex justify-center items-center h-64">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
         </div>
@@ -615,7 +615,7 @@ const MyStudents = () => {
   }
 
   return (
-    <Layout title="My Learners" subtitle="CBC - View and manage all learners">
+    <Layout title="My Learners" subtitle="CBE - View and manage all learners">
       
       {/* Search, Filter and Download Bar - AI Responsive */}
       <div className={`bg-white rounded-xl shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-4'} mb-6`}>
@@ -771,7 +771,7 @@ const MyStudents = () => {
                   </div>
                   <div className="bg-green-100 px-3 py-1 rounded-full">
                     <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} font-semibold text-green-700`}>
-                      CBC Class
+                      CBE Class
                     </span>
                   </div>
                 </div>

@@ -3,8 +3,8 @@ import Layout from '../common/Layout';
 import toast from 'react-hot-toast';
 import { FiSearch, FiEye, FiAward } from 'react-icons/fi';
 
-// CBC Learning Areas per grade level
-const cbcLearningAreas = {
+// CBE Learning Areas per grade level
+const cbELearningAreas = {
   'PP1-PP2': ['Language Activities', 'Mathematical Activities', 'Environmental Activities', 'Psychomotor and Creative Activities', 'Religious Education Activities'],
   'Grade 1-3': ['English', 'Kiswahili', 'Mathematics', 'Environmental Activities', 'Hygiene and Nutrition', 'Religious Education', 'Creative Arts'],
   'Grade 4-6': ['English', 'Kiswahili', 'Mathematics', 'Science and Technology', 'Social Studies', 'Religious Education', 'Creative Arts', 'Physical and Health Education'],
@@ -58,12 +58,12 @@ const Results = () => {
   };
 
   return (
-    <Layout title="CBC Learning Outcomes" subtitle="Competency Based Assessment Results">
+    <Layout title="CBE Learning Outcomes" subtitle="Competency Based Assessment Results">
       
       {/* Competence Level Guide */}
       <div className="bg-gradient-to-r from-blue-50 to-green-50 rounded-xl p-4 mb-6">
         <h3 className="text-md font-bold text-gray-800 mb-2 flex items-center gap-2">
-          <FiAward className="text-blue-600" /> Competency Level Guide (CBC)
+          <FiAward className="text-blue-600" /> Competency Level Guide (CBE)
         </h3>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
           {competenceLevels.map((level) => (

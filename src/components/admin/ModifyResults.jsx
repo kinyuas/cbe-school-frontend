@@ -45,7 +45,7 @@ const ModifyRecords = () => {
   // Track changes locally
   const [localScores, setLocalScores] = useState({});
 
-  // CBC Subjects by Grade Level - INCLUDING PLAY GROUP (PG)
+  // CBE Subjects by Grade Level - INCLUDING PLAY GROUP (PG)
   const subjectsByGrade = {
     // Early Years Education (Play Group / Pre-Primary)
     'PG': ['Language Activities', 'Mathematical Activities', 'Environmental Activities', 'Psychomotor and Creative Activities', 'Religious Education Activities', 'Social Skills'],
@@ -655,7 +655,7 @@ const ModifyRecords = () => {
 
       {/* Competency Legend */}
       <div className="mt-6 bg-white rounded-lg shadow-md p-4">
-        <h4 className="text-sm font-semibold text-gray-800 mb-3">CBC Competency Levels Guide</h4>
+        <h4 className="text-sm font-semibold text-gray-800 mb-3">CBE Competency Levels Guide</h4>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           {competencyLevels.map(level => (
             <div key={level.level} className="text-center">

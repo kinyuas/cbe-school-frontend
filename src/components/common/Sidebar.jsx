@@ -97,7 +97,7 @@ const Sidebar = ({ isMobile, isOpen, onClose }) => {
               </div>
               <div className="min-w-0">
                 <h2 className="text-sm font-bold tracking-tight text-white truncate">School Manager</h2>
-                <p className="text-[8px] text-blue-200">CBC Education System</p>
+                <p className="text-[8px] text-blue-200">CBE Education System</p>
               </div>
             </div>
             {/* Close button inside sidebar for mobile */}
@@ -174,7 +174,7 @@ const Sidebar = ({ isMobile, isOpen, onClose }) => {
           </div>
           <div className="min-w-0">
             <h2 className="text-lg font-bold tracking-tight text-white truncate">School Manager</h2>
-            <p className="text-[10px] text-blue-200">CBC Education System</p>
+            <p className="text-[10px] text-blue-200">CBE Education System</p>
           </div>
         </div>
       </div>

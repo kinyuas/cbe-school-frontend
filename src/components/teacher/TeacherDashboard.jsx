@@ -417,14 +417,14 @@ const TeacherDashboard = () => {
 
   const statCards = [
     { title: 'Total Students', value: stats.totalLearners, icon: FiUsers, color: 'from-blue-500 to-blue-600' },
-    { title: 'CBC Competencies', value: stats.competenciesRecorded, icon: FiBookOpen, color: 'from-green-500 to-green-600' },
+    { title: 'CBE Competencies', value: stats.competenciesRecorded, icon: FiBookOpen, color: 'from-green-500 to-green-600' },
     { title: 'Classes Taught', value: stats.classesTaught, icon: FiTarget, color: 'from-purple-500 to-purple-600' },
     { title: 'Upcoming Assessments', value: stats.upcomingAssessments, icon: FiCalendar, color: 'from-orange-500 to-orange-600' },
   ];
 
   if (loading) {
     return (
-      <Layout title="Teacher Dashboard" subtitle="CBC - Competency Based Education">
+      <Layout title="Teacher Dashboard" subtitle="CBE - Competency Based Education">
         <div className="flex justify-center items-center h-64">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
         </div>
@@ -441,7 +441,7 @@ const TeacherDashboard = () => {
   return (
     <Layout 
       title={`${greeting}, ${user?.name || 'Teacher'}`} 
-      subtitle={`CBC Teacher - ${schoolInfo.name || user?.school || 'Competency Based Education'}`}
+      subtitle={`CBE Teacher - ${schoolInfo.name || user?.school || 'Competency Based Education'}`}
     >
       {/* Header with Refresh Button - Aligned with Hamburger on mobile */}
       <div className="flex items-center justify-end mb-4">
@@ -530,14 +530,14 @@ const TeacherDashboard = () => {
               <h2 className={`${deviceInfo.isMobile ? 'text-base' : 'text-xl'} font-bold`}>Welcome to Your Dashboard</h2>
             </div>
             <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} opacity-90`}>
-              Track student progress, record test scores, and monitor CBC performance all in one place
+              Track student progress, record test scores, and monitor CBE performance all in one place
             </p>
             <div className={`flex ${deviceInfo.isMobile ? 'flex-wrap gap-2' : 'items-center gap-4'} mt-3 text-xs`}>
               <span className="flex items-center gap-1">
                 <FiCheckCircle className="w-3 h-3" /> TSC: {user?.tscNumber || 'Registered'}
               </span>
               <span className="flex items-center gap-1">
-                <FiTarget className="w-3 h-3" /> CBC Certified
+                <FiTarget className="w-3 h-3" /> CBE Certified
               </span>
               <span className="flex items-center gap-1">
                 <FiBookOpen className="w-3 h-3" /> {stats.classesTaught} Classes

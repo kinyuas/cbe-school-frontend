@@ -468,7 +468,7 @@ const UpdateResults = () => {
   }
 
   return (
-    <Layout title="Update Class Results" subtitle="CBC - Record learner competencies">
+    <Layout title="Update Class Results" subtitle="- Record learner competencies">
       {/* Header - AI Responsive */}
       <div className={`bg-gradient-to-r from-green-600 to-blue-600 rounded-xl ${deviceInfo.isMobile ? 'p-3' : 'p-4'} mb-4 text-white`}>
         <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-1' : 'items-center gap-3'}`}>
@@ -705,7 +705,7 @@ const UpdateResults = () => {
       {/* Competency Guide - AI Responsive */}
       <div className={`mt-4 bg-white rounded-lg shadow-md ${deviceInfo.isMobile ? 'p-2' : 'p-3'}`}>
         <h3 className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} font-semibold text-gray-700 mb-2`}>
-          CBC Competency Levels
+          CBE Competency Levels
         </h3>
         <div className={`grid ${deviceInfo.isMobile ? 'grid-cols-2 gap-1' : 'grid-cols-5 gap-2'}`}>
           {competencyLevels.map(level => (
