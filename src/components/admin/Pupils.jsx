@@ -98,6 +98,33 @@ const useResponsiveGrid = (deviceInfo) => {
   return 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3';
 };
 
+// ===== CLASS ORDER DEFINITION (Lowest to Highest) =====
+const CLASS_ORDER = [
+  'Play Group',
+  'Pre-Primary 1',
+  'Pre-Primary 2',
+  'Grade 1',
+  'Grade 2',
+  'Grade 3',
+  'Grade 4',
+  'Grade 5',
+  'Grade 6',
+  'Grade 7',
+  'Grade 8',
+  'Grade 9',
+  'Grade 10',
+  'Grade 11',
+  'Grade 12'
+];
+
+const LEVEL_ORDER = [
+  'Early Years Education',
+  'Lower Primary',
+  'Upper Primary',
+  'Junior Secondary',
+  'Senior Secondary'
+];
+
 const Pupils = () => {
   const navigate = useNavigate();
   
@@ -141,6 +168,37 @@ const Pupils = () => {
     medicalInfo: '',
     previousSchool: ''
   });
+
+  // ===== SORTING FUNCTIONS =====
+  const getClassOrder = (className) => {
+    const index = CLASS_ORDER.indexOf(className);
+    return index !== -1 ? index : 999; // Unknown classes go to the end
+  };
+
+  const sortClassesByOrder = (classes) => {
+    return [...classes].sort((a, b) => {
+      const orderA = getClassOrder(a.name || a);
+      const orderB = getClassOrder(b.name || b);
+      return orderA - orderB;
+    });
+  };
+
+  const getClassesByLevel = (classes) => {
+    const grouped = {};
+    classes.forEach(cls => {
+      const className = cls.name || cls;
+      let level = 'Other';
+      if (CLASS_ORDER.slice(0, 3).includes(className)) level = 'Early Years Education';
+      else if (CLASS_ORDER.slice(3, 6).includes(className)) level = 'Lower Primary';
+      else if (CLASS_ORDER.slice(6, 9).includes(className)) level = 'Upper Primary';
+      else if (CLASS_ORDER.slice(9, 12).includes(className)) level = 'Junior Secondary';
+      else if (CLASS_ORDER.slice(12, 15).includes(className)) level = 'Senior Secondary';
+      
+      if (!grouped[level]) grouped[level] = [];
+      grouped[level].push(cls);
+    });
+    return grouped;
+  };
 
   const saveRetainedData = (formData) => {
     setRetainedData(prev => ({
@@ -254,12 +312,15 @@ const Pupils = () => {
         const activeClasses = classes
           .filter(c => c.isActive !== false)
           .map(c => c.name);
-        setAvailableClasses(activeClasses);
-        setClassOrder(activeClasses);
+        
+        // Sort classes by order
+        const sortedClasses = sortClassesByOrder(activeClasses);
+        setAvailableClasses(sortedClasses);
+        setClassOrder(sortedClasses);
         
         // Determine the highest class from the school settings
-        if (activeClasses.length > 0) {
-          setHighestClass(activeClasses[activeClasses.length - 1]);
+        if (sortedClasses.length > 0) {
+          setHighestClass(sortedClasses[sortedClasses.length - 1]);
         }
       }
       
@@ -288,7 +349,7 @@ const Pupils = () => {
 
   // Get the next class (for promotion)
   const getNextClass = (currentClass) => {
-    const classOrderList = availableClasses;
+    const classOrderList = classOrder;
     const currentIndex = classOrderList.indexOf(currentClass);
     
     if (currentIndex === -1) return null;
@@ -298,7 +359,7 @@ const Pupils = () => {
 
   // Get the previous class (for demotion)
   const getPreviousClass = (currentClass) => {
-    const classOrderList = availableClasses;
+    const classOrderList = classOrder;
     const currentIndex = classOrderList.indexOf(currentClass);
     
     if (currentIndex === -1) return null;
@@ -529,6 +590,7 @@ const Pupils = () => {
 
   // Only show classes that have students
   const classesWithStudents = [...new Set(pupils.map(p => p.class).filter(Boolean))];
+  const sortedClassesWithStudents = sortClassesByOrder(classesWithStudents);
 
   const filteredPupils = pupils.filter(pupil => {
     const matchesSearch = searchTerm === '' || 
@@ -555,6 +617,7 @@ const Pupils = () => {
     }
   });
 
+  // Group pupils by class and sort the groups
   const groupedPupils = sortedPupils.reduce((acc, pupil) => {
     if (!acc[pupil.class]) {
       acc[pupil.class] = [];
@@ -562,6 +625,27 @@ const Pupils = () => {
     acc[pupil.class].push(pupil);
     return acc;
   }, {});
+
+  // Sort the class groups by academic order
+  const sortedGroupedPupils = {};
+  const sortedClassNames = sortClassesByOrder(Object.keys(groupedPupils));
+  sortedClassNames.forEach(className => {
+    sortedGroupedPupils[className] = groupedPupils[className];
+  });
+
+  // Group by level for display
+  const groupedByLevel = {};
+  sortedClassNames.forEach(className => {
+    let level = 'Other';
+    if (CLASS_ORDER.slice(0, 3).includes(className)) level = 'Early Years Education';
+    else if (CLASS_ORDER.slice(3, 6).includes(className)) level = 'Lower Primary';
+    else if (CLASS_ORDER.slice(6, 9).includes(className)) level = 'Upper Primary';
+    else if (CLASS_ORDER.slice(9, 12).includes(className)) level = 'Junior Secondary';
+    else if (CLASS_ORDER.slice(12, 15).includes(className)) level = 'Senior Secondary';
+    
+    if (!groupedByLevel[level]) groupedByLevel[level] = [];
+    groupedByLevel[level].push(className);
+  });
 
   const handleDownloadSubmit = () => {
     if (!downloadClass) {
@@ -763,7 +847,7 @@ const Pupils = () => {
             >
               <option value="">Select Class</option>
               <option value="all">All Classes ({pupils.length} students)</option>
-              {classesWithStudents.map((className) => {
+              {sortClassesByOrder(classesWithStudents).map((className) => {
                 const classCount = pupils.filter(p => p.class === className).length;
                 return (
                   <option key={className} value={className}>
@@ -1150,15 +1234,15 @@ const Pupils = () => {
             </div>
           </div>
           
-          {/* Only show classes that have students */}
-          {classesWithStudents.length > 0 && (
+          {/* Only show classes that have students - sorted by order */}
+          {sortedClassesWithStudents.length > 0 && (
             <select
               value={selectedClass}
               onChange={(e) => setSelectedClass(e.target.value)}
               className="w-full md:w-auto px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
             >
               <option value="all">All Classes</option>
-              {classesWithStudents.map(cls => (
+              {sortedClassesWithStudents.map(cls => (
                 <option key={cls} value={cls}>{cls}</option>
               ))}
             </select>
@@ -1216,80 +1300,99 @@ const Pupils = () => {
         )}
       </div>
 
-      {/* Class-wise Student Cards */}
-      {Object.entries(groupedPupils).map(([className, classPupils]) => {
-        const isHighestClass = className === highestClass;
-        const previousClass = getPreviousClass(className);
-        const canDemote = previousClass !== null;
+      {/* Class-wise Student Cards - Grouped by Level and Sorted */}
+      {LEVEL_ORDER.map((level) => {
+        const classesInLevel = groupedByLevel[level] || [];
+        if (classesInLevel.length === 0) return null;
         
         return (
-          <div key={className} className="mb-8">
-            <div className="flex flex-wrap justify-between items-center gap-2 mb-4">
-              <h2 className="text-lg md:text-xl font-bold text-gray-800">
-                {className} <span className="text-sm font-normal text-gray-500">({classPupils.length})</span>
-                {isHighestClass && (
-                  <span className="ml-2 text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">
-                    Graduating Class
-                  </span>
-                )}
-              </h2>
-              <div className="flex flex-wrap gap-2">
-                {isHighestClass ? (
-                  <button 
-                    onClick={() => handleGraduateClass(className)}
-                    className="bg-purple-600 text-white px-3 py-1 rounded-lg text-xs hover:bg-purple-700 flex items-center gap-1"
-                  >
-                    <FiAward className="w-3 h-3" /> GRADUATE
-                  </button>
-                ) : (
-                  <button 
-                    onClick={() => handlePromoteClass(className)}
-                    className="bg-blue-600 text-white px-3 py-1 rounded-lg text-xs hover:bg-blue-700 flex items-center gap-1"
-                  >
-                    <FiArrowRight className="w-3 h-3" /> PROMOTE
-                  </button>
-                )}
-              </div>
+          <div key={level} className="mb-8">
+            <div className="bg-gradient-to-r from-blue-50 to-green-50 rounded-lg px-4 py-2 mb-4 border border-blue-200">
+              <h3 className="text-lg font-bold text-gray-700">
+                {level}
+                <span className="text-sm font-normal text-gray-500 ml-2">
+                  ({classesInLevel.reduce((total, cls) => total + (sortedGroupedPupils[cls]?.length || 0), 0)} students)
+                </span>
+              </h3>
             </div>
             
-            <div className={`grid ${responsiveGrid} gap-3`}>
-              {classPupils.map((pupil) => (
-                <div
-                  key={pupil._id}
-                  className={`bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow overflow-hidden cursor-pointer border ${
-                    isHighestClass ? 'border-purple-200' : 'border-gray-100'
-                  } p-3`}
-                  onClick={() => handleViewStudent(pupil)}
-                >
-                  <div className="flex justify-between items-start">
-                    <div className="flex-1 min-w-0">
-                      <h3 className="text-sm font-bold text-gray-800 truncate">
-                        {pupil.name}
-                      </h3>
-                      <p className="text-xs text-gray-500">
-                        Adm: {pupil.admNo}
-                      </p>
-                      <p className="text-xs text-gray-400 mt-1">
-                        {pupil.gender === 'Male' ? 'M' : (pupil.gender === 'Female' ? 'F' : (pupil.gender || 'N/A'))} 
-                        {pupil.stream && ` • ${pupil.stream}`}
-                      </p>
-                    </div>
-                    <div className="text-right flex-shrink-0 ml-2">
-                      <span className="text-xs bg-gray-100 px-2 py-0.5 rounded whitespace-nowrap">
-                        {pupil.class}
-                      </span>
+            {classesInLevel.map((className) => {
+              const classPupils = sortedGroupedPupils[className] || [];
+              if (classPupils.length === 0) return null;
+              
+              const isHighestClass = className === highestClass;
+              
+              return (
+                <div key={className} className="mb-6">
+                  <div className="flex flex-wrap justify-between items-center gap-2 mb-3">
+                    <h2 className="text-lg md:text-xl font-bold text-gray-800">
+                      {className} <span className="text-sm font-normal text-gray-500">({classPupils.length})</span>
                       {isHighestClass && (
-                        <div className="mt-1">
-                          <span className="text-[8px] bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded whitespace-nowrap">
-                            Graduating
-                          </span>
-                        </div>
+                        <span className="ml-2 text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">
+                          Graduating Class
+                        </span>
+                      )}
+                    </h2>
+                    <div className="flex flex-wrap gap-2">
+                      {isHighestClass ? (
+                        <button 
+                          onClick={() => handleGraduateClass(className)}
+                          className="bg-purple-600 text-white px-3 py-1 rounded-lg text-xs hover:bg-purple-700 flex items-center gap-1"
+                        >
+                          <FiAward className="w-3 h-3" /> GRADUATE
+                        </button>
+                      ) : (
+                        <button 
+                          onClick={() => handlePromoteClass(className)}
+                          className="bg-blue-600 text-white px-3 py-1 rounded-lg text-xs hover:bg-blue-700 flex items-center gap-1"
+                        >
+                          <FiArrowRight className="w-3 h-3" /> PROMOTE
+                        </button>
                       )}
                     </div>
                   </div>
+                  
+                  <div className={`grid ${responsiveGrid} gap-3`}>
+                    {classPupils.map((pupil) => (
+                      <div
+                        key={pupil._id}
+                        className={`bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow overflow-hidden cursor-pointer border ${
+                          isHighestClass ? 'border-purple-200' : 'border-gray-100'
+                        } p-3`}
+                        onClick={() => handleViewStudent(pupil)}
+                      >
+                        <div className="flex justify-between items-start">
+                          <div className="flex-1 min-w-0">
+                            <h3 className="text-sm font-bold text-gray-800 truncate">
+                              {pupil.name}
+                            </h3>
+                            <p className="text-xs text-gray-500">
+                              Adm: {pupil.admNo}
+                            </p>
+                            <p className="text-xs text-gray-400 mt-1">
+                              {pupil.gender === 'Male' ? 'M' : (pupil.gender === 'Female' ? 'F' : (pupil.gender || 'N/A'))} 
+                              {pupil.stream && ` • ${pupil.stream}`}
+                            </p>
+                          </div>
+                          <div className="text-right flex-shrink-0 ml-2">
+                            <span className="text-xs bg-gray-100 px-2 py-0.5 rounded whitespace-nowrap">
+                              {pupil.class}
+                            </span>
+                            {isHighestClass && (
+                              <div className="mt-1">
+                                <span className="text-[8px] bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded whitespace-nowrap">
+                                  Graduating
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              ))}
-            </div>
+              );
+            })}
           </div>
         );
       })}
