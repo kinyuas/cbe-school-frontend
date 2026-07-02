@@ -28,12 +28,10 @@ const useDeviceDetection = () => {
       const height = window.innerHeight;
       const pixelRatio = window.devicePixelRatio || 1;
       
-      // Detect device type
       const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua) || width < 768;
       const isTablet = /iPad|Android(?!.*Mobile)|Tablet/i.test(ua) || (width >= 768 && width < 1024);
       const isDesktop = !isMobile && !isTablet;
       
-      // Detect OS
       let os = 'unknown';
       if (/Windows/i.test(ua)) os = 'windows';
       else if (/Mac OS X/i.test(ua)) os = 'macos';
@@ -41,7 +39,6 @@ const useDeviceDetection = () => {
       else if (/Android/i.test(ua)) os = 'android';
       else if (/iOS|iPhone|iPad/i.test(ua)) os = 'ios';
       
-      // Detect Browser
       let browser = 'unknown';
       if (/Chrome/i.test(ua) && !/Edge/i.test(ua)) browser = 'chrome';
       else if (/Firefox/i.test(ua)) browser = 'firefox';
@@ -92,38 +89,6 @@ const ResponsiveWrapper = ({ children, deviceInfo, className = '' }) => {
   );
 };
 
-// AI Content Optimizer
-const ContentOptimizer = ({ content, deviceInfo }) => {
-  const getOptimizedContent = () => {
-    if (deviceInfo.isMobile) {
-      // Mobile optimization: shorter text, larger buttons, vertical layout
-      return {
-        buttonSize: 'large',
-        textSize: 'medium',
-        layout: 'vertical',
-        showDetails: false
-      };
-    } else if (deviceInfo.isTablet) {
-      return {
-        buttonSize: 'medium',
-        textSize: 'medium',
-        layout: 'grid-2',
-        showDetails: true
-      };
-    } else {
-      return {
-        buttonSize: 'default',
-        textSize: 'default',
-        layout: 'grid-4',
-        showDetails: true
-      };
-    }
-  };
-
-  const optimized = getOptimizedContent();
-  return React.cloneElement(content, { ...content.props, ...optimized });
-};
-
 const SchoolSettings = () => {
   // AI Device Detection
   const deviceInfo = useDeviceDetection();
@@ -150,97 +115,172 @@ const SchoolSettings = () => {
   const [selectedCbeClasses, setSelectedCbeClasses] = useState([]);
   const [showDeviceInfo, setShowDeviceInfo] = useState(false);
 
-  // CBE Standard Classes (Competency-Based Education) - Complete List with Play Group, PP1, PP2
+  // ===== COMPLETE CBE CLASS ORDER (Lowest to Highest) =====
+  const CLASS_ORDER = [
+    // Early Years Education (Lowest)
+    'Play Group',
+    'Pre-Primary 1',
+    'Pre-Primary 2',
+    // Lower Primary
+    'Grade 1',
+    'Grade 2',
+    'Grade 3',
+    // Upper Primary
+    'Grade 4',
+    'Grade 5',
+    'Grade 6',
+    // Junior Secondary
+    'Grade 7',
+    'Grade 8',
+    'Grade 9',
+    // Senior Secondary (Highest)
+    'Grade 10',
+    'Grade 11',
+    'Grade 12'
+  ];
+
+  // CBE Standard Classes with their levels and descriptions
   const cbeClasses = [
     // Early Years Education
     { 
       name: 'Play Group', 
       level: 'Early Years Education',
-      description: 'Early Years Education - Play Group (3-4 years)'
+      description: 'Early Years Education - Play Group (3-4 years)',
+      order: 0
     },
     { 
       name: 'Pre-Primary 1', 
       level: 'Early Years Education',
-      description: 'Early Years Education - Level 1 (4-5 years)'
+      description: 'Early Years Education - Level 1 (4-5 years)',
+      order: 1
     },
     { 
       name: 'Pre-Primary 2', 
       level: 'Early Years Education',
-      description: 'Early Years Education - Level 2 (5-6 years)'
+      description: 'Early Years Education - Level 2 (5-6 years)',
+      order: 2
     },
     // Lower Primary
     { 
       name: 'Grade 1', 
       level: 'Lower Primary',
-      description: 'Lower Primary - Grade 1 (6-7 years)'
+      description: 'Lower Primary - Grade 1 (6-7 years)',
+      order: 3
     },
     { 
       name: 'Grade 2', 
       level: 'Lower Primary',
-      description: 'Lower Primary - Grade 2 (7-8 years)'
+      description: 'Lower Primary - Grade 2 (7-8 years)',
+      order: 4
     },
     { 
       name: 'Grade 3', 
       level: 'Lower Primary',
-      description: 'Lower Primary - Grade 3 (8-9 years)'
+      description: 'Lower Primary - Grade 3 (8-9 years)',
+      order: 5
     },
     // Upper Primary
     { 
       name: 'Grade 4', 
       level: 'Upper Primary',
-      description: 'Upper Primary - Grade 4 (9-10 years)'
+      description: 'Upper Primary - Grade 4 (9-10 years)',
+      order: 6
     },
     { 
       name: 'Grade 5', 
       level: 'Upper Primary',
-      description: 'Upper Primary - Grade 5 (10-11 years)'
+      description: 'Upper Primary - Grade 5 (10-11 years)',
+      order: 7
     },
     { 
       name: 'Grade 6', 
       level: 'Upper Primary',
-      description: 'Upper Primary - Grade 6 (11-12 years)'
+      description: 'Upper Primary - Grade 6 (11-12 years)',
+      order: 8
     },
     // Junior Secondary
     { 
       name: 'Grade 7', 
       level: 'Junior Secondary',
-      description: 'Junior Secondary - Grade 7 (12-13 years)'
+      description: 'Junior Secondary - Grade 7 (12-13 years)',
+      order: 9
     },
     { 
       name: 'Grade 8', 
       level: 'Junior Secondary',
-      description: 'Junior Secondary - Grade 8 (13-14 years)'
+      description: 'Junior Secondary - Grade 8 (13-14 years)',
+      order: 10
     },
     { 
       name: 'Grade 9', 
       level: 'Junior Secondary',
-      description: 'Junior Secondary - Grade 9 (14-15 years)'
+      description: 'Junior Secondary - Grade 9 (14-15 years)',
+      order: 11
     },
     // Senior Secondary
     { 
       name: 'Grade 10', 
       level: 'Senior Secondary',
-      description: 'Senior Secondary - Grade 10 (15-16 years)'
+      description: 'Senior Secondary - Grade 10 (15-16 years)',
+      order: 12
     },
     { 
       name: 'Grade 11', 
       level: 'Senior Secondary',
-      description: 'Senior Secondary - Grade 11 (16-17 years)'
+      description: 'Senior Secondary - Grade 11 (16-17 years)',
+      order: 13
     },
     { 
       name: 'Grade 12', 
       level: 'Senior Secondary',
-      description: 'Senior Secondary - Grade 12 (17-18 years)'
+      description: 'Senior Secondary - Grade 12 (17-18 years)',
+      order: 14
     }
   ];
 
-  // Group CBE classes by level
+  // Group CBE classes by level in order
   const cbeLevels = {
     'Early Years Education': ['Play Group', 'Pre-Primary 1', 'Pre-Primary 2'],
     'Lower Primary': ['Grade 1', 'Grade 2', 'Grade 3'],
     'Upper Primary': ['Grade 4', 'Grade 5', 'Grade 6'],
     'Junior Secondary': ['Grade 7', 'Grade 8', 'Grade 9'],
     'Senior Secondary': ['Grade 10', 'Grade 11', 'Grade 12']
+  };
+
+  // Level order for display (lowest to highest)
+  const LEVEL_ORDER = [
+    'Early Years Education',
+    'Lower Primary',
+    'Upper Primary',
+    'Junior Secondary',
+    'Senior Secondary'
+  ];
+
+  // Get the order of a class (returns -1 if not found)
+  const getClassOrder = (className) => {
+    const index = CLASS_ORDER.indexOf(className);
+    return index !== -1 ? index : 999; // Unknown classes go to the end
+  };
+
+  // Sort classes by their order (lowest to highest)
+  const sortClassesByOrder = (classes) => {
+    return [...classes].sort((a, b) => {
+      const orderA = getClassOrder(a.name);
+      const orderB = getClassOrder(b.name);
+      return orderA - orderB;
+    });
+  };
+
+  // Get sorted active classes
+  const getSortedActiveClasses = () => {
+    const active = schoolInfo.classes.filter(c => c.isActive);
+    return sortClassesByOrder(active);
+  };
+
+  // Get sorted inactive classes
+  const getSortedInactiveClasses = () => {
+    const inactive = schoolInfo.classes.filter(c => !c.isActive);
+    return sortClassesByOrder(inactive);
   };
 
   useEffect(() => {
@@ -297,7 +337,7 @@ const SchoolSettings = () => {
         setSchoolInfo(mappedSchoolInfo);
         setMaxStreams(school.maxStreamsPerClass || 1);
         
-        // Load streams from database - NO HARDCODED STREAMS
+        // Load streams from database
         const savedStreams = {};
         if (classes && classes.length > 0) {
           classes.forEach(cls => {
@@ -470,9 +510,11 @@ const SchoolSettings = () => {
     });
     
     if (newClasses.length > 0) {
+      // Sort new classes by order before adding
+      const sortedNewClasses = sortClassesByOrder(newClasses);
       setSchoolInfo(prev => ({
         ...prev,
-        classes: [...prev.classes, ...newClasses]
+        classes: sortClassesByOrder([...prev.classes, ...sortedNewClasses])
       }));
       setSelectedCbeClasses([...selectedCbeClasses, ...classNames]);
       toast.success(`${newClasses.length} CBE class(es) added successfully! Add streams and save.`);
@@ -492,13 +534,15 @@ const SchoolSettings = () => {
       return;
     }
     
+    const newClass = {
+      name: newClassName.trim(),
+      streams: [],
+      isActive: true
+    };
+    
     setSchoolInfo(prev => ({
       ...prev,
-      classes: [...prev.classes, {
-        name: newClassName.trim(),
-        streams: [],
-        isActive: true
-      }]
+      classes: sortClassesByOrder([...prev.classes, newClass])
     }));
     
     setStreamNames(prev => ({
@@ -578,8 +622,9 @@ const SchoolSettings = () => {
     }
   };
 
-  const activeClasses = schoolInfo.classes.filter(c => c.isActive);
-  const inactiveClasses = schoolInfo.classes.filter(c => !c.isActive);
+  // Get sorted classes
+  const activeClasses = getSortedActiveClasses();
+  const inactiveClasses = getSortedInactiveClasses();
 
   // Get classes grouped by CBE level
   const getClassesByLevel = (level) => {
@@ -799,40 +844,46 @@ const SchoolSettings = () => {
             <p className="text-xs text-gray-600 mb-3">Select classes based on the Competency-Based Education (CBE) curriculum</p>
             
             <div className={`grid ${getGridLayout()} gap-3`}>
-              {Object.entries(cbeLevels).map(([level, classes]) => (
-                <div key={level} className="bg-white rounded-lg p-3 border">
-                  <h4 className={`font-semibold text-gray-700 mb-2 ${deviceInfo.isMobile ? 'text-sm' : ''}`}>
-                    {level}
-                  </h4>
-                  {classes.map(className => {
-                    const isSelected = selectedCbeClasses.includes(className);
-                    return (
-                      <label key={className} className={`flex items-center gap-2 py-1 cursor-pointer hover:bg-gray-50 px-2 rounded ${
-                        deviceInfo.isMobile ? 'text-sm' : ''
-                      }`}>
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => {
-                            if (isSelected) {
-                              setSelectedCbeClasses(prev => prev.filter(c => c !== className));
-                            } else {
-                              setSelectedCbeClasses(prev => [...prev, className]);
-                            }
-                          }}
-                          className="w-4 h-4 text-blue-600"
-                        />
-                        <span className={deviceInfo.isMobile ? 'text-xs' : 'text-sm'}>
-                          {className}
-                          {className === 'Play Group' && ' (3-4 yrs)'}
-                          {className === 'Pre-Primary 1' && ' (4-5 yrs)'}
-                          {className === 'Pre-Primary 2' && ' (5-6 yrs)'}
-                        </span>
-                      </label>
-                    );
-                  })}
-                </div>
-              ))}
+              {LEVEL_ORDER.map((level) => {
+                const classes = cbeLevels[level] || [];
+                return (
+                  <div key={level} className="bg-white rounded-lg p-3 border">
+                    <h4 className={`font-semibold text-gray-700 mb-2 ${deviceInfo.isMobile ? 'text-sm' : ''}`}>
+                      {level}
+                      <span className="text-xs text-gray-400 ml-1">
+                        ({classes.length})
+                      </span>
+                    </h4>
+                    {classes.map(className => {
+                      const isSelected = selectedCbeClasses.includes(className);
+                      return (
+                        <label key={className} className={`flex items-center gap-2 py-1 cursor-pointer hover:bg-gray-50 px-2 rounded ${
+                          deviceInfo.isMobile ? 'text-sm' : ''
+                        }`}>
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => {
+                              if (isSelected) {
+                                setSelectedCbeClasses(prev => prev.filter(c => c !== className));
+                              } else {
+                                setSelectedCbeClasses(prev => [...prev, className]);
+                              }
+                            }}
+                            className="w-4 h-4 text-blue-600"
+                          />
+                          <span className={deviceInfo.isMobile ? 'text-xs' : 'text-sm'}>
+                            {className}
+                            {className === 'Play Group' && ' (3-4 yrs)'}
+                            {className === 'Pre-Primary 1' && ' (4-5 yrs)'}
+                            {className === 'Pre-Primary 2' && ' (5-6 yrs)'}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                );
+              })}
             </div>
             
             <button
@@ -850,109 +901,138 @@ const SchoolSettings = () => {
             </button>
           </div>
           
-          {/* Active Classes List - AI Responsive */}
-          {schoolInfo.classes.length === 0 ? (
+          {/* Active Classes List - Sorted from Lowest to Highest */}
+          {activeClasses.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
               <p className={`${deviceInfo.isMobile ? 'text-base' : 'text-lg'}`}>No classes configured yet</p>
               <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>Select CBE classes above or add custom classes below</p>
             </div>
           ) : (
             <div className={`space-y-6 ${deviceInfo.isMobile ? 'max-h-96' : 'max-h-96'} overflow-y-auto`}>
-              {activeClasses.map((cls) => {
-                const isCbeClass = cbeClasses.some(c => c.name === cls.name);
-                const cbeInfo = cbeClasses.find(c => c.name === cls.name);
+              {/* Display classes grouped by level in order */}
+              {LEVEL_ORDER.map((level) => {
+                const levelClasses = activeClasses.filter(cls => {
+                  const cbeInfo = cbeClasses.find(c => c.name === cls.name);
+                  return cbeInfo?.level === level;
+                });
+                
+                if (levelClasses.length === 0) return null;
+                
                 return (
-                  <div key={cls.name} className="border border-gray-200 rounded-lg p-4">
-                    <div className={`flex ${deviceInfo.isMobile ? 'flex-col items-start gap-2' : 'justify-between items-center'} mb-3`}>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className={`font-bold text-gray-800 ${deviceInfo.isMobile ? 'text-base' : 'text-lg'}`}>
-                          {cls.name}
-                        </h3>
-                        {isCbeClass && cbeInfo && (
-                          <span className="bg-blue-100 text-blue-800 text-[10px] px-2 py-0.5 rounded-full">
-                            {cbeInfo.level}
-                          </span>
-                        )}
-                        {isCbeClass && (
-                          <span className="bg-green-100 text-green-800 text-[10px] px-2 py-0.5 rounded-full">CBE</span>
-                        )}
-                      </div>
-                      <div className={`flex ${deviceInfo.isMobile ? 'w-full justify-start' : ''} gap-2`}>
-                        <button
-                          onClick={() => toggleClassActive(cls.name)}
-                          className="text-red-500 hover:text-red-700 text-sm flex items-center gap-1"
-                        >
-                          <FiX className="w-4 h-4" /> Deactivate
-                        </button>
-                        {!isCbeClass && (
-                          <button
-                            onClick={() => removeCustomClass(cls.name)}
-                            className="text-red-600 hover:text-red-800 text-sm flex items-center gap-1"
-                          >
-                            <FiTrash2 className="w-4 h-4" /> Remove
-                          </button>
-                        )}
-                      </div>
+                  <div key={level} className="border border-gray-200 rounded-lg overflow-hidden">
+                    <div className="bg-gradient-to-r from-blue-50 to-green-50 px-4 py-2 border-b">
+                      <h4 className="font-semibold text-gray-700 text-sm">
+                        {level}
+                        <span className="text-xs text-gray-400 ml-2">
+                          ({levelClasses.length} {levelClasses.length === 1 ? 'class' : 'classes'})
+                        </span>
+                      </h4>
                     </div>
-                    
-                    {maxStreams > 1 && (
-                      <div className="space-y-2">
-                        <label className="block text-gray-600 text-sm font-medium">Streams (Add from database)</label>
-                        
-                        {(streamNames[cls.name] || []).length > 0 ? (
-                          <div className="flex flex-wrap gap-2 mb-2">
-                            {(streamNames[cls.name] || []).map((stream, idx) => (
-                              <span key={idx} className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm">
-                                {stream || `Stream ${idx + 1}`}
-                              </span>
-                            ))}
+                    <div className="divide-y divide-gray-100">
+                      {levelClasses.map((cls) => {
+                        const isCbeClass = cbeClasses.some(c => c.name === cls.name);
+                        const cbeInfo = cbeClasses.find(c => c.name === cls.name);
+                        return (
+                          <div key={cls.name} className="p-4 hover:bg-gray-50 transition-colors">
+                            <div className={`flex ${deviceInfo.isMobile ? 'flex-col items-start gap-2' : 'justify-between items-center'}`}>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <h3 className={`font-bold text-gray-800 ${deviceInfo.isMobile ? 'text-base' : 'text-lg'}`}>
+                                  {cls.name}
+                                </h3>
+                                {isCbeClass && cbeInfo && (
+                                  <span className="bg-blue-100 text-blue-800 text-[10px] px-2 py-0.5 rounded-full">
+                                    {cbeInfo.level}
+                                  </span>
+                                )}
+                                {isCbeClass && (
+                                  <span className="bg-green-100 text-green-800 text-[10px] px-2 py-0.5 rounded-full">CBE</span>
+                                )}
+                                {cbeInfo?.description && (
+                                  <span className="text-xs text-gray-400 hidden md:inline">
+                                    {cbeInfo.description}
+                                  </span>
+                                )}
+                              </div>
+                              <div className={`flex ${deviceInfo.isMobile ? 'w-full justify-start' : ''} gap-2`}>
+                                <button
+                                  onClick={() => toggleClassActive(cls.name)}
+                                  className="text-red-500 hover:text-red-700 text-sm flex items-center gap-1"
+                                >
+                                  <FiX className="w-4 h-4" /> Deactivate
+                                </button>
+                                {!isCbeClass && (
+                                  <button
+                                    onClick={() => removeCustomClass(cls.name)}
+                                    className="text-red-600 hover:text-red-800 text-sm flex items-center gap-1"
+                                  >
+                                    <FiTrash2 className="w-4 h-4" /> Remove
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                            
+                            {maxStreams > 1 && (
+                              <div className="mt-3 space-y-2">
+                                <label className="block text-gray-600 text-sm font-medium">Streams</label>
+                                
+                                {(streamNames[cls.name] || []).length > 0 ? (
+                                  <div className="flex flex-wrap gap-2 mb-2">
+                                    {(streamNames[cls.name] || []).map((stream, idx) => (
+                                      <span key={idx} className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm">
+                                        {stream || `Stream ${idx + 1}`}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <p className="text-gray-500 text-sm italic">No streams configured. Add streams below.</p>
+                                )}
+                                
+                                {(streamNames[cls.name] || []).map((stream, idx) => (
+                                  <div key={idx} className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'gap-2'} items-center`}>
+                                    <input
+                                      type="text"
+                                      value={stream}
+                                      onChange={(e) => handleStreamChange(cls.name, idx, e.target.value)}
+                                      placeholder={`Enter ${cls.name} stream name`}
+                                      className={`input-field ${deviceInfo.isMobile ? 'w-full' : 'flex-1'}`}
+                                    />
+                                    <button
+                                      onClick={() => removeStream(cls.name, idx)}
+                                      className="text-red-500 hover:text-red-700 p-2"
+                                      title="Remove stream"
+                                    >
+                                      <FiTrash2 className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                ))}
+                                
+                                {(streamNames[cls.name] || []).length < maxStreams && (
+                                  <button
+                                    onClick={() => addStream(cls.name)}
+                                    className="text-green-600 hover:text-green-700 text-sm flex items-center gap-1 mt-2"
+                                  >
+                                    <FiPlus className="w-4 h-4" /> ADD STREAM
+                                  </button>
+                                )}
+                                
+                                <button
+                                  onClick={() => updateClassStreams(cls.name)}
+                                  className={`bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm mt-2 flex items-center gap-1 ${
+                                    deviceInfo.isMobile ? 'px-4 py-2' : 'px-3 py-1'
+                                  }`}
+                                >
+                                  <FiCheck className="w-3 h-3" /> Update Streams
+                                </button>
+                              </div>
+                            )}
+                            
+                            {maxStreams === 1 && (
+                              <p className="text-gray-500 text-sm italic mt-2">No streams configured for this class</p>
+                            )}
                           </div>
-                        ) : (
-                          <p className="text-gray-500 text-sm italic">No streams configured. Add streams below.</p>
-                        )}
-                        
-                        {(streamNames[cls.name] || []).map((stream, idx) => (
-                          <div key={idx} className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'gap-2'} items-center`}>
-                            <input
-                              type="text"
-                              value={stream}
-                              onChange={(e) => handleStreamChange(cls.name, idx, e.target.value)}
-                              placeholder={`Enter ${cls.name} stream name`}
-                              className={`input-field ${deviceInfo.isMobile ? 'w-full' : 'flex-1'}`}
-                            />
-                            <button
-                              onClick={() => removeStream(cls.name, idx)}
-                              className="text-red-500 hover:text-red-700 p-2"
-                              title="Remove stream"
-                            >
-                              <FiTrash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        ))}
-                        
-                        {(streamNames[cls.name] || []).length < maxStreams && (
-                          <button
-                            onClick={() => addStream(cls.name)}
-                            className="text-green-600 hover:text-green-700 text-sm flex items-center gap-1 mt-2"
-                          >
-                            <FiPlus className="w-4 h-4" /> ADD STREAM
-                          </button>
-                        )}
-                        
-                        <button
-                          onClick={() => updateClassStreams(cls.name)}
-                          className={`bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm mt-2 flex items-center gap-1 ${
-                            deviceInfo.isMobile ? 'px-4 py-2' : 'px-3 py-1'
-                          }`}
-                        >
-                          <FiCheck className="w-3 h-3" /> Update Streams
-                        </button>
-                      </div>
-                    )}
-                    
-                    {maxStreams === 1 && (
-                      <p className="text-gray-500 text-sm italic">No streams configured for this class</p>
-                    )}
+                        );
+                      })}
+                    </div>
                   </div>
                 );
               })}
