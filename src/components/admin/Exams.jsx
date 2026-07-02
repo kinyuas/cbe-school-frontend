@@ -542,7 +542,7 @@ const Exams = () => {
                   <option value="End of Term">End of Term</option>
                   <option value="Opener">Opener</option>
                   <option value="Mid Term">Mid Term</option>
-                  <option value="Mock">Mock</option>
+                  <option value="Random">Random</option>
                 </select>
               </div>
               <div>
