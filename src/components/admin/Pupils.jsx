@@ -8,7 +8,8 @@ import {
   FiX, FiSearch, FiUsers, FiAlertCircle, FiDownload, FiFileText, 
   FiFile, FiArrowRight, FiAward, FiUserPlus, FiInfo,
   FiEdit2, FiTrash2, FiCheckCircle, FiAlertTriangle, FiSend,
-  FiFilter, FiMonitor, FiSmartphone, FiTablet, FiBookOpen
+  FiFilter, FiMonitor, FiSmartphone, FiTablet, FiBookOpen,
+  FiRotateCcw, FiArrowDown
 } from 'react-icons/fi';
 
 // ===== AI Device Detection Hook =====
@@ -119,6 +120,11 @@ const Pupils = () => {
   const [sortOrder, setSortOrder] = useState('asc');
   const [loading, setLoading] = useState(true);
   const [highestClass, setHighestClass] = useState('');
+  const [classOrder, setClassOrder] = useState([]);
+  
+  // Demote state
+  const [showDemoteModal, setShowDemoteModal] = useState(false);
+  const [demoteData, setDemoteData] = useState(null);
   
   const [retainedData, setRetainedData] = useState({
     studentName: '',
@@ -249,6 +255,7 @@ const Pupils = () => {
           .filter(c => c.isActive !== false)
           .map(c => c.name);
         setAvailableClasses(activeClasses);
+        setClassOrder(activeClasses);
         
         // Determine the highest class from the school settings
         if (activeClasses.length > 0) {
@@ -279,13 +286,62 @@ const Pupils = () => {
     }
   };
 
+  // Get the next class (for promotion)
   const getNextClass = (currentClass) => {
-    const classOrder = availableClasses;
-    const currentIndex = classOrder.indexOf(currentClass);
+    const classOrderList = availableClasses;
+    const currentIndex = classOrderList.indexOf(currentClass);
     
     if (currentIndex === -1) return null;
-    if (currentIndex === classOrder.length - 1) return 'graduate';
-    return classOrder[currentIndex + 1];
+    if (currentIndex === classOrderList.length - 1) return 'graduate';
+    return classOrderList[currentIndex + 1];
+  };
+
+  // Get the previous class (for demotion)
+  const getPreviousClass = (currentClass) => {
+    const classOrderList = availableClasses;
+    const currentIndex = classOrderList.indexOf(currentClass);
+    
+    if (currentIndex === -1) return null;
+    if (currentIndex === 0) return null; // Cannot demote from the lowest class
+    return classOrderList[currentIndex - 1];
+  };
+
+  // ===== DEMOTE FUNCTIONALITY =====
+  const handleDemoteStudent = (student) => {
+    const previousClass = getPreviousClass(student.class);
+    if (!previousClass) {
+      toast.error(`${student.name} is already in the lowest class and cannot be demoted.`);
+      return;
+    }
+    
+    setDemoteData({
+      student: student,
+      previousClass: previousClass,
+      currentClass: student.class
+    });
+    setShowDemoteModal(true);
+  };
+
+  const confirmDemote = async () => {
+    if (!demoteData) return;
+    
+    try {
+      const response = await api.put(`/pupils/${demoteData.student._id}`, {
+        class: demoteData.previousClass
+      });
+      
+      if (response.data.success) {
+        toast.success(`${demoteData.student.name} demoted to ${demoteData.previousClass}`);
+        setShowDemoteModal(false);
+        setDemoteData(null);
+        loadData();
+      } else {
+        toast.error('Failed to demote student');
+      }
+    } catch (error) {
+      console.error('Error demoting student:', error);
+      toast.error(error.response?.data?.message || 'Failed to demote student');
+    }
   };
 
   const handlePromoteClass = (className) => {
@@ -470,6 +526,9 @@ const Pupils = () => {
       saveRetainedData(pupilData);
     }
   };
+
+  // Only show classes that have students
+  const classesWithStudents = [...new Set(pupils.map(p => p.class).filter(Boolean))];
 
   const filteredPupils = pupils.filter(pupil => {
     const matchesSearch = searchTerm === '' || 
@@ -704,7 +763,7 @@ const Pupils = () => {
             >
               <option value="">Select Class</option>
               <option value="all">All Classes ({pupils.length} students)</option>
-              {availableClasses.map((className) => {
+              {classesWithStudents.map((className) => {
                 const classCount = pupils.filter(p => p.class === className).length;
                 return (
                   <option key={className} value={className}>
@@ -746,6 +805,7 @@ const Pupils = () => {
 
   const StudentDetailModal = () => {
     if (!viewingStudent) return null;
+    const previousClass = getPreviousClass(viewingStudent.class);
     
     return (
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto">
@@ -756,6 +816,9 @@ const Pupils = () => {
               <p className="text-sm text-gray-500">
                 Admission: {viewingStudent.admNo} • Gender: {viewingStudent.gender === 'Male' ? 'M' : (viewingStudent.gender === 'Female' ? 'F' : (viewingStudent.gender || 'N/A'))}
                 <br />Current: {viewingStudent.class}
+                {viewingStudent.class === highestClass && (
+                  <span className="ml-2 text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">Graduating Class</span>
+                )}
               </p>
             </div>
             <button onClick={() => setShowStudentDetail(false)} className="text-gray-500 hover:text-gray-700">
@@ -796,18 +859,26 @@ const Pupils = () => {
             
             <div className="flex flex-wrap gap-2 pt-4 border-t">
               <button onClick={() => { setShowStudentDetail(false); handleEditStudent(viewingStudent); }} className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-blue-700">
-                EDIT DETAILS
+                EDIT
               </button>
               <button onClick={() => { setShowStudentDetail(false); handleTransferClick(viewingStudent); }} className="bg-yellow-600 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-yellow-700">
                 TRANSFER
               </button>
+              {previousClass && (
+                <button 
+                  onClick={() => { setShowStudentDetail(false); handleDemoteStudent(viewingStudent); }} 
+                  className="bg-orange-500 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-orange-600 flex items-center gap-1"
+                >
+                  <FiArrowDown className="w-3 h-3" /> DEMOTE
+                </button>
+              )}
               {viewingStudent.class === highestClass ? (
-                <button onClick={() => { setShowStudentDetail(false); handleGraduateClass(viewingStudent.class); }} className="bg-purple-600 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-purple-700">
-                  <FiAward className="inline mr-1 w-3 h-3" /> GRADUATE
+                <button onClick={() => { setShowStudentDetail(false); handleGraduateClass(viewingStudent.class); }} className="bg-purple-600 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-purple-700 flex items-center gap-1">
+                  <FiAward className="w-3 h-3" /> GRADUATE
                 </button>
               ) : (
-                <button onClick={() => { setShowStudentDetail(false); handlePromoteClass(viewingStudent.class); }} className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-green-700">
-                  <FiArrowRight className="inline mr-1 w-3 h-3" /> PROMOTE
+                <button onClick={() => { setShowStudentDetail(false); handlePromoteClass(viewingStudent.class); }} className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-green-700 flex items-center gap-1">
+                  <FiArrowRight className="w-3 h-3" /> PROMOTE
                 </button>
               )}
               <button onClick={() => { setShowStudentDetail(false); handleDeleteStudent(viewingStudent._id); }} className="text-red-600 hover:text-red-800 text-xs flex items-center gap-1 border border-red-300 px-3 py-1.5 rounded-lg">
@@ -972,6 +1043,51 @@ const Pupils = () => {
     );
   };
 
+  // Demote Modal
+  const DemoteModal = () => {
+    if (!demoteData) return null;
+    
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2">
+        <div className="bg-white rounded-xl p-6 w-full max-w-md">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl md:text-2xl font-bold text-gray-800">Demote Student</h2>
+            <button onClick={() => setShowDemoteModal(false)} className="text-gray-500 hover:text-gray-700">
+              <FiX className="w-6 h-6" />
+            </button>
+          </div>
+          
+          <div className="mb-4 p-3 bg-orange-50 rounded-lg flex items-start gap-2 border border-orange-200">
+            <FiAlertTriangle className="w-5 h-5 text-orange-600 flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-orange-800">
+              <p className="font-semibold">{demoteData.student.name}</p>
+              <p>Current Class: <strong>{demoteData.currentClass}</strong></p>
+              <p>Will be demoted to: <strong>{demoteData.previousClass}</strong></p>
+            </div>
+          </div>
+          
+          <div className="space-y-4">
+            <div className="bg-yellow-50 p-3 rounded-lg">
+              <p className="text-sm text-yellow-800">
+                <FiInfo className="inline mr-1" /> 
+                Demoting a student will move them to the previous class in the academic sequence.
+              </p>
+            </div>
+          </div>
+          
+          <div className="flex flex-col md:flex-row gap-2 mt-6">
+            <button onClick={confirmDemote} className="w-full md:flex-1 bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700">
+              CONFIRM DEMOTION
+            </button>
+            <button onClick={() => setShowDemoteModal(false)} className="w-full md:flex-1 bg-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-400">
+              CANCEL
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   if (loading) {
     return (
       <Layout title="All Students" subtitle="Manage and view all students">
@@ -1003,7 +1119,7 @@ const Pupils = () => {
           <div className="flex items-center gap-2">
             <FiBookOpen className="text-blue-600 w-5 h-5" />
             <span className="text-sm font-medium text-gray-700">
-              Classes: {availableClasses.length} • Highest: {highestClass || 'N/A'}
+              Classes: {classesWithStudents.length} • Highest: {highestClass || 'N/A'}
             </span>
           </div>
         </div>
@@ -1034,14 +1150,15 @@ const Pupils = () => {
             </div>
           </div>
           
-          {availableClasses.length > 0 && (
+          {/* Only show classes that have students */}
+          {classesWithStudents.length > 0 && (
             <select
               value={selectedClass}
               onChange={(e) => setSelectedClass(e.target.value)}
               className="w-full md:w-auto px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
             >
               <option value="all">All Classes</option>
-              {availableClasses.map(cls => (
+              {classesWithStudents.map(cls => (
                 <option key={cls} value={cls}>{cls}</option>
               ))}
             </select>
@@ -1102,7 +1219,8 @@ const Pupils = () => {
       {/* Class-wise Student Cards */}
       {Object.entries(groupedPupils).map(([className, classPupils]) => {
         const isHighestClass = className === highestClass;
-        const isGraduationClass = isHighestClass && classPupils.length > 0;
+        const previousClass = getPreviousClass(className);
+        const canDemote = previousClass !== null;
         
         return (
           <div key={className} className="mb-8">
@@ -1111,24 +1229,24 @@ const Pupils = () => {
                 {className} <span className="text-sm font-normal text-gray-500">({classPupils.length})</span>
                 {isHighestClass && (
                   <span className="ml-2 text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">
-                    Highest Class
+                    Graduating Class
                   </span>
                 )}
               </h2>
-              <div className="flex gap-2">
-                {!isHighestClass ? (
-                  <button 
-                    onClick={() => handlePromoteClass(className)}
-                    className="bg-blue-600 text-white px-3 py-1 rounded-lg text-xs hover:bg-blue-700 flex items-center gap-1"
-                  >
-                    <FiArrowRight className="w-3 h-3" /> PROMOTE
-                  </button>
-                ) : (
+              <div className="flex flex-wrap gap-2">
+                {isHighestClass ? (
                   <button 
                     onClick={() => handleGraduateClass(className)}
                     className="bg-purple-600 text-white px-3 py-1 rounded-lg text-xs hover:bg-purple-700 flex items-center gap-1"
                   >
                     <FiAward className="w-3 h-3" /> GRADUATE
+                  </button>
+                ) : (
+                  <button 
+                    onClick={() => handlePromoteClass(className)}
+                    className="bg-blue-600 text-white px-3 py-1 rounded-lg text-xs hover:bg-blue-700 flex items-center gap-1"
+                  >
+                    <FiArrowRight className="w-3 h-3" /> PROMOTE
                   </button>
                 )}
               </div>
@@ -1206,6 +1324,7 @@ const Pupils = () => {
       {showTransferModal && <TransferModal />}
       {showStudentDetail && <StudentDetailModal />}
       {showDownloadModal && <DownloadModal />}
+      {showDemoteModal && <DemoteModal />}
     </Layout>
   );
 };
