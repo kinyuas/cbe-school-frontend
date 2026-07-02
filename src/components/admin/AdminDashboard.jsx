@@ -313,7 +313,7 @@ const AdminDashboard = () => {
         <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'items-center justify-between'}`}>
           <div>
             <h2 className={`${deviceInfo.isMobile ? 'text-base' : 'text-xl'} font-bold`}>
-              Competency Based Curriculum (CBE) Dashboard
+              Competency Based Education (CBE) Dashboard
             </h2>
             <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-sm'} opacity-90`}>
               Track student progress, manage teachers, and view competencies all in one place
