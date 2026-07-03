@@ -10,7 +10,6 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsive
 import toast from 'react-hot-toast';
 import api from '../../services/api';
 import * as XLSX from 'xlsx';
-// import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, HeadingLevel, BorderStyle } from "docx";
 import ReportCard from './ReportCard';
 
 // ===== AI Device Detection Hook =====
@@ -185,11 +184,15 @@ const Reports = () => {
     loadAllData();
   }, []);
 
-  // Load streams when class changes
+  // Load streams when class changes - ONLY show streams if class has them
   useEffect(() => {
     if (selectedClass) {
       const classData = schoolClasses.find(c => c.name === selectedClass);
-      setAvailableStreams(classData?.streams || []);
+      const streams = classData?.streams || [];
+      setAvailableStreams(streams);
+      setSelectedStream('');
+    } else {
+      setAvailableStreams([]);
       setSelectedStream('');
     }
   }, [selectedClass, schoolClasses]);
@@ -623,179 +626,8 @@ const Reports = () => {
   };
 
   // ===== WORD DOCUMENT GENERATION =====
-  const generateWordDocument = async () => {
-    if (filteredData.length === 0) {
-      toast.error('No data to download');
-      return;
-    }
-
-    const reportTitle = isCombinedReport ? 'COMBINED RESULTS' : `${selectedExamName} RESULTS`;
-    const schoolName = schoolInfo.name || 'School Name';
-    const schoolMotto = schoolInfo.motto || 'Excellence in Education';
-
-    const docChildren = [];
-
-    // Header
-    docChildren.push(new Paragraph({
-      text: schoolName.toUpperCase(),
-      heading: HeadingLevel.TITLE,
-      alignment: AlignmentType.CENTER,
-    }));
-
-    docChildren.push(new Paragraph({
-      text: schoolMotto,
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 100 },
-    }));
-
-    docChildren.push(new Paragraph({
-      text: reportTitle,
-      heading: HeadingLevel.HEADING_1,
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 200 },
-    }));
-
-    // Report Info
-    docChildren.push(new Paragraph({
-      children: [
-        new TextRun({ text: 'Class: ', bold: true }),
-        new TextRun(`${selectedClass}${selectedStream && selectedStream !== 'all' ? ` - ${selectedStream}` : ''}`),
-      ],
-    }));
-
-    docChildren.push(new Paragraph({
-      children: [
-        new TextRun({ text: 'Term: ', bold: true }),
-        new TextRun(`${selectedTerm}`),
-        new TextRun({ text: ' | Year: ', bold: true }),
-        new TextRun(`${selectedYear}`),
-      ],
-    }));
-
-    if (isCombinedReport) {
-      docChildren.push(new Paragraph({
-        children: [
-          new TextRun({ text: 'Combined Exams: ', bold: true }),
-          new TextRun(selectedCombinedExams.join(', ')),
-        ],
-      }));
-    } else {
-      docChildren.push(new Paragraph({
-        children: [
-          new TextRun({ text: 'Exam: ', bold: true }),
-          new TextRun(`${selectedExamName} (${selectedExamType})`),
-        ],
-      }));
-    }
-
-    docChildren.push(new Paragraph({
-      children: [
-        new TextRun({ text: 'Generated: ', bold: true }),
-        new TextRun(new Date().toLocaleString()),
-      ],
-      spacing: { after: 200 },
-    }));
-
-    // ========== REMOVED: SUMMARY STATISTICS AND SUBJECT AVERAGES ==========
-    // The following sections have been removed:
-    // - SUMMARY STATISTICS table
-    // - SUBJECT AVERAGES table
-
-    // Student Performance Table
-    docChildren.push(new Paragraph({
-      text: 'STUDENT PERFORMANCE DETAILS',
-      heading: HeadingLevel.HEADING_2,
-      spacing: { after: 100 },
-    }));
-
-    const headerCells = [
-      new TableCell({ children: [new Paragraph({ text: 'Rank', bold: true, alignment: AlignmentType.CENTER })] }),
-      new TableCell({ children: [new Paragraph({ text: 'Name', bold: true })] }),
-      new TableCell({ children: [new Paragraph({ text: 'Adm', bold: true })] }),
-      ...allSubjects.map(subject => new TableCell({ children: [new Paragraph({ text: subject.substring(0, 4).toUpperCase(), bold: true, alignment: AlignmentType.CENTER })] })),
-      new TableCell({ children: [new Paragraph({ text: 'Total', bold: true, alignment: AlignmentType.CENTER })] }),
-      new TableCell({ children: [new Paragraph({ text: 'Avg%', bold: true, alignment: AlignmentType.CENTER })] }),
-      new TableCell({ children: [new Paragraph({ text: 'Grade', bold: true, alignment: AlignmentType.CENTER })] }),
-      new TableCell({ children: [new Paragraph({ text: 'Competency', bold: true, alignment: AlignmentType.CENTER })] }),
-    ];
-
-    const studentRows = filteredData.map(student => {
-      const subjectCells = allSubjects.map(subject => {
-        const marks = student[subject];
-        let markText = marks !== undefined && marks !== null ? marks.toString() : '-';
-        return new TableCell({ 
-          children: [new Paragraph({ text: markText, alignment: AlignmentType.CENTER })],
-        });
-      });
-
-      return new TableRow({
-        children: [
-          new TableCell({ children: [new Paragraph({ text: student.rank.toString(), alignment: AlignmentType.CENTER })] }),
-          new TableCell({ children: [new Paragraph({ text: student.name })] }),
-          new TableCell({ children: [new Paragraph({ text: student.admNo })] }),
-          ...subjectCells,
-          new TableCell({ children: [new Paragraph({ text: student.totalMarks.toString(), alignment: AlignmentType.CENTER })] }),
-          new TableCell({ children: [new Paragraph({ text: student.averageScore.toFixed(1), alignment: AlignmentType.CENTER })] }),
-          new TableCell({ children: [new Paragraph({ text: student.grade, alignment: AlignmentType.CENTER })] }),
-          new TableCell({ children: [new Paragraph({ text: student.competency?.level || 'N/A', alignment: AlignmentType.CENTER })] }),
-        ],
-      });
-    });
-
-    // Add average row
-    const avgCells = [
-      new TableCell({ children: [new Paragraph({ text: '', alignment: AlignmentType.CENTER })] }),
-      new TableCell({ children: [new Paragraph({ text: 'AVERAGE', bold: true })] }),
-      new TableCell({ children: [new Paragraph({ text: '', alignment: AlignmentType.CENTER })] }),
-      ...allSubjects.map(subject => new TableCell({ 
-        children: [new Paragraph({ text: (subjectAverages[subject] || 0).toFixed(1), alignment: AlignmentType.CENTER, bold: true })]
-      })),
-      new TableCell({ children: [new Paragraph({ text: (filteredData.reduce((sum, s) => sum + s.totalMarks, 0) / filteredData.length).toFixed(1), alignment: AlignmentType.CENTER, bold: true })] }),
-      new TableCell({ children: [new Paragraph({ text: `${analysisStats?.classAverage?.toFixed(1)}%`, alignment: AlignmentType.CENTER, bold: true })] }),
-      new TableCell({ children: [new Paragraph({ text: '', alignment: AlignmentType.CENTER })] }),
-      new TableCell({ children: [new Paragraph({ text: '', alignment: AlignmentType.CENTER })] }),
-    ];
-
-    docChildren.push(new Table({
-      rows: [
-        new TableRow({ children: headerCells }),
-        ...studentRows,
-        new TableRow({ children: avgCells }),
-      ],
-      width: { size: 100, type: WidthType.PERCENTAGE },
-    }));
-
-    // Footer
-    docChildren.push(new Paragraph({ text: '', spacing: { after: 200 } }));
-    docChildren.push(new Paragraph({
-      text: `Report generated on ${new Date().toLocaleString()}`,
-      alignment: AlignmentType.CENTER,
-    }));
-
-    docChildren.push(new Paragraph({
-      text: 'This is a computer-generated document.',
-      alignment: AlignmentType.CENTER,
-      spacing: { before: 100 },
-    }));
-
-    const doc = new Document({
-      sections: [{
-        properties: {},
-        children: docChildren,
-      }],
-    });
-
-    const blob = await Packer.toBlob(doc);
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    const fileName = `${schoolInfo.name || 'School'}_${selectedClass}_${selectedTerm}_${selectedYear}_Report.docx`;
-    a.download = fileName;
-    a.click();
-    URL.revokeObjectURL(url);
-    
-    toast.success('Word document downloaded successfully');
-  };
+  // Note: Word generation is currently disabled (docx import commented out)
+  // Uncomment the docx import and this function when needed
 
   // ===== EXCEL DOWNLOAD =====
   const downloadExcel = () => {
@@ -861,6 +693,12 @@ const Reports = () => {
     toast.success('Report downloaded');
   };
 
+  // Check if a class has streams configured
+  const classHasStreams = (className) => {
+    const classData = schoolClasses.find(c => c.name === className);
+    return classData?.streams && classData.streams.length > 0;
+  };
+
   return (
     <Layout title="Reports" subtitle="Generate performance reports">
       {/* Header - AI Responsive */}
@@ -906,14 +744,17 @@ const Reports = () => {
             </select>
           </div>
           
-          <div>
-            <label className={`block text-gray-600 ${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} mb-1`}>Stream</label>
-            <select value={selectedStream} onChange={(e) => setSelectedStream(e.target.value)} className={`input-field w-full ${deviceInfo.isMobile ? 'text-sm py-1.5' : 'text-sm py-1.5'}`} disabled={!selectedClass}>
-              <option value="">Select</option>
-              <option value="all">All Streams</option>
-              {availableStreams.map(stream => <option key={stream} value={stream}>{stream}</option>)}
-            </select>
-          </div>
+          {/* Only show Stream dropdown if the selected class has streams */}
+          {selectedClass && classHasStreams(selectedClass) && (
+            <div>
+              <label className={`block text-gray-600 ${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} mb-1`}>Stream</label>
+              <select value={selectedStream} onChange={(e) => setSelectedStream(e.target.value)} className={`input-field w-full ${deviceInfo.isMobile ? 'text-sm py-1.5' : 'text-sm py-1.5'}`}>
+                <option value="">Select</option>
+                <option value="all">All Streams</option>
+                {availableStreams.map(stream => <option key={stream} value={stream}>{stream}</option>)}
+              </select>
+            </div>
+          )}
         </div>
 
         {/* Report Type Selection - AI Responsive */}
