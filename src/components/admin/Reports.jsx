@@ -124,7 +124,7 @@ const Reports = () => {
   const [availableStreams, setAvailableStreams] = useState([]);
   const [availableExamNames, setAvailableExamNames] = useState([]);
   const [availableCombinedExams, setAvailableCombinedExams] = useState([]);
-  const [availableExamTypes, setAvailableExamTypes] = useState([]); // NEW: fetched from database
+  const [availableExamTypes, setAvailableExamTypes] = useState([]);
   
   // Loading and data states
   const [filteredData, setFilteredData] = useState([]);
@@ -192,7 +192,7 @@ const Reports = () => {
   // ===== SORTING FUNCTIONS =====
   const getClassOrder = (className) => {
     const index = CLASS_ORDER.indexOf(className);
-    return index !== -1 ? index : 999; // Unknown classes go to the end
+    return index !== -1 ? index : 999;
   };
 
   const sortClassesByOrder = (classes) => {
@@ -657,10 +657,6 @@ const Reports = () => {
     setSelectedStudent(null);
   };
 
-  // ===== WORD DOCUMENT GENERATION =====
-  // Note: Word generation is currently disabled (docx import commented out)
-  // Uncomment the docx import and this function when needed
-
   // ===== EXCEL DOWNLOAD =====
   const downloadExcel = () => {
     if (filteredData.length === 0) {
@@ -966,9 +962,7 @@ const Reports = () => {
                 <button onClick={downloadExcel} className="bg-green-600 text-white rounded ${deviceInfo.isMobile ? 'px-1.5 py-0.5 text-[8px]' : 'px-2 py-0.5 text-[10px]'} flex items-center gap-0.5">
                   <FiDownload className="w-3 h-3" /> Excel
                 </button>
-                <button onClick={generateWordDocument} className="bg-blue-600 text-white rounded ${deviceInfo.isMobile ? 'px-1.5 py-0.5 text-[8px]' : 'px-2 py-0.5 text-[10px]'} flex items-center gap-0.5">
-                  <FiFileText className="w-3 h-3" /> Word
-                </button>
+                {/* Removed Word button since docx is not imported */}
               </div>
             </div>
             <div className={`overflow-x-auto ${deviceInfo.isMobile ? 'max-h-64' : 'max-h-96'}`}>
@@ -1048,9 +1042,6 @@ const Reports = () => {
           <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'justify-center gap-3'} mb-4 flex-wrap`}>
             <button onClick={downloadExcel} className={`bg-green-600 text-white rounded-lg flex items-center justify-center gap-1 ${deviceInfo.isMobile ? 'w-full px-4 py-2 text-sm' : 'px-4 py-1.5 text-sm'}`}>
               <FiDownload /> EXCEL
-            </button>
-            <button onClick={generateWordDocument} className={`bg-blue-600 text-white rounded-lg flex items-center justify-center gap-1 ${deviceInfo.isMobile ? 'w-full px-4 py-2 text-sm' : 'px-4 py-1.5 text-sm'}`}>
-              <FiFileText /> WORD
             </button>
           </div>
         </>
