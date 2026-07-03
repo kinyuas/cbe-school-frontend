@@ -16,7 +16,8 @@ import {
   FiTablet,
   FiAlertCircle,
   FiRefreshCw,
-  FiAlertTriangle
+  FiAlertTriangle,
+  FiUserCheck
 } from 'react-icons/fi';
 import { useAuth } from '../../context/AuthContext';
 import { Link } from 'react-router-dom';
@@ -131,6 +132,7 @@ const TeacherDashboard = () => {
   const responsive = useResponsiveClasses(deviceInfo);
   
   const { user } = useAuth();
+  const teacherId = user?.teacherId || user?.id;
   
   // Store all dashboard numbers
   const [stats, setStats] = useState({
@@ -150,6 +152,8 @@ const TeacherDashboard = () => {
   const [pupils, setPupils] = useState([]);
   const [schoolInfo, setSchoolInfo] = useState({ name: '', classes: [] });
   const [examTimers, setExamTimers] = useState({});
+  const [teacherResults, setTeacherResults] = useState([]);
+  const [activeExam, setActiveExam] = useState(null);
   
   // Exam time alert state
   const [examTimeAlerts, setExamTimeAlerts] = useState([]);
@@ -171,27 +175,74 @@ const TeacherDashboard = () => {
       }
       
       // Fetch all data from API
-      const [pupilsRes, resultsRes, eventsRes, examsRes] = await Promise.all([
+      const [pupilsRes, resultsRes, eventsRes, examsRes, teacherProfileRes] = await Promise.all([
         api.get('/pupils'),
         api.get('/results'),
         api.get('/events'),
-        api.get('/exams')
+        api.get('/exams'),
+        api.get('/teachers/profile').catch(() => ({ data: { data: {} } }))
       ]);
       
       const learners = pupilsRes.data?.data || [];
-      const results = resultsRes.data?.data || [];
+      const allResults = resultsRes.data?.data || [];
       const events = eventsRes.data?.data || [];
       const examsData = examsRes.data?.data || [];
+      const teacherProfile = teacherProfileRes.data?.data || {};
       
       setPupils(learners);
       
-      // Find all unique classes
-      const uniqueClasses = [...new Set(learners.map(l => l.class || l.grade).filter(Boolean))];
+      // Get teacher's assigned class
+      const teacherClass = teacherProfile.classAssigned || teacherProfile.class || '';
+      
+      // Filter results by teacher's class if teacher has an assigned class
+      let teacherResultsData = allResults;
+      if (teacherClass) {
+        teacherResultsData = allResults.filter(r => r.class === teacherClass);
+      }
+      setTeacherResults(teacherResultsData);
+      
+      // Find active exam (current exam that is active)
+      const now = new Date();
+      const currentExam = examsData.find(e => {
+        if (!e.startDateTime || !e.endDateTime) return false;
+        const start = new Date(e.startDateTime);
+        const end = new Date(e.endDateTime);
+        return start <= now && end >= now && e.isActive !== false;
+      });
+      setActiveExam(currentExam || null);
+      
+      // ===== CALCULATE COMPETENCIES RECORDED =====
+      // Only count results from the current active exam
+      let competenciesCount = 0;
+      if (currentExam) {
+        // Filter results for current exam
+        const examResults = teacherResultsData.filter(r => {
+          const isSameExam = r.examName === currentExam.title || r.examType === currentExam.type;
+          const isSameTerm = r.term === currentExam.term;
+          const isSameYear = r.year === currentExam.year || r.year === new Date().getFullYear();
+          return isSameExam && isSameTerm && isSameYear;
+        });
+        competenciesCount = examResults.length;
+      }
+      // If no active exam, competencies count is 0
+      
+      // ===== CALCULATE CLASSES TAUGHT =====
+      // Count unique classes where the teacher has uploaded results
+      let classesTaughtCount = 0;
+      if (teacherResultsData.length > 0) {
+        const uniqueClasses = [...new Set(teacherResultsData.map(r => r.class).filter(Boolean))];
+        classesTaughtCount = uniqueClasses.length;
+      }
+      
+      // If teacher has an assigned class but no results yet, show 0
+      if (teacherClass && teacherResultsData.length === 0) {
+        classesTaughtCount = 0;
+      }
       
       // Calculate class performance
       const performanceByClass = {};
       learners.forEach(learner => {
-        const learnerResults = results.filter(r => r.pupilId === learner._id);
+        const learnerResults = teacherResultsData.filter(r => r.pupilId === learner._id);
         if (learnerResults.length > 0) {
           const avgScore = learnerResults.reduce((sum, r) => sum + (r.marks || 0), 0) / learnerResults.length;
           const className = learner.class || learner.grade;
@@ -216,9 +267,9 @@ const TeacherDashboard = () => {
       // Update stats
       setStats({
         totalLearners: learners.length,
-        competenciesRecorded: results.length,
-        classesTaught: uniqueClasses.length,
-        upcomingAssessments: examsData.filter(e => e.isActive !== false).length,
+        competenciesRecorded: competenciesCount,
+        classesTaught: classesTaughtCount,
+        upcomingAssessments: examsData.filter(e => e.isActive !== false && new Date(e.startDateTime) > now).length,
         attendance: 92,
         events: events.length
       });
@@ -415,11 +466,12 @@ const TeacherDashboard = () => {
     };
   };
 
+  // Update stat cards - REMOVED Total Students
   const statCards = [
-    { title: 'Total Students', value: stats.totalLearners, icon: FiUsers, color: 'from-blue-500 to-blue-600' },
     { title: 'CBE Competencies', value: stats.competenciesRecorded, icon: FiBookOpen, color: 'from-green-500 to-green-600' },
     { title: 'Classes Taught', value: stats.classesTaught, icon: FiTarget, color: 'from-purple-500 to-purple-600' },
     { title: 'Upcoming Assessments', value: stats.upcomingAssessments, icon: FiCalendar, color: 'from-orange-500 to-orange-600' },
+    { title: 'School Events', value: stats.events, icon: FiTrendingUp, color: 'from-blue-500 to-blue-600' },
   ];
 
   if (loading) {
@@ -443,7 +495,29 @@ const TeacherDashboard = () => {
       title={`${greeting}, ${user?.name || 'Teacher'}`} 
       subtitle={`CBE Teacher - ${schoolInfo.name || user?.school || 'Competency Based Education'}`}
     >
-      {/* Header with Refresh Button - Aligned with Hamburger on mobile */}
+      {/* Active Exam Status Banner */}
+      {activeExam && (
+        <div className="bg-gradient-to-r from-green-600 to-green-700 rounded-xl p-3 mb-4 text-white shadow-md">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <FiCheckCircle className="w-5 h-5" />
+              <span className="font-semibold text-sm">Active Exam:</span>
+              <span className="text-sm font-medium">{activeExam.title}</span>
+              <span className="text-xs opacity-80">({activeExam.type})</span>
+            </div>
+            <div className="flex items-center gap-3 text-xs">
+              <span className="bg-white/20 px-2 py-0.5 rounded-full">
+                📅 {new Date(activeExam.startDateTime).toLocaleDateString()}
+              </span>
+              <span className="bg-white/20 px-2 py-0.5 rounded-full">
+                ⏰ {new Date(activeExam.endDateTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Header with Refresh Button */}
       <div className="flex items-center justify-end mb-4">
         <button
           onClick={handleRefresh}
@@ -542,34 +616,39 @@ const TeacherDashboard = () => {
               <span className="flex items-center gap-1">
                 <FiBookOpen className="w-3 h-3" /> {stats.classesTaught} Classes
               </span>
+              {activeExam && (
+                <span className="flex items-center gap-1 bg-white/20 px-2 py-0.5 rounded-full">
+                  <FiCheckCircle className="w-3 h-3" /> Exam Active
+                </span>
+              )}
             </div>
           </div>
-          {!deviceInfo.isMobile && (
-            <div className="text-right">
-              <p className="text-2xl font-bold">{stats.totalLearners}</p>
-              <p className="text-xs opacity-80">Total Students</p>
+          {!deviceInfo.isMobile && activeExam && (
+            <div className="text-right bg-white/20 px-4 py-2 rounded-lg">
+              <p className="text-sm font-semibold">{activeExam.title}</p>
+              <p className="text-xs opacity-80">Active Assessment</p>
             </div>
           )}
         </div>
-        {deviceInfo.isMobile && (
+        {deviceInfo.isMobile && activeExam && (
           <div className="mt-3 pt-3 border-t border-white/20 flex justify-between">
             <div>
-              <p className="text-lg font-bold">{stats.totalLearners}</p>
-              <p className="text-[10px] opacity-80">Total Students</p>
+              <p className="text-xs opacity-80">Active Exam</p>
+              <p className="text-sm font-semibold truncate max-w-[120px]">{activeExam.title}</p>
             </div>
             <div>
-              <p className="text-lg font-bold">{stats.classesTaught}</p>
-              <p className="text-[10px] opacity-80">Classes</p>
+              <p className="text-xs opacity-80">Competencies</p>
+              <p className="text-sm font-bold">{stats.competenciesRecorded}</p>
             </div>
             <div>
-              <p className="text-lg font-bold">{stats.upcomingAssessments}</p>
-              <p className="text-[10px] opacity-80">Upcoming Tests</p>
+              <p className="text-xs opacity-80">Classes</p>
+              <p className="text-sm font-bold">{stats.classesTaught}</p>
             </div>
           </div>
         )}
       </div>
 
-      {/* Quick Stats Cards - AI Responsive */}
+      {/* Quick Stats Cards - AI Responsive (No Total Students) */}
       <div className={`grid ${responsive.statsGrid} ${responsive.gridGap} mb-6`}>
         {statCards.map((stat, index) => (
           <div key={index} className={`bg-white rounded-xl shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-5'} hover:shadow-lg transition-shadow`}>
@@ -584,6 +663,19 @@ const TeacherDashboard = () => {
             </div>
           </div>
         ))}
+      </div>
+
+      {/* Info Banner about Competencies */}
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 flex items-start gap-2">
+        <FiInfo className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
+        <div className="text-xs text-blue-700">
+          <span className="font-semibold">CBE Competencies:</span> 
+          {activeExam ? (
+            <> Recorded for <strong>{activeExam.title}</strong>. {stats.competenciesRecorded} competencies recorded so far.</>
+          ) : (
+            <> No active exam. Competencies will appear when an exam is scheduled and active.</>
+          )}
+        </div>
       </div>
 
       <div className={`grid ${deviceInfo.isMobile ? 'grid-cols-1' : 'lg:grid-cols-2'} gap-6 mb-6`}>
@@ -714,7 +806,7 @@ const TeacherDashboard = () => {
         </div>
       </div>
 
-      <div className={`grid ${deviceInfo.isMobile ? 'grid-cols-1' : 'lg:grid-cols-1'} gap-6 mb-6`}>
+      <div className={`grid ${deviceInfo.isMobile ? 'grid-cols-1' : 'lg:grid-cols-2'} gap-6 mb-6`}>
         
         {/* School Announcements Section - AI Responsive */}
         <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding}`}>
@@ -743,6 +835,42 @@ const TeacherDashboard = () => {
           <Link to="/teacher/announcements" className={`block text-center ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-blue-600 hover:text-blue-800 mt-4`}>
             View All Announcements →
           </Link>
+        </div>
+
+        {/* Quick Stats Info - Teacher's Summary */}
+        <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding}`}>
+          <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-4 flex items-center gap-2`}>
+            <FiUserCheck className="text-green-600" /> Teacher Summary
+          </h2>
+          <div className="space-y-3">
+            <div className="flex justify-between items-center p-2 bg-gray-50 rounded-lg">
+              <span className="text-sm text-gray-600">Assigned Class</span>
+              <span className="font-semibold text-gray-800">{user?.classAssigned || user?.class || 'Not Assigned'}</span>
+            </div>
+            <div className="flex justify-between items-center p-2 bg-gray-50 rounded-lg">
+              <span className="text-sm text-gray-600">Active Exam</span>
+              <span className="font-semibold text-green-600">{activeExam ? activeExam.title : 'No Active Exam'}</span>
+            </div>
+            <div className="flex justify-between items-center p-2 bg-gray-50 rounded-lg">
+              <span className="text-sm text-gray-600">Total Students</span>
+              <span className="font-semibold text-gray-800">{stats.totalLearners}</span>
+            </div>
+            <div className="flex justify-between items-center p-2 bg-blue-50 rounded-lg border border-blue-100">
+              <span className="text-sm text-blue-700">Competencies Recorded</span>
+              <span className="font-bold text-blue-700 text-lg">{stats.competenciesRecorded}</span>
+            </div>
+            {activeExam && (
+              <div className="bg-yellow-50 p-2 rounded-lg border border-yellow-200 text-center">
+                <p className="text-xs text-yellow-700">
+                  <FiClock className="inline mr-1 w-3 h-3" />
+                  {stats.competenciesRecorded === 0 
+                    ? 'No competencies recorded yet for this exam. Click "Record Competencies" to get started.' 
+                    : `${stats.competenciesRecorded} competencies recorded for ${activeExam.title}. Keep going!`
+                  }
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
