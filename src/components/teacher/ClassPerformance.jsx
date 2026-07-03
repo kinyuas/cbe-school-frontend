@@ -75,8 +75,27 @@ const useResponsiveClasses = (deviceInfo) => {
   };
 };
 
+// ===== CLASS ORDER DEFINITION (Lowest to Highest) =====
+const CLASS_ORDER = [
+  'Play Group',
+  'Pre-Primary 1',
+  'Pre-Primary 2',
+  'Grade 1',
+  'Grade 2',
+  'Grade 3',
+  'Grade 4',
+  'Grade 5',
+  'Grade 6',
+  'Grade 7',
+  'Grade 8',
+  'Grade 9',
+  'Grade 10',
+  'Grade 11',
+  'Grade 12'
+];
+
 // ===== COMPLETE CBE SUBJECT CONFIGURATION =====
-const E_SUBJECTS_BY_GRADE = {
+const CBE_SUBJECTS_BY_GRADE = {
   'Play Group': [
     'Language Activities',
     'Mathematical Activities',
@@ -261,6 +280,7 @@ const ClassPerformance = () => {
   const [availableClasses, setAvailableClasses] = useState([]);
   const [availableExamNames, setAvailableExamNames] = useState([]);
   const [availableSubjects, setAvailableSubjects] = useState([]);
+  const [availableExamTypes, setAvailableExamTypes] = useState([]);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedClass, setSelectedClass] = useState('');
   const [selectedStream, setSelectedStream] = useState('');
@@ -285,16 +305,6 @@ const ClassPerformance = () => {
 
   const terms = ['Term 1', 'Term 2', 'Term 3'];
 
-  const examTypes = [
-    'Opener Exam',
-    'Mid Term',
-    'End of Term Exam',
-    'Competency Assessment',
-    'Project Based Assessment',
-    'Portfolio Review',
-    'Practical Demonstration'
-  ];
-
   const competencyLevels = [
     { level: 'Exceeding Expectation (EE)', minScore: 80, maxScore: 100, color: 'bg-purple-100 text-purple-800' },
     { level: 'Meeting Expectation (ME)', minScore: 60, maxScore: 79, color: 'bg-green-100 text-green-800' },
@@ -310,6 +320,20 @@ const ClassPerformance = () => {
     return competencyLevels.find(l => score >= l.minScore && score <= l.maxScore);
   };
 
+  // ===== SORTING FUNCTIONS =====
+  const getClassOrder = (className) => {
+    const index = CLASS_ORDER.indexOf(className);
+    return index !== -1 ? index : 999;
+  };
+
+  const sortClassesByOrder = (classes) => {
+    return [...classes].sort((a, b) => {
+      const orderA = getClassOrder(a);
+      const orderB = getClassOrder(b);
+      return orderA - orderB;
+    });
+  };
+
   useEffect(() => {
     loadData();
     getUserRole();
@@ -323,11 +347,9 @@ const ClassPerformance = () => {
   // Update available subjects when class changes
   useEffect(() => {
     if (selectedClass) {
-      // Get subjects from the CBE configuration
       const subjects = CBE_SUBJECTS_BY_GRADE[selectedClass] || [];
       setAvailableSubjects(subjects);
       
-      // If current selected subject is not in the list, clear it
       if (selectedSubject && !subjects.includes(selectedSubject)) {
         setSelectedSubject('');
       }
@@ -371,7 +393,10 @@ const ClassPerformance = () => {
         const activeClasses = (school.classes || [])
           .filter(c => c.isActive !== false)
           .map(c => c.name);
-        setAvailableClasses(activeClasses);
+        // Sort classes from lowest to highest
+        const sortedClasses = sortClassesByOrder(activeClasses);
+        setAvailableClasses(sortedClasses);
+        console.log('📋 Sorted classes:', sortedClasses);
       } else {
         // Fallback to localStorage
         const storedSchool = localStorage.getItem('schoolInfo');
@@ -381,9 +406,10 @@ const ClassPerformance = () => {
           const activeClasses = (school.classes || [])
             .filter(c => c.isActive !== false)
             .map(c => c.name);
-          setAvailableClasses(activeClasses);
+          setAvailableClasses(sortClassesByOrder(activeClasses));
         } else {
-          setAvailableClasses(['Play Group', 'Pre-Primary 1', 'Pre-Primary 2', 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6', 'Grade 7', 'Grade 8', 'Grade 9']);
+          const fallbackClasses = ['Play Group', 'Pre-Primary 1', 'Pre-Primary 2', 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6', 'Grade 7', 'Grade 8', 'Grade 9'];
+          setAvailableClasses(sortClassesByOrder(fallbackClasses));
           setSchoolInfo({ name: 'School Name', classes: [] });
         }
       }
@@ -395,7 +421,15 @@ const ClassPerformance = () => {
       setResults(resultsRes.data?.data || []);
       
       const examsRes = await api.get('/exams');
-      setExams(examsRes.data?.data || []);
+      if (examsRes.data.success) {
+        const examsData = examsRes.data.data || [];
+        setExams(examsData);
+        
+        // Extract unique exam types from the exams data
+        const examTypesFromDb = [...new Set(examsData.map(e => e.type).filter(Boolean))];
+        setAvailableExamTypes(examTypesFromDb);
+        console.log('📋 Exam types fetched from database:', examTypesFromDb);
+      }
       
     } catch (error) {
       console.error('Error loading data:', error);
@@ -411,7 +445,7 @@ const ClassPerformance = () => {
             .filter(c => c.isActive !== false)
             .map(c => c.name);
           if (activeClasses.length > 0) {
-            setAvailableClasses(activeClasses);
+            setAvailableClasses(sortClassesByOrder(activeClasses));
           }
         }
       } catch (e) {
@@ -639,6 +673,12 @@ const ClassPerformance = () => {
     setPerformanceTrend(null);
     setComparisonStats(null);
     toast.success('Filters reset');
+  };
+
+  // Check if a class has streams (more than 1 stream)
+  const classHasMultipleStreams = (className) => {
+    const classData = schoolInfo.classes?.find(c => c.name === className);
+    return classData?.streams && classData.streams.length > 1;
   };
 
   // Generate Word Document
@@ -1077,18 +1117,20 @@ const ClassPerformance = () => {
             </select>
           </div>
           
-          <div>
-            <label className={`block text-gray-700 font-medium mb-1 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>Stream</label>
-            <select 
-              value={selectedStream} 
-              onChange={(e) => setSelectedStream(e.target.value)} 
-              className={`input-field w-full ${deviceInfo.isMobile ? 'text-base' : ''}`}
-              disabled={!selectedClass}
-            >
-              <option value="">Select Stream</option>
-              {availableStreams.map(stream => <option key={stream} value={stream}>{stream}</option>)}
-            </select>
-          </div>
+          {/* Only show Stream dropdown if class has MORE than 1 stream */}
+          {selectedClass && classHasMultipleStreams(selectedClass) && (
+            <div>
+              <label className={`block text-gray-700 font-medium mb-1 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>Stream</label>
+              <select 
+                value={selectedStream} 
+                onChange={(e) => setSelectedStream(e.target.value)} 
+                className={`input-field w-full ${deviceInfo.isMobile ? 'text-base' : ''}`}
+              >
+                <option value="">Select Stream</option>
+                {availableStreams.map(stream => <option key={stream} value={stream}>{stream}</option>)}
+              </select>
+            </div>
+          )}
           
           <div>
             <label className={`block text-gray-700 font-medium mb-1 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>Term</label>
@@ -1129,7 +1171,12 @@ const ClassPerformance = () => {
               className={`input-field w-full ${deviceInfo.isMobile ? 'text-base' : ''}`}
             >
               <option value="">Select Exam Type</option>
-              {examTypes.map(type => <option key={type} value={type}>{type}</option>)}
+              {availableExamTypes.map(type => (
+                <option key={type} value={type}>{type}</option>
+              ))}
+              {availableExamTypes.length === 0 && (
+                <option value="" disabled>No exam types scheduled</option>
+              )}
             </select>
           </div>
           
