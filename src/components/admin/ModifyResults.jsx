@@ -8,6 +8,25 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
 
+// ===== CLASS ORDER DEFINITION (Lowest to Highest) =====
+const CLASS_ORDER = [
+  'Play Group',
+  'Pre-Primary 1',
+  'Pre-Primary 2',
+  'Grade 1',
+  'Grade 2',
+  'Grade 3',
+  'Grade 4',
+  'Grade 5',
+  'Grade 6',
+  'Grade 7',
+  'Grade 8',
+  'Grade 9',
+  'Grade 10',
+  'Grade 11',
+  'Grade 12'
+];
+
 const ModifyRecords = () => {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
@@ -45,13 +64,24 @@ const ModifyRecords = () => {
   // Track changes locally
   const [localScores, setLocalScores] = useState({});
 
-  // CBE Subjects by Grade Level - INCLUDING PLAY GROUP (PG)
+  // ===== SORTING FUNCTIONS =====
+  const getClassOrder = (className) => {
+    const index = CLASS_ORDER.indexOf(className);
+    return index !== -1 ? index : 999;
+  };
+
+  const sortClassesByOrder = (classes) => {
+    return [...classes].sort((a, b) => {
+      const orderA = getClassOrder(a);
+      const orderB = getClassOrder(b);
+      return orderA - orderB;
+    });
+  };
+
+  // CBE Subjects by Grade Level
   const subjectsByGrade = {
     // Early Years Education (Play Group / Pre-Primary)
-    'PG': ['Language Activities', 'Mathematical Activities', 'Environmental Activities', 'Psychomotor and Creative Activities', 'Religious Education Activities', 'Social Skills'],
     'Play Group': ['Language Activities', 'Mathematical Activities', 'Environmental Activities', 'Psychomotor and Creative Activities', 'Religious Education Activities', 'Social Skills'],
-    'PP1': ['Language Activities', 'Mathematical Activities', 'Environmental Activities', 'Psychomotor and Creative Activities', 'Religious Education Activities'],
-    'PP2': ['Language Activities', 'Mathematical Activities', 'Environmental Activities', 'Psychomotor and Creative Activities', 'Religious Education Activities'],
     'Pre-Primary 1': ['Language Activities', 'Mathematical Activities', 'Environmental Activities', 'Psychomotor and Creative Activities', 'Religious Education Activities'],
     'Pre-Primary 2': ['Language Activities', 'Mathematical Activities', 'Environmental Activities', 'Psychomotor and Creative Activities', 'Religious Education Activities'],
     
@@ -96,25 +126,37 @@ const ModifyRecords = () => {
     loadAllData();
   }, []);
 
-  // Update subjects when class changes - INCLUDES PLAY GROUP
+  // Update subjects when class changes
   useEffect(() => {
     if (selectedClass) {
-      // Check if the class exists in subjectsByGrade, if not use empty array
       const subjects = subjectsByGrade[selectedClass] || [];
       setAvailableSubjects(subjects);
       setSelectedSubject('');
     }
   }, [selectedClass]);
 
-  // Update streams when class changes
+  // Update streams when class changes - ONLY if class has streams
   useEffect(() => {
     if (selectedClass) {
       const learnersInClass = learners.filter(l => l.class === selectedClass);
       const streams = [...new Set(learnersInClass.map(l => l.stream).filter(Boolean))];
-      setAvailableStreams(streams);
+      
+      // Check if the class actually has streams configured in school settings
+      const classData = schoolInfo?.classes?.find(c => c.name === selectedClass);
+      const hasStreamsInConfig = classData?.streams && classData.streams.length > 0;
+      
+      // Only set streams if the class has streams in configuration
+      if (hasStreamsInConfig && streams.length > 0) {
+        setAvailableStreams(streams);
+      } else {
+        setAvailableStreams([]);
+      }
+      setSelectedStream('');
+    } else {
+      setAvailableStreams([]);
       setSelectedStream('');
     }
-  }, [selectedClass, learners]);
+  }, [selectedClass, learners, schoolInfo]);
 
   // Update exam names when exam type changes
   useEffect(() => {
@@ -143,7 +185,10 @@ const ModifyRecords = () => {
         const activeClasses = classes
           .filter(c => c.isActive !== false)
           .map(c => c.name);
-        setAvailableClasses(activeClasses);
+        // Sort classes from lowest to highest
+        const sortedClasses = sortClassesByOrder(activeClasses);
+        setAvailableClasses(sortedClasses);
+        console.log('Sorted classes:', sortedClasses);
       }
       
       // Load learners
@@ -188,6 +233,12 @@ const ModifyRecords = () => {
     toast.success('Data refreshed');
   };
 
+  // Check if a class has streams configured
+  const classHasStreams = (className) => {
+    const classData = schoolInfo?.classes?.find(c => c.name === className);
+    return classData?.streams && classData.streams.length > 0;
+  };
+
   const loadResults = async () => {
     if (!selectedClass) {
       toast.error('Please select a class');
@@ -205,8 +256,8 @@ const ModifyRecords = () => {
       // Filter learners by class and stream
       let filteredLearners = learners.filter(l => l.class === selectedClass);
       
-      // Apply stream filter if selected
-      if (selectedStream && selectedStream !== 'all' && selectedStream !== '') {
+      // Apply stream filter if selected and class has streams
+      if (selectedStream && selectedStream !== 'all' && selectedStream !== '' && classHasStreams(selectedClass)) {
         filteredLearners = filteredLearners.filter(l => l.stream === selectedStream);
       }
       
@@ -224,8 +275,8 @@ const ModifyRecords = () => {
         year: selectedYear
       };
       
-      // Add stream filter if selected
-      if (selectedStream && selectedStream !== 'all' && selectedStream !== '') {
+      // Add stream filter only if class has streams and stream is selected
+      if (selectedStream && selectedStream !== 'all' && selectedStream !== '' && classHasStreams(selectedClass)) {
         params.stream = selectedStream;
       }
       if (selectedTerm) {
@@ -473,21 +524,23 @@ const ModifyRecords = () => {
             {years.map(year => <option key={year} value={year}>{year}</option>)}
           </select>
           
-          {/* Class - Second */}
+          {/* Class - Second (Sorted Lowest to Highest) */}
           <select value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)} className="input-field text-sm py-2">
             <option value="">Select Class</option>
             {availableClasses.map(cls => <option key={cls} value={cls}>{cls}</option>)}
           </select>
           
-          {/* Stream - Third */}
-          <select 
-            value={selectedStream} 
-            onChange={(e) => setSelectedStream(e.target.value)} 
-            className="input-field text-sm py-2"
-          >
-            <option value="">All Streams</option>
-            {availableStreams.map(stream => <option key={stream} value={stream}>{stream}</option>)}
-          </select>
+          {/* Stream - Third (Only show if class has streams) */}
+          {selectedClass && classHasStreams(selectedClass) && (
+            <select 
+              value={selectedStream} 
+              onChange={(e) => setSelectedStream(e.target.value)} 
+              className="input-field text-sm py-2"
+            >
+              <option value="">All Streams</option>
+              {availableStreams.map(stream => <option key={stream} value={stream}>{stream}</option>)}
+            </select>
+          )}
           
           {/* Term - Fourth */}
           <select value={selectedTerm} onChange={(e) => setSelectedTerm(e.target.value)} className="input-field text-sm py-2">

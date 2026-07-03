@@ -75,6 +75,25 @@ const useResponsiveClasses = (deviceInfo) => {
   };
 };
 
+// ===== CLASS ORDER DEFINITION (Lowest to Highest) =====
+const CLASS_ORDER = [
+  'Play Group',
+  'Pre-Primary 1',
+  'Pre-Primary 2',
+  'Grade 1',
+  'Grade 2',
+  'Grade 3',
+  'Grade 4',
+  'Grade 5',
+  'Grade 6',
+  'Grade 7',
+  'Grade 8',
+  'Grade 9',
+  'Grade 10',
+  'Grade 11',
+  'Grade 12'
+];
+
 const Reports = () => {
   // AI Device Detection
   const deviceInfo = useDeviceDetection();
@@ -105,6 +124,7 @@ const Reports = () => {
   const [availableStreams, setAvailableStreams] = useState([]);
   const [availableExamNames, setAvailableExamNames] = useState([]);
   const [availableCombinedExams, setAvailableCombinedExams] = useState([]);
+  const [availableExamTypes, setAvailableExamTypes] = useState([]); // NEW: fetched from database
   
   // Loading and data states
   const [filteredData, setFilteredData] = useState([]);
@@ -122,16 +142,6 @@ const Reports = () => {
 
   const terms = ['Term 1', 'Term 2', 'Term 3'];
   const years = [2023, 2024, 2025, 2026, 2027];
-
-  const examTypes = [
-    'Opener Exam',
-    'Mid Term',
-    'End of Term Exam',
-    'Competency Assessment',
-    'Project Based Assessment',
-    'Portfolio Review',
-    'Practical Demonstration'
-  ];
 
   const competencyLevels = [
     { level: 'EE', minScore: 80, maxScore: 100, color: '#9b59b6', description: 'Exceeding Expectation' },
@@ -177,6 +187,20 @@ const Reports = () => {
     } else {
       return 'The student is performing well below expectations and requires intensive intervention. Immediate support is needed to address learning gaps. Consider comprehensive assessment to identify specific learning needs and develop an individualized learning plan.';
     }
+  };
+
+  // ===== SORTING FUNCTIONS =====
+  const getClassOrder = (className) => {
+    const index = CLASS_ORDER.indexOf(className);
+    return index !== -1 ? index : 999; // Unknown classes go to the end
+  };
+
+  const sortClassesByOrder = (classes) => {
+    return [...classes].sort((a, b) => {
+      const orderA = getClassOrder(a);
+      const orderB = getClassOrder(b);
+      return orderA - orderB;
+    });
   };
 
   // Load school data from API on mount
@@ -238,7 +262,9 @@ const Reports = () => {
         const activeClasses = classes
           .filter(c => c.isActive !== false)
           .map(c => c.name);
-        setAvailableClasses(activeClasses);
+        // Sort classes from lowest to highest
+        const sortedClasses = sortClassesByOrder(activeClasses);
+        setAvailableClasses(sortedClasses);
       }
       
       const pupilsRes = await api.get('/pupils');
@@ -253,7 +279,13 @@ const Reports = () => {
       
       const examsRes = await api.get('/exams');
       if (examsRes.data?.success) {
-        setExams(examsRes.data.data || []);
+        const examsData = examsRes.data.data || [];
+        setExams(examsData);
+        
+        // Extract unique exam types from the exams data
+        const examTypesFromDb = [...new Set(examsData.map(e => e.type).filter(Boolean))];
+        setAvailableExamTypes(examTypesFromDb);
+        console.log('📋 Exam types fetched from database:', examTypesFromDb);
       }
       
       toast.success('Data loaded from database');
@@ -784,15 +816,29 @@ const Reports = () => {
             <div className={`grid ${deviceInfo.isMobile ? 'grid-cols-1 gap-2' : 'grid-cols-2 md:grid-cols-3 gap-3'}`}>
               <div>
                 <label className={`block text-gray-600 ${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} mb-1`}>Exam Type</label>
-                <select value={selectedExamType} onChange={(e) => setSelectedExamType(e.target.value)} className={`input-field w-full ${deviceInfo.isMobile ? 'text-sm py-1.5' : 'text-sm py-1.5'}`}>
-                  <option value="">Select</option>
-                  {examTypes.map(type => <option key={type} value={type}>{type}</option>)}
+                <select 
+                  value={selectedExamType} 
+                  onChange={(e) => setSelectedExamType(e.target.value)} 
+                  className={`input-field w-full ${deviceInfo.isMobile ? 'text-sm py-1.5' : 'text-sm py-1.5'}`}
+                >
+                  <option value="">Select Exam Type</option>
+                  {availableExamTypes.map(type => (
+                    <option key={type} value={type}>{type}</option>
+                  ))}
+                  {availableExamTypes.length === 0 && (
+                    <option value="" disabled>No exam types found in database</option>
+                  )}
                 </select>
+                <p className="text-[8px] text-gray-400 mt-0.5">
+                  {availableExamTypes.length > 0 
+                    ? `${availableExamTypes.length} exam type(s) available from database` 
+                    : 'No exams scheduled yet'}
+                </p>
               </div>
               <div>
                 <label className={`block text-gray-600 ${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} mb-1`}>Exam Name</label>
                 <select value={selectedExamName} onChange={(e) => setSelectedExamName(e.target.value)} className={`input-field w-full ${deviceInfo.isMobile ? 'text-sm py-1.5' : 'text-sm py-1.5'}`} disabled={!selectedExamType}>
-                  <option value="">{!selectedExamType ? 'Select type' : 'Select exam'}</option>
+                  <option value="">{!selectedExamType ? 'Select exam type first' : 'Select exam'}</option>
                   {availableExamNames.map(name => <option key={name} value={name}>{name}</option>)}
                 </select>
               </div>
