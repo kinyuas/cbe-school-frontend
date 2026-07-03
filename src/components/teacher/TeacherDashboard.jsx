@@ -141,7 +141,7 @@ const TeacherDashboard = () => {
     totalLearners: 0,
     competenciesRecorded: 0,
     classesTaught: 0,
-    upcomingAssessments: 0,
+   UpcomingExams: 0,
     attendance: 0,
     events: 0
   });
@@ -372,13 +372,13 @@ const TeacherDashboard = () => {
       });
       
       // Update stats
-      const upcomingAssessments = activeAndUpcomingExams.length;
+      const UpcomingExams = activeAndUpcomingExams.length;
       
       setStats({
         totalLearners: learners.length,
         competenciesRecorded: competenciesCount,
         classesTaught: classesTaughtCount,
-        upcomingAssessments: upcomingAssessments,
+        UpcomingExams: UpcomingExams,
         attendance: 92,
         events: activeAndUpcomingEvents.length
       });
@@ -570,9 +570,9 @@ const TeacherDashboard = () => {
   };
 
   const statCards = [
-    { title: 'CBE Competencies', value: stats.competenciesRecorded, icon: FiBookOpen, color: 'from-green-500 to-green-600' },
+    { title: 'Uploaded Results', value: stats.competenciesRecorded, icon: FiBookOpen, color: 'from-green-500 to-green-600' },
     { title: 'Classes Taught', value: stats.classesTaught, icon: FiTarget, color: 'from-purple-500 to-purple-600' },
-    { title: 'Upcoming Assessments', value: stats.upcomingAssessments, icon: FiCalendar, color: 'from-orange-500 to-orange-600' },
+    { title: 'Upcoming Exams', value: stats.UpcomingExams, icon: FiCalendar, color: 'from-orange-500 to-orange-600' },
     { title: 'School Events', value: stats.events, icon: FiTrendingUp, color: 'from-blue-500 to-blue-600' },
   ];
 
@@ -761,7 +761,7 @@ const TeacherDashboard = () => {
         <Link to="/teacher/results" className="bg-green-100 hover:bg-green-200 p-3 rounded-lg text-center transition-colors shadow-sm hover:shadow-md">
           <FiPlus className={`${deviceInfo.isMobile ? 'w-4 h-4' : 'w-5 h-5'} text-green-600 mx-auto mb-1`} />
           <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} font-medium text-green-700`}>
-            Record Competencies
+            Upload Results
           </p>
         </Link>
         <Link to="/teacher/students" className="bg-blue-100 hover:bg-blue-200 p-3 rounded-lg text-center transition-colors shadow-sm hover:shadow-md">
@@ -788,11 +788,11 @@ const TeacherDashboard = () => {
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 flex items-start gap-2">
         <FiInfo className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
         <div className="text-xs text-blue-700">
-          <span className="font-semibold">CBE Competencies:</span> 
+          <span className="font-semibold">Uploaded Results:</span> 
           {activeExam ? (
             <> Recorded for <strong>{activeExam.title}</strong>. {stats.competenciesRecorded} competencies recorded so far.</>
           ) : (
-            <> No active exam. Competencies will appear when an exam is scheduled and active.</>
+            <> No active exam. Results will appear when an exam is scheduled and active.</>
           )}
         </div>
       </div>
@@ -879,10 +879,10 @@ const TeacherDashboard = () => {
           </Link>
         </div>
 
-        {/* Upcoming Assessments - Active and Upcoming Only */}
+        {/* Upcoming Exams - Active and Upcoming Only */}
         <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding}`}>
           <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-4 flex items-center gap-2`}>
-            <FiCalendar className="text-orange-600" /> Active & Upcoming Assessments
+            <FiCalendar className="text-orange-600" /> Active & Upcoming Exams
           </h2>
           {exams.length > 0 ? (
             <div className="space-y-3">
@@ -946,12 +946,12 @@ const TeacherDashboard = () => {
           ) : (
             <div className="text-center py-6">
               <FiCalendar className={`${deviceInfo.isMobile ? 'w-8 h-8' : 'w-10 h-10'} text-gray-300 mx-auto mb-2`} />
-              <p className="text-gray-500 text-sm">No active or upcoming assessments</p>
-              <p className="text-xs text-gray-400 mt-1">All assessments are either completed or not scheduled</p>
+              <p className="text-gray-500 text-sm">No active or upcoming exams</p>
+              <p className="text-xs text-gray-400 mt-1">All exams are either completed or not scheduled</p>
             </div>
           )}
           <Link to="/teacher/exams" className={`block text-center ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-orange-600 hover:text-orange-800 mt-4`}>
-            View All Assessments →
+            View All Exams →
           </Link>
         </div>
       </div>
@@ -1031,7 +1031,7 @@ const TeacherDashboard = () => {
                 <p className="text-xs text-yellow-700">
                   <FiClock className="inline mr-1 w-3 h-3" />
                   {stats.competenciesRecorded === 0 
-                    ? 'No competencies recorded yet for this exam. Click "Record Competencies" to get started.' 
+                    ? 'No competencies recorded yet for this exam. Click "Upload Results" to get started.' 
                     : `${stats.competenciesRecorded} competencies recorded for ${activeExam.title}. Keep going!`
                   }
                 </p>

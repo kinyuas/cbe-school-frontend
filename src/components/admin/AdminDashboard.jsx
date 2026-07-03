@@ -283,7 +283,7 @@ const AdminDashboard = () => {
   const statCards = [
     { title: 'Students', value: stats.learners, icon: FiUsers, color: 'text-blue-500', link: '/admin/pupils' },
     { title: 'Teachers', value: stats.teachers, icon: FiUserCheck, color: 'text-green-500', link: '/admin/teachers' },
-    { title: 'Assessments', value: stats.exams, icon: FiFileText, color: 'text-indigo-500', link: '/admin/exams' },
+    { title: 'Exams', value: stats.exams, icon: FiFileText, color: 'text-indigo-500', link: '/admin/exams' },
     { title: 'Graduates', value: stats.alumni, icon: FiAward, color: 'text-purple-500', link: '/admin/alumni' },
     { title: 'Transferred', value: stats.transferred, icon: FiTrendingUp, color: 'text-yellow-500', link: '/admin/transferred-learners' },
     { title: 'Events', value: stats.events, icon: FiCalendar, color: 'text-pink-500', link: '/admin/events' },
@@ -484,7 +484,7 @@ const AdminDashboard = () => {
         {/* Upcoming Exams Section */}
         <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding}`}>
           <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-4 flex items-center gap-2`}>
-            <FiFileText className="text-indigo-600" /> Upcoming Assessments
+            <FiFileText className="text-indigo-600" /> Upcoming Exams
           </h2>
           {upcomingExams.length > 0 ? (
             <div className="space-y-3">
@@ -512,14 +512,14 @@ const AdminDashboard = () => {
           ) : (
             <div className="text-center py-6">
               <FiFileText className={`${deviceInfo.isMobile ? 'w-8 h-8' : 'w-10 h-10'} text-gray-300 mx-auto mb-2`} />
-              <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-gray-500`}>No upcoming assessments</p>
+              <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-gray-500`}>No upcoming exams</p>
               <Link to="/admin/exams" className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-indigo-600 hover:text-indigo-800 mt-2 inline-block`}>
-                Schedule Assessment →
+                Schedule Exam →
               </Link>
             </div>
           )}
           <Link to="/admin/exams" className={`block text-center ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-indigo-600 hover:text-indigo-800 mt-4`}>
-            View All Assessments →
+            View All Exams →
           </Link>
         </div>
 
