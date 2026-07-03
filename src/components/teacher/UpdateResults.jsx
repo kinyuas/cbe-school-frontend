@@ -70,6 +70,25 @@ const useResponsiveClasses = (deviceInfo) => {
   };
 };
 
+// ===== CLASS ORDER DEFINITION (Lowest to Highest) =====
+const CLASS_ORDER = [
+  'Play Group',
+  'Pre-Primary 1',
+  'Pre-Primary 2',
+  'Grade 1',
+  'Grade 2',
+  'Grade 3',
+  'Grade 4',
+  'Grade 5',
+  'Grade 6',
+  'Grade 7',
+  'Grade 8',
+  'Grade 9',
+  'Grade 10',
+  'Grade 11',
+  'Grade 12'
+];
+
 // ===== Subject Configuration =====
 const getSubjectConfig = (className) => {
   const config = {
@@ -120,6 +139,18 @@ const getSubjectConfig = (className) => {
     'Grade 9': {
       subjects: ['English', 'Kiswahili', 'Mathematics', 'Integrated Science', 'Health Education', 'Pre-Technical Studies', 'Social Studies', 'Religious Education', 'Creative Arts and Sports', 'Business Studies', 'Agriculture', 'Computer Science'],
       streamRequired: true
+    },
+    'Grade 10': {
+      subjects: ['English', 'Kiswahili', 'Mathematics', 'Biology', 'Chemistry', 'Physics', 'History', 'Geography', 'Religious Education', 'Business Studies', 'Computer Studies', 'Agriculture'],
+      streamRequired: true
+    },
+    'Grade 11': {
+      subjects: ['English', 'Kiswahili', 'Mathematics', 'Biology', 'Chemistry', 'Physics', 'History', 'Geography', 'Religious Education', 'Business Studies', 'Computer Studies', 'Agriculture'],
+      streamRequired: true
+    },
+    'Grade 12': {
+      subjects: ['English', 'Kiswahili', 'Mathematics', 'Biology', 'Chemistry', 'Physics', 'History', 'Geography', 'Religious Education', 'Business Studies', 'Computer Studies', 'Agriculture'],
+      streamRequired: true
     }
   };
   
@@ -162,9 +193,9 @@ const UpdateResults = () => {
   const [availableStreams, setAvailableStreams] = useState([]);
   const [availableExamNames, setAvailableExamNames] = useState([]);
   const [subjectConfig, setSubjectConfig] = useState({ subjects: [], streamRequired: false });
+  const [availableExamTypes, setAvailableExamTypes] = useState([]);
 
   const terms = ['Term 1', 'Term 2', 'Term 3'];
-  const examTypes = ['Opener Exam', 'Mid Term', 'End of Term Exam', 'Competency Assessment', 'Project Based Assessment', 'Portfolio Review', 'Practical Demonstration'];
 
   const competencyLevels = [
     { level: 'Exceeding Expectation (EE)', minScore: 80, maxScore: 100, color: 'bg-purple-100 text-purple-800' },
@@ -203,6 +234,20 @@ const UpdateResults = () => {
     return true;
   };
 
+  // ===== SORTING FUNCTIONS =====
+  const getClassOrder = (className) => {
+    const index = CLASS_ORDER.indexOf(className);
+    return index !== -1 ? index : 999;
+  };
+
+  const sortClassesByOrder = (classes) => {
+    return [...classes].sort((a, b) => {
+      const orderA = getClassOrder(a);
+      const orderB = getClassOrder(b);
+      return orderA - orderB;
+    });
+  };
+
   useEffect(() => {
     loadData();
   }, []);
@@ -220,15 +265,20 @@ const UpdateResults = () => {
         const activeClassNames = (school.classes || [])
           .filter(c => c.isActive !== false)
           .map(c => c.name);
-        setAvailableClasses(activeClassNames);
+        
+        // Sort classes from lowest to highest
+        const sortedClasses = sortClassesByOrder(activeClassNames);
+        setAvailableClasses(sortedClasses);
         
         // If no classes configured, use fallback
-        if (activeClassNames.length === 0) {
-          setAvailableClasses(['Play Group', 'Pre-Primary 1', 'Pre-Primary 2', 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6', 'Grade 7', 'Grade 8', 'Grade 9']);
+        if (sortedClasses.length === 0) {
+          const fallbackClasses = ['Play Group', 'Pre-Primary 1', 'Pre-Primary 2', 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6', 'Grade 7', 'Grade 8', 'Grade 9'];
+          setAvailableClasses(sortClassesByOrder(fallbackClasses));
         }
       } else {
         // Fallback if school info not found
-        setAvailableClasses(['Play Group', 'Pre-Primary 1', 'Pre-Primary 2', 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6', 'Grade 7', 'Grade 8', 'Grade 9']);
+        const fallbackClasses = ['Play Group', 'Pre-Primary 1', 'Pre-Primary 2', 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6', 'Grade 7', 'Grade 8', 'Grade 9'];
+        setAvailableClasses(sortClassesByOrder(fallbackClasses));
       }
       
       // Load students
@@ -238,7 +288,15 @@ const UpdateResults = () => {
       
       // Load exams
       const examsRes = await api.get('/exams');
-      setExams(examsRes.data?.data || []);
+      if (examsRes.data.success) {
+        const examsData = examsRes.data.data || [];
+        setExams(examsData);
+        
+        // Extract unique exam types from the exams data
+        const examTypesFromDb = [...new Set(examsData.map(e => e.type).filter(Boolean))];
+        setAvailableExamTypes(examTypesFromDb);
+        console.log('📋 Exam types fetched from database:', examTypesFromDb);
+      }
       
     } catch (error) {
       console.error('Error loading data:', error);
@@ -246,7 +304,7 @@ const UpdateResults = () => {
       
       // Fallback data if API fails
       const fallbackClasses = ['Play Group', 'Pre-Primary 1', 'Pre-Primary 2', 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6', 'Grade 7', 'Grade 8', 'Grade 9'];
-      setAvailableClasses(fallbackClasses);
+      setAvailableClasses(sortClassesByOrder(fallbackClasses));
       
       // Try to load from localStorage as fallback
       try {
@@ -258,7 +316,7 @@ const UpdateResults = () => {
             .filter(c => c.isActive !== false)
             .map(c => c.name);
           if (activeClassNames.length > 0) {
-            setAvailableClasses(activeClassNames);
+            setAvailableClasses(sortClassesByOrder(activeClassNames));
           }
         }
       } catch (e) {
@@ -274,12 +332,17 @@ const UpdateResults = () => {
     if (selectedClass) {
       const classData = schoolInfo.classes?.find(c => c.name === selectedClass);
       const streams = classData?.streams || [];
+      
+      // Only show streams if there are multiple streams configured
       setAvailableStreams(streams);
       setSelectedStream('');
       
       // Update subject configuration based on selected class
       const config = getSubjectConfig(selectedClass);
       setSubjectConfig(config);
+    } else {
+      setAvailableStreams([]);
+      setSelectedStream('');
     }
   }, [selectedClass, schoolInfo]);
 
@@ -326,7 +389,9 @@ const UpdateResults = () => {
   const filterStudents = () => {
     let filtered = [...students];
     if (selectedClass) filtered = filtered.filter(s => s.class === selectedClass);
-    if (selectedStream && selectedStream !== 'all') filtered = filtered.filter(s => s.stream === selectedStream);
+    if (selectedStream && selectedStream !== 'all' && availableStreams.length > 1) {
+      filtered = filtered.filter(s => s.stream === selectedStream);
+    }
     if (searchTerm) {
       const searchLower = searchTerm.toLowerCase();
       filtered = filtered.filter(s => 
@@ -338,7 +403,7 @@ const UpdateResults = () => {
 
   useEffect(() => {
     filterStudents();
-  }, [selectedClass, selectedStream, searchTerm, students]);
+  }, [selectedClass, selectedStream, searchTerm, students, availableStreams]);
 
   // Load existing scores when subject changes
   useEffect(() => {
@@ -443,6 +508,12 @@ const UpdateResults = () => {
 
   const availableSubjects = subjectConfig.subjects || [];
 
+  // Check if a class has streams (more than 1 stream)
+  const classHasMultipleStreams = (className) => {
+    const classData = schoolInfo.classes?.find(c => c.name === className);
+    return classData?.streams && classData.streams.length > 1;
+  };
+
   // Get grid columns based on device
   const getSubjectGridCols = () => {
     if (deviceInfo.isMobile) return 'grid-cols-2';
@@ -468,7 +539,7 @@ const UpdateResults = () => {
   }
 
   return (
-    <Layout title="Update Class Results" subtitle="- Record learner competencies">
+    <Layout title="Update Class Results" subtitle="CBE - Record learner competencies">
       {/* Header - AI Responsive */}
       <div className={`bg-gradient-to-r from-green-600 to-blue-600 rounded-xl ${deviceInfo.isMobile ? 'p-3' : 'p-4'} mb-4 text-white`}>
         <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-1' : 'items-center gap-3'}`}>
@@ -542,16 +613,20 @@ const UpdateResults = () => {
             <option value="">Select Class</option>
             {availableClasses.map(cls => <option key={cls} value={cls}>{cls}</option>)}
           </select>
-          <select 
-            value={selectedStream} 
-            onChange={(e) => setSelectedStream(e.target.value)} 
-            className={`input-field ${responsive.textSize} py-2 ${deviceInfo.isMobile ? 'text-base' : ''}`}
-            disabled={!selectedClass || availableStreams.length === 0}
-          >
-            <option value="">Stream</option>
-            <option value="all">All Streams</option>
-            {availableStreams.map(stream => <option key={stream} value={stream}>{stream}</option>)}
-          </select>
+          
+          {/* Only show Stream dropdown if class has MORE than 1 stream */}
+          {selectedClass && classHasMultipleStreams(selectedClass) && (
+            <select 
+              value={selectedStream} 
+              onChange={(e) => setSelectedStream(e.target.value)} 
+              className={`input-field ${responsive.textSize} py-2 ${deviceInfo.isMobile ? 'text-base' : ''}`}
+            >
+              <option value="">Stream</option>
+              <option value="all">All Streams</option>
+              {availableStreams.map(stream => <option key={stream} value={stream}>{stream}</option>)}
+            </select>
+          )}
+          
           <select 
             value={selectedTerm} 
             onChange={(e) => setSelectedTerm(e.target.value)} 
@@ -560,21 +635,28 @@ const UpdateResults = () => {
             <option value="">Term</option>
             {terms.map(term => <option key={term} value={term}>{term}</option>)}
           </select>
+          
           <select 
             value={selectedExamType} 
             onChange={(e) => setSelectedExamType(e.target.value)} 
             className={`input-field ${responsive.textSize} py-2 ${deviceInfo.isMobile ? 'text-base' : ''}`}
           >
             <option value="">Exam Type</option>
-            {examTypes.map(type => <option key={type} value={type}>{type}</option>)}
+            {availableExamTypes.map(type => (
+              <option key={type} value={type}>{type}</option>
+            ))}
+            {availableExamTypes.length === 0 && (
+              <option value="" disabled>No exam types scheduled</option>
+            )}
           </select>
+          
           <select 
             value={selectedExamName} 
             onChange={(e) => setSelectedExamName(e.target.value)} 
             className={`input-field ${responsive.textSize} py-2 ${deviceInfo.isMobile ? 'text-base' : ''}`}
             disabled={!selectedExamType}
           >
-            <option value="">Exam Name</option>
+            <option value="">{!selectedExamType ? 'Select exam type first' : 'Exam Name'}</option>
             {availableExamNames.map(name => <option key={name} value={name}>{name}</option>)}
           </select>
         </div>
