@@ -262,27 +262,27 @@ const Reports = () => {
         const activeClasses = classes
           .filter(c => c.isActive !== false)
           .map(c => c.name);
-        // Sort classes from lowest to highest
         const sortedClasses = sortClassesByOrder(activeClasses);
         setAvailableClasses(sortedClasses);
+        console.log('Available classes (sorted):', sortedClasses);
       }
       
       const pupilsRes = await api.get('/pupils');
       if (pupilsRes.data?.success) {
         setPupils(pupilsRes.data.data || []);
+        console.log('Pupils loaded:', pupilsRes.data.data?.length || 0);
       }
       
       const resultsRes = await api.get('/results');
       if (resultsRes.data?.success) {
         setResults(resultsRes.data.data || []);
+        console.log('Results loaded:', resultsRes.data.data?.length || 0);
       }
       
       const examsRes = await api.get('/exams');
       if (examsRes.data?.success) {
         const examsData = examsRes.data.data || [];
         setExams(examsData);
-        
-        // Extract unique exam types from the exams data
         const examTypesFromDb = [...new Set(examsData.map(e => e.type).filter(Boolean))];
         setAvailableExamTypes(examTypesFromDb);
         console.log('📋 Exam types fetched from database:', examTypesFromDb);
@@ -311,6 +311,9 @@ const Reports = () => {
     setLoading(true);
     
     try {
+      console.log('Loading performance data...');
+      console.log('Filters:', { selectedClass, selectedTerm, selectedExamType, selectedExamName, selectedYear, selectedStream });
+      
       let finalResults = [];
       let combinedExamData = null;
       let selectedExamNames = [];
@@ -326,7 +329,6 @@ const Reports = () => {
         selectedExamNames = selectedCombinedExams;
         combinedExamData = {};
         
-        // Get all results for selected exams
         const allResults = [];
         for (const examName of selectedCombinedExams) {
           const params = {
@@ -337,11 +339,12 @@ const Reports = () => {
             stream: selectedStream === 'all' ? undefined : selectedStream,
           };
           
+          console.log('Fetching results for exam:', examName, params);
           const response = await api.get('/results', { params });
           const examResults = response.data?.data || [];
+          console.log(`Found ${examResults.length} results for ${examName}`);
           const weight = parseFloat(examWeights[examName] || 100 / selectedCombinedExams.length);
           
-          // Store individual exam results for report card
           combinedExamData[examName] = {};
           examResults.forEach(r => {
             const pupilId = r.pupilId?._id || r.pupilId;
@@ -354,7 +357,6 @@ const Reports = () => {
             combinedExamData[examName][pupilId][subject] = marks;
           });
           
-          // Add weight to each result
           examResults.forEach(r => {
             allResults.push({
               ...r,
@@ -364,7 +366,6 @@ const Reports = () => {
           });
         }
         
-        // Group and combine results by student and subject
         const combinedMap = new Map();
         allResults.forEach(r => {
           const pupilId = r.pupilId?._id || r.pupilId;
@@ -387,13 +388,10 @@ const Reports = () => {
           entry.totalWeight += r.weight;
         });
         
-        // Calculate final scores
-        const combinedResults = Array.from(combinedMap.values()).map(entry => ({
+        finalResults = Array.from(combinedMap.values()).map(entry => ({
           ...entry,
           marks: entry.totalWeight > 0 ? entry.weightedMarks / entry.totalWeight : 0
         }));
-        
-        finalResults = combinedResults;
         
       } else {
         // Single exam report
@@ -420,8 +418,10 @@ const Reports = () => {
           stream: selectedStream === 'all' ? undefined : selectedStream,
         };
         
+        console.log('Fetching results with params:', params);
         const response = await api.get('/results', { params });
         finalResults = response.data?.data || [];
+        console.log(`Found ${finalResults.length} results`);
       }
       
       if (finalResults.length === 0) {
@@ -434,6 +434,7 @@ const Reports = () => {
       // Process results
       const subjects = [...new Set(finalResults.map(r => r.subject).filter(Boolean))];
       setAllSubjects(subjects);
+      console.log('Subjects found:', subjects);
       
       const studentMap = new Map();
       finalResults.forEach(r => {
@@ -655,6 +656,18 @@ const Reports = () => {
   const closeReportCard = () => {
     setShowReportCard(false);
     setSelectedStudent(null);
+  };
+
+  // ===== WORD DOCUMENT GENERATION =====
+  const generateWordDocument = async () => {
+    if (filteredData.length === 0) {
+      toast.error('No data to download');
+      return;
+    }
+    
+    toast.info('Word document generation is currently disabled. Please use Excel format.');
+    // Word generation is disabled due to docx package issues
+    // To enable, uncomment the docx import and the full function
   };
 
   // ===== EXCEL DOWNLOAD =====
@@ -962,7 +975,9 @@ const Reports = () => {
                 <button onClick={downloadExcel} className="bg-green-600 text-white rounded ${deviceInfo.isMobile ? 'px-1.5 py-0.5 text-[8px]' : 'px-2 py-0.5 text-[10px]'} flex items-center gap-0.5">
                   <FiDownload className="w-3 h-3" /> Excel
                 </button>
-                {/* Removed Word button since docx is not imported */}
+                <button onClick={generateWordDocument} className="bg-blue-600 text-white rounded ${deviceInfo.isMobile ? 'px-1.5 py-0.5 text-[8px]' : 'px-2 py-0.5 text-[10px]'} flex items-center gap-0.5">
+                  <FiFileText className="w-3 h-3" /> Word
+                </button>
               </div>
             </div>
             <div className={`overflow-x-auto ${deviceInfo.isMobile ? 'max-h-64' : 'max-h-96'}`}>
@@ -1042,6 +1057,9 @@ const Reports = () => {
           <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'justify-center gap-3'} mb-4 flex-wrap`}>
             <button onClick={downloadExcel} className={`bg-green-600 text-white rounded-lg flex items-center justify-center gap-1 ${deviceInfo.isMobile ? 'w-full px-4 py-2 text-sm' : 'px-4 py-1.5 text-sm'}`}>
               <FiDownload /> EXCEL
+            </button>
+            <button onClick={generateWordDocument} className={`bg-blue-600 text-white rounded-lg flex items-center justify-center gap-1 ${deviceInfo.isMobile ? 'w-full px-4 py-2 text-sm' : 'px-4 py-1.5 text-sm'}`}>
+              <FiFileText /> WORD
             </button>
           </div>
         </>
