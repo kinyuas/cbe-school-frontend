@@ -18,7 +18,8 @@ import {
   FiRefreshCw,
   FiAlertTriangle,
   FiUserCheck,
-  FiInfo
+  FiInfo,
+  FiPlus
 } from 'react-icons/fi';
 import { useAuth } from '../../context/AuthContext';
 import { Link } from 'react-router-dom';
@@ -133,6 +134,7 @@ const TeacherDashboard = () => {
   const responsive = useResponsiveClasses(deviceInfo);
   
   const { user } = useAuth();
+  const teacherId = user?.teacherId || user?.id || user?._id;
   
   // Store all dashboard numbers
   const [stats, setStats] = useState({
@@ -154,6 +156,7 @@ const TeacherDashboard = () => {
   const [examTimers, setExamTimers] = useState({});
   const [teacherResults, setTeacherResults] = useState([]);
   const [activeExam, setActiveExam] = useState(null);
+  const [teacherClass, setTeacherClass] = useState('');
   
   // Exam time alert state
   const [examTimeAlerts, setExamTimeAlerts] = useState([]);
@@ -167,7 +170,7 @@ const TeacherDashboard = () => {
   const loadDashboardData = useCallback(async () => {
     setLoading(true);
     try {
-      console.log('📊 Loading teacher dashboard data...');
+      console.log('📊 Loading teacher dashboard data for teacher ID:', teacherId);
       
       // Load school info
       const schoolResponse = await api.get('/school/settings');
@@ -177,11 +180,12 @@ const TeacherDashboard = () => {
         console.log('✅ School info loaded');
       }
       
-      // Fetch all data from API - handle each request individually to prevent one failure from breaking everything
+      // Fetch all data from API
       let learners = [];
       let allResults = [];
       let events = [];
       let examsData = [];
+      let teacherProfile = {};
       
       try {
         const pupilsRes = await api.get('/pupils');
@@ -223,16 +227,39 @@ const TeacherDashboard = () => {
         console.error('Error loading exams:', err);
       }
       
+      try {
+        // Try to get teacher profile to get assigned class
+        const profileRes = await api.get('/teachers/profile').catch(() => null);
+        if (profileRes?.data?.success) {
+          teacherProfile = profileRes.data.data || {};
+          console.log('✅ Teacher profile loaded:', teacherProfile);
+        }
+      } catch (err) {
+        console.log('⚠️ Could not load teacher profile, using user data');
+      }
+      
       setPupils(learners);
       
-      // Get teacher's assigned class from user object or from localStorage
-      const teacherClass = user?.classAssigned || user?.class || '';
+      // Get teacher's assigned class from multiple sources
+      const assignedClass = user?.classAssigned || 
+                           user?.class || 
+                           teacherProfile.classAssigned || 
+                           teacherProfile.class || 
+                           '';
+      setTeacherClass(assignedClass);
+      console.log(`📚 Teacher assigned class: ${assignedClass || 'Not assigned'}`);
       
-      // Filter results by teacher's class if teacher has an assigned class
+      // ---- FILTER RESULTS BY TEACHER'S ASSIGNED CLASS ----
       let teacherResultsData = allResults;
-      if (teacherClass) {
-        teacherResultsData = allResults.filter(r => r.class === teacherClass);
-        console.log(`📚 Filtered results for class ${teacherClass}: ${teacherResultsData.length} results`);
+      if (assignedClass) {
+        teacherResultsData = allResults.filter(r => r.class === assignedClass);
+        console.log(`📚 Filtered results for class ${assignedClass}: ${teacherResultsData.length} results`);
+      } else {
+        // If no class assigned, try to find results where teacherId matches
+        if (teacherId) {
+          teacherResultsData = allResults.filter(r => r.teacherId === teacherId || r.createdBy === user?.name);
+          console.log(`📚 Filtered results by teacher ID: ${teacherResultsData.length} results`);
+        }
       }
       setTeacherResults(teacherResultsData);
       
@@ -247,21 +274,22 @@ const TeacherDashboard = () => {
       setActiveExam(currentExam || null);
       console.log(`📝 Active exam: ${currentExam?.title || 'None'}`);
       
-      // Calculate competencies recorded
+      // ---- CALCULATE COMPETENCIES RECORDED (only for active exam) ----
       let competenciesCount = 0;
       if (currentExam && teacherResultsData.length > 0) {
-        // Filter results for current exam
+        // Filter results for current active exam
         const examResults = teacherResultsData.filter(r => {
-          const isSameExam = r.examName === currentExam.title || r.examType === currentExam.type;
-          const isSameTerm = r.term === currentExam.term;
-          const isSameYear = r.year === currentExam.year || r.year === new Date().getFullYear();
-          return isSameExam && isSameTerm && isSameYear;
+          // Check if result belongs to the active exam
+          const matchesExam = r.examName === currentExam.title || r.examType === currentExam.type;
+          const matchesTerm = r.term === currentExam.term;
+          const matchesYear = r.year === currentExam.year || r.year === new Date().getFullYear();
+          return matchesExam && matchesTerm && matchesYear;
         });
         competenciesCount = examResults.length;
         console.log(`📊 Competencies recorded for active exam: ${competenciesCount}`);
       }
       
-      // Calculate classes taught
+      // ---- CALCULATE CLASSES TAUGHT ----
       let classesTaughtCount = 0;
       if (teacherResultsData.length > 0) {
         const uniqueClasses = [...new Set(teacherResultsData.map(r => r.class).filter(Boolean))];
@@ -269,13 +297,33 @@ const TeacherDashboard = () => {
       }
       console.log(`📚 Classes taught: ${classesTaughtCount}`);
       
-      // Calculate class performance
+      // ---- CLASS PERFORMANCE - TEACHER'S UPLOADED RESULTS ONLY ----
+      // Only show students who have results uploaded by this teacher
       const performanceByClass = {};
-      learners.forEach(learner => {
-        const learnerResults = teacherResultsData.filter(r => r.pupilId === learner._id);
+      
+      // Get pupils who have results from this teacher
+      const pupilIdsWithResults = new Set();
+      teacherResultsData.forEach(r => {
+        const pupilId = r.pupilId?._id || r.pupilId;
+        if (pupilId) {
+          pupilIdsWithResults.add(pupilId);
+        }
+      });
+      
+      // Filter learners to only those with results from this teacher
+      const learnersWithResults = learners.filter(learner => 
+        pupilIdsWithResults.has(learner._id)
+      );
+      console.log(`📚 Learners with results from this teacher: ${learnersWithResults.length}`);
+      
+      learnersWithResults.forEach(learner => {
+        const learnerResults = teacherResultsData.filter(r => {
+          const pupilId = r.pupilId?._id || r.pupilId;
+          return pupilId === learner._id;
+        });
         if (learnerResults.length > 0) {
           const avgScore = learnerResults.reduce((sum, r) => sum + (r.marks || 0), 0) / learnerResults.length;
-          const className = learner.class || learner.grade;
+          const className = learner.class || learner.grade || assignedClass || 'Class';
           
           if (!performanceByClass[className]) {
             performanceByClass[className] = { total: 0, count: 0, scores: [] };
@@ -291,12 +339,40 @@ const TeacherDashboard = () => {
         average: data.count > 0 ? (data.total / data.count).toFixed(1) : 0,
         students: data.count,
         passing: data.scores.filter(s => s >= 60).length,
-        failing: data.scores.filter(s => s < 60).length
+        failing: data.scores.filter(s => s < 60).length,
+        totalStudents: data.scores.length
       }));
       console.log(`📊 Class performance data: ${performanceData.length} classes`);
       
+      // ---- FILTER ACTIVE AND UPCOMING EXAMS ----
+      const activeAndUpcomingExams = examsData.filter(e => {
+        if (e.isActive === false) return false;
+        if (!e.startDateTime) return false;
+        const startDate = new Date(e.startDateTime);
+        return startDate >= now || (e.endDateTime && new Date(e.endDateTime) >= now);
+      });
+      
+      const sortedExams = [...activeAndUpcomingExams].sort((a, b) => {
+        const dateA = a.startDateTime ? new Date(a.startDateTime) : new Date(0);
+        const dateB = b.startDateTime ? new Date(b.startDateTime) : new Date(0);
+        return dateA - dateB;
+      });
+      
+      // ---- FILTER ACTIVE AND UPCOMING EVENTS ----
+      const nowDate = new Date();
+      const activeAndUpcomingEvents = events.filter(e => {
+        if (!e.date) return false;
+        const eventDate = new Date(e.date);
+        // Show events that are today or future, and active
+        return eventDate >= nowDate.setHours(0,0,0,0) && e.isActive !== false;
+      }).sort((a, b) => {
+        const dateA = a.date ? new Date(a.date) : new Date(0);
+        const dateB = b.date ? new Date(b.date) : new Date(0);
+        return dateA - dateB;
+      });
+      
       // Update stats
-      const upcomingAssessments = examsData.filter(e => e.isActive !== false && new Date(e.startDateTime) > now).length;
+      const upcomingAssessments = activeAndUpcomingExams.length;
       
       setStats({
         totalLearners: learners.length,
@@ -304,23 +380,16 @@ const TeacherDashboard = () => {
         classesTaught: classesTaughtCount,
         upcomingAssessments: upcomingAssessments,
         attendance: 92,
-        events: events.length
-      });
-      
-      // Sort exams by start date (upcoming first)
-      const sortedExams = [...examsData].sort((a, b) => {
-        const dateA = a.startDateTime ? new Date(a.startDateTime) : new Date(0);
-        const dateB = b.startDateTime ? new Date(b.startDateTime) : new Date(0);
-        return dateA - dateB;
+        events: activeAndUpcomingEvents.length
       });
       
       setExams(sortedExams.slice(0, 5));
-      setAnnouncements(events.slice(0, 3));
+      setAnnouncements(activeAndUpcomingEvents.slice(0, 3));
       setClassPerformance(performanceData);
       
       // Initialize exam timers
       const timers = {};
-      examsData.forEach(exam => {
+      sortedExams.forEach(exam => {
         if (exam.endDateTime) {
           timers[exam._id] = calculateTimeRemaining(exam.endDateTime);
         }
@@ -328,7 +397,7 @@ const TeacherDashboard = () => {
       setExamTimers(timers);
       
       // Check exam alerts
-      checkExamAlerts(examsData);
+      checkExamAlerts(sortedExams);
       
       console.log('✅ Dashboard data loaded successfully');
       
@@ -339,7 +408,7 @@ const TeacherDashboard = () => {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user]);
+  }, [user, teacherId]);
 
   // Check exam alerts
   const checkExamAlerts = useCallback((examsData) => {
@@ -359,7 +428,6 @@ const TeacherDashboard = () => {
       const timeToStart = startDateTime - now;
       const hoursToStart = timeToStart / (1000 * 60 * 60);
       
-      // Check if exam is upcoming within 24 hours
       if (hoursToStart > 0 && hoursToStart <= 24) {
         const days = Math.floor(hoursToStart / 24);
         const hours = Math.floor(hoursToStart % 24);
@@ -373,14 +441,12 @@ const TeacherDashboard = () => {
         });
       }
       
-      // Check if exam is currently active
       if (startDateTime <= now && endDateTime >= now) {
         const timeToEnd = endDateTime - now;
         const hoursRemaining = timeToEnd / (1000 * 60 * 60);
         const daysRemaining = Math.floor(hoursRemaining / 24);
         const hoursRemainingInDay = Math.floor(hoursRemaining % 24);
         
-        // Alert if less than 24 hours remaining
         if (hoursRemaining <= 24) {
           alerts.push({
             exam: exam,
@@ -394,7 +460,6 @@ const TeacherDashboard = () => {
       }
     });
     
-    // Sort alerts by severity and time
     alerts.sort((a, b) => {
       const severityOrder = { critical: 0, high: 1, medium: 2 };
       return (severityOrder[a.severity] || 3) - (severityOrder[b.severity] || 3);
@@ -418,10 +483,8 @@ const TeacherDashboard = () => {
       }
     };
 
-    // Update timers immediately
     updateTimers();
     
-    // Set interval for timer updates
     intervalRef.current = setInterval(updateTimers, 60000);
     
     return () => {
@@ -437,10 +500,8 @@ const TeacherDashboard = () => {
       checkExamAlerts();
     };
 
-    // Check alerts immediately
     checkAlerts();
     
-    // Set interval for alert checks
     alertIntervalRef.current = setInterval(checkAlerts, 60000);
     
     return () => {
@@ -470,11 +531,11 @@ const TeacherDashboard = () => {
   };
 
   const getPerformanceText = (score) => {
-    if (score >= 80) return 'Exceeding Expectation (EE) - Excellent';
-    if (score >= 60) return 'Meeting Expectation (ME) - Good';
-    if (score >= 40) return 'Approaching Expectation (AE) - Getting There';
-    if (score >= 20) return 'Below Expectation (BE) - Needs Improvement';
-    return 'Well Below Expectation (WBE) - Needs Urgent Help';
+    if (score >= 80) return 'Exceeding Expectation (EE)';
+    if (score >= 60) return 'Meeting Expectation (ME)';
+    if (score >= 40) return 'Approaching Expectation (AE)';
+    if (score >= 20) return 'Below Expectation (BE)';
+    return 'Well Below Expectation (WBE)';
   };
 
   const getAlertIcon = (severity) => {
@@ -508,7 +569,6 @@ const TeacherDashboard = () => {
     };
   };
 
-  // Stat cards
   const statCards = [
     { title: 'CBE Competencies', value: stats.competenciesRecorded, icon: FiBookOpen, color: 'from-green-500 to-green-600' },
     { title: 'Classes Taught', value: stats.classesTaught, icon: FiTarget, color: 'from-purple-500 to-purple-600' },
@@ -532,6 +592,9 @@ const TeacherDashboard = () => {
   if (currentHour < 12) greeting = "Good Morning";
   else if (currentHour < 17) greeting = "Good Afternoon";
   else greeting = "Good Evening";
+
+  // Determine if there are any teacher results to show
+  const hasTeacherResults = teacherResults.length > 0;
 
   return (
     <Layout 
@@ -641,7 +704,7 @@ const TeacherDashboard = () => {
       )}
 
       {/* Welcome Banner - AI Responsive */}
-      <div className={`bg-gradient-to-r from-green-600 to-blue-600 rounded-xl ${deviceInfo.isMobile ? 'p-4' : 'p-5'} mb-6 text-white`}>
+      <div className={`bg-gradient-to-r from-green-600 to-blue-600 rounded-xl ${deviceInfo.isMobile ? 'p-4' : 'p-5'} mb-4 text-white`}>
         <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-3' : 'justify-between items-center'} flex-wrap`}>
           <div>
             <div className="flex items-center gap-2 mb-2">
@@ -693,7 +756,48 @@ const TeacherDashboard = () => {
         )}
       </div>
 
-      {/* Quick Stats Cards - AI Responsive */}
+      {/* Quick Actions */}
+      <div className={`grid ${responsive.quickActionsGrid} gap-3 mb-6`}>
+        <Link to="/teacher/results" className="bg-green-100 hover:bg-green-200 p-3 rounded-lg text-center transition-colors shadow-sm hover:shadow-md">
+          <FiPlus className={`${deviceInfo.isMobile ? 'w-4 h-4' : 'w-5 h-5'} text-green-600 mx-auto mb-1`} />
+          <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} font-medium text-green-700`}>
+            Record Competencies
+          </p>
+        </Link>
+        <Link to="/teacher/students" className="bg-blue-100 hover:bg-blue-200 p-3 rounded-lg text-center transition-colors shadow-sm hover:shadow-md">
+          <FiUsers className={`${deviceInfo.isMobile ? 'w-4 h-4' : 'w-5 h-5'} text-blue-600 mx-auto mb-1`} />
+          <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} font-medium text-blue-700`}>
+            View All Students
+          </p>
+        </Link>
+        <Link to="/teacher/performance" className="bg-purple-100 hover:bg-purple-200 p-3 rounded-lg text-center transition-colors shadow-sm hover:shadow-md">
+          <FiBarChart2 className={`${deviceInfo.isMobile ? 'w-4 h-4' : 'w-5 h-5'} text-purple-600 mx-auto mb-1`} />
+          <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} font-medium text-purple-700`}>
+            Performance Reports
+          </p>
+        </Link>
+        <Link to="/teacher/exams" className="bg-orange-100 hover:bg-orange-200 p-3 rounded-lg text-center transition-colors shadow-sm hover:shadow-md">
+          <FiCalendar className={`${deviceInfo.isMobile ? 'w-4 h-4' : 'w-5 h-5'} text-orange-600 mx-auto mb-1`} />
+          <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} font-medium text-orange-700`}>
+            Manage Exams
+          </p>
+        </Link>
+      </div>
+
+      {/* Info Banner about Competencies */}
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 flex items-start gap-2">
+        <FiInfo className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
+        <div className="text-xs text-blue-700">
+          <span className="font-semibold">CBE Competencies:</span> 
+          {activeExam ? (
+            <> Recorded for <strong>{activeExam.title}</strong>. {stats.competenciesRecorded} competencies recorded so far.</>
+          ) : (
+            <> No active exam. Competencies will appear when an exam is scheduled and active.</>
+          )}
+        </div>
+      </div>
+
+      {/* Quick Stats Cards */}
       <div className={`grid ${responsive.statsGrid} ${responsive.gridGap} mb-6`}>
         {statCards.map((stat, index) => (
           <div key={index} className={`bg-white rounded-xl shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-5'} hover:shadow-lg transition-shadow`}>
@@ -710,27 +814,29 @@ const TeacherDashboard = () => {
         ))}
       </div>
 
-      {/* Info Banner about Competencies */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 flex items-start gap-2">
-        <FiInfo className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
-        <div className="text-xs text-blue-700">
-          <span className="font-semibold">CBE Competencies:</span> 
-          {activeExam ? (
-            <> Recorded for <strong>{activeExam.title}</strong>. {stats.competenciesRecorded} competencies recorded so far.</>
-          ) : (
-            <> No active exam. Competencies will appear when an exam is scheduled and active.</>
-          )}
-        </div>
-      </div>
-
       <div className={`grid ${deviceInfo.isMobile ? 'grid-cols-1' : 'lg:grid-cols-2'} gap-6 mb-6`}>
         
-        {/* Class Performance Section */}
+        {/* Class Performance Section - Teacher's Uploaded Results Only */}
         <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding}`}>
           <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-4 flex items-center gap-2`}>
             <FiBarChart2 className="text-green-600" /> Class Performance
+            {hasTeacherResults && (
+              <span className="text-xs font-normal text-gray-500 ml-2">
+                ({teacherResults.length} results uploaded)
+              </span>
+            )}
           </h2>
-          {classPerformance.length > 0 ? (
+          
+          {!hasTeacherResults ? (
+            <div className="text-center py-6">
+              <FiBarChart2 className={`${deviceInfo.isMobile ? 'w-8 h-8' : 'w-10 h-10'} text-gray-300 mx-auto mb-2`} />
+              <p className="text-gray-500 text-sm">No results uploaded yet</p>
+              <p className="text-xs text-gray-400 mt-1">Upload results to see class performance</p>
+              <Link to="/teacher/results" className="mt-3 inline-block text-sm text-green-600 hover:text-green-800">
+                Upload Results →
+              </Link>
+            </div>
+          ) : classPerformance.length > 0 ? (
             <div className="space-y-3">
               {classPerformance.map((cls, index) => (
                 <div key={index}>
@@ -753,16 +859,19 @@ const TeacherDashboard = () => {
                     />
                   </div>
                   <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500 mt-1`}>
-                    {cls.students} students
+                    {cls.students} students • {cls.totalStudents || cls.students} total
                   </p>
                 </div>
               ))}
+              <div className="mt-3 text-xs text-gray-400 border-t pt-2">
+                <p>Showing results uploaded by you for {teacherClass || 'your class'}</p>
+              </div>
             </div>
           ) : (
             <div className="text-center py-6">
               <FiBarChart2 className={`${deviceInfo.isMobile ? 'w-8 h-8' : 'w-10 h-10'} text-gray-300 mx-auto mb-2`} />
-              <p className="text-gray-500 text-sm">No performance data available yet</p>
-              <p className="text-xs text-gray-400 mt-1">Start recording competencies to see performance</p>
+              <p className="text-gray-500 text-sm">No students with results found</p>
+              <p className="text-xs text-gray-400 mt-1">Upload results to see performance data</p>
             </div>
           )}
           <Link to="/teacher/performance" className={`block text-center ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-green-600 hover:text-green-800 mt-4`}>
@@ -770,10 +879,10 @@ const TeacherDashboard = () => {
           </Link>
         </div>
 
-        {/* Upcoming Tests Section */}
+        {/* Upcoming Assessments - Active and Upcoming Only */}
         <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding}`}>
           <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-4 flex items-center gap-2`}>
-            <FiCalendar className="text-orange-600" /> Upcoming Assessments
+            <FiCalendar className="text-orange-600" /> Active & Upcoming Assessments
           </h2>
           {exams.length > 0 ? (
             <div className="space-y-3">
@@ -783,7 +892,6 @@ const TeacherDashboard = () => {
                 const endDateTime = exam.endDateTime ? new Date(exam.endDateTime) : null;
                 const isActive = startDateTime && endDateTime && startDateTime <= now && endDateTime >= now;
                 const isUpcoming = startDateTime && startDateTime > now;
-                const isExpired = endDateTime && endDateTime < now;
                 const timeRemaining = exam.endDateTime ? getTimeRemainingDisplay(exam._id) : null;
                 const timer = examTimers[exam._id];
                 
@@ -791,7 +899,7 @@ const TeacherDashboard = () => {
                   <div key={index} className={`border-l-4 ${
                     isActive ? 'border-red-500' : 
                     isUpcoming ? 'border-orange-500' : 
-                    isExpired ? 'border-gray-400' : 'border-gray-300'
+                    'border-gray-300'
                   } pl-3 py-2`}>
                     <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-1' : 'justify-between items-start'}`}>
                       <h3 className={`${deviceInfo.isMobile ? 'text-sm' : 'text-base'} font-semibold text-gray-800`}>
@@ -801,9 +909,6 @@ const TeacherDashboard = () => {
                         )}
                         {isUpcoming && (
                           <span className="ml-2 text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">UPCOMING</span>
-                        )}
-                        {isExpired && (
-                          <span className="ml-2 text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">EXPIRED</span>
                         )}
                       </h3>
                     </div>
@@ -821,8 +926,7 @@ const TeacherDashboard = () => {
                       )}
                     </div>
                     
-                    {/* Time Remaining Display */}
-                    {timeRemaining && timer && !timer.isExpired && exam.isActive !== false && (
+                    {timeRemaining && timer && !timer.isExpired && (
                       <div className={`mt-2 flex items-center gap-2 ${timeRemaining.color} ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>
                         <FiClock className={deviceInfo.isMobile ? 'w-3 h-3' : 'w-4 h-4'} />
                         <span className="font-semibold">
@@ -835,13 +939,6 @@ const TeacherDashboard = () => {
                         )}
                       </div>
                     )}
-                    
-                    {isExpired && (
-                      <div className={`mt-2 flex items-center gap-2 text-red-600 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>
-                        <FiAlertCircle className={deviceInfo.isMobile ? 'w-3 h-3' : 'w-4 h-4'} />
-                        <span className="font-semibold">This exam has ended</span>
-                      </div>
-                    )}
                   </div>
                 );
               })}
@@ -849,8 +946,8 @@ const TeacherDashboard = () => {
           ) : (
             <div className="text-center py-6">
               <FiCalendar className={`${deviceInfo.isMobile ? 'w-8 h-8' : 'w-10 h-10'} text-gray-300 mx-auto mb-2`} />
-              <p className="text-gray-500 text-sm">No upcoming assessments scheduled</p>
-              <p className="text-xs text-gray-400 mt-1">Check back later for new assessments</p>
+              <p className="text-gray-500 text-sm">No active or upcoming assessments</p>
+              <p className="text-xs text-gray-400 mt-1">All assessments are either completed or not scheduled</p>
             </div>
           )}
           <Link to="/teacher/exams" className={`block text-center ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-orange-600 hover:text-orange-800 mt-4`}>
@@ -861,35 +958,45 @@ const TeacherDashboard = () => {
 
       <div className={`grid ${deviceInfo.isMobile ? 'grid-cols-1' : 'lg:grid-cols-2'} gap-6 mb-6`}>
         
-        {/* School Announcements Section */}
+        {/* School Announcements - Active and Upcoming Events */}
         <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding}`}>
           <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-4 flex items-center gap-2`}>
-            <FiTrendingUp className="text-blue-600" /> School Announcements
+            <FiTrendingUp className="text-blue-600" /> Active & Upcoming Events
           </h2>
           {announcements.length > 0 ? (
             <div className="space-y-3">
-              {announcements.map((announcement, index) => (
-                <div key={index} className="border-b border-gray-100 pb-3 last:border-0">
-                  <h3 className={`${deviceInfo.isMobile ? 'text-sm' : 'text-base'} font-semibold text-gray-800`}>
-                    {announcement.title}
-                  </h3>
-                  <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500 mt-1`}>
-                    📅 {announcement.date ? new Date(announcement.date).toLocaleDateString() : new Date(announcement.createdAt).toLocaleDateString()}
-                  </p>
-                  <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-gray-600 mt-1 line-clamp-2`}>
-                    {announcement.description}
-                  </p>
-                </div>
-              ))}
+              {announcements.map((announcement, index) => {
+                const isPast = announcement.date ? new Date(announcement.date) < new Date() : false;
+                return (
+                  <div key={index} className={`border-b border-gray-100 pb-3 last:border-0 ${isPast ? 'opacity-60' : ''}`}>
+                    <div className="flex items-start justify-between">
+                      <h3 className={`${deviceInfo.isMobile ? 'text-sm' : 'text-base'} font-semibold text-gray-800`}>
+                        {announcement.title}
+                      </h3>
+                      {!isPast && (
+                        <span className="text-[8px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full flex-shrink-0 ml-2">
+                          UPCOMING
+                        </span>
+                      )}
+                    </div>
+                    <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500 mt-1`}>
+                      📅 {announcement.date ? new Date(announcement.date).toLocaleDateString() : new Date(announcement.createdAt).toLocaleDateString()}
+                    </p>
+                    <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-gray-600 mt-1 line-clamp-2`}>
+                      {announcement.description}
+                    </p>
+                  </div>
+                );
+              })}
             </div>
           ) : (
             <div className="text-center py-6">
               <FiTrendingUp className={`${deviceInfo.isMobile ? 'w-8 h-8' : 'w-10 h-10'} text-gray-300 mx-auto mb-2`} />
-              <p className="text-gray-500 text-sm">No announcements yet</p>
+              <p className="text-gray-500 text-sm">No active or upcoming events</p>
             </div>
           )}
           <Link to="/teacher/announcements" className={`block text-center ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-blue-600 hover:text-blue-800 mt-4`}>
-            View All Announcements →
+            View All Events →
           </Link>
         </div>
 
@@ -901,7 +1008,7 @@ const TeacherDashboard = () => {
           <div className="space-y-3">
             <div className="flex justify-between items-center p-2 bg-gray-50 rounded-lg">
               <span className="text-sm text-gray-600">Assigned Class</span>
-              <span className="font-semibold text-gray-800">{user?.classAssigned || user?.class || 'Not Assigned'}</span>
+              <span className="font-semibold text-gray-800">{teacherClass || 'Not Assigned'}</span>
             </div>
             <div className="flex justify-between items-center p-2 bg-gray-50 rounded-lg">
               <span className="text-sm text-gray-600">Active Exam</span>
@@ -914,6 +1021,10 @@ const TeacherDashboard = () => {
             <div className="flex justify-between items-center p-2 bg-blue-50 rounded-lg border border-blue-100">
               <span className="text-sm text-blue-700">Competencies Recorded</span>
               <span className="font-bold text-blue-700 text-lg">{stats.competenciesRecorded}</span>
+            </div>
+            <div className="flex justify-between items-center p-2 bg-green-50 rounded-lg border border-green-100">
+              <span className="text-sm text-green-700">Results Uploaded</span>
+              <span className="font-bold text-green-700 text-lg">{teacherResults.length}</span>
             </div>
             {activeExam && (
               <div className="bg-yellow-50 p-2 rounded-lg border border-yellow-200 text-center">
@@ -928,34 +1039,6 @@ const TeacherDashboard = () => {
             )}
           </div>
         </div>
-      </div>
-
-      {/* Quick Actions - AI Responsive */}
-      <div className={`grid ${responsive.quickActionsGrid} gap-3`}>
-        <Link to="/teacher/results" className="bg-green-100 hover:bg-green-200 p-3 rounded-lg text-center transition-colors">
-          <FiBookOpen className={`${deviceInfo.isMobile ? 'w-4 h-4' : 'w-5 h-5'} text-green-600 mx-auto mb-1`} />
-          <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} font-medium text-green-700`}>
-            Record Competencies
-          </p>
-        </Link>
-        <Link to="/teacher/students" className="bg-blue-100 hover:bg-blue-200 p-3 rounded-lg text-center transition-colors">
-          <FiUsers className={`${deviceInfo.isMobile ? 'w-4 h-4' : 'w-5 h-5'} text-blue-600 mx-auto mb-1`} />
-          <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} font-medium text-blue-700`}>
-            View All Students
-          </p>
-        </Link>
-        <Link to="/teacher/performance" className="bg-purple-100 hover:bg-purple-200 p-3 rounded-lg text-center transition-colors">
-          <FiBarChart2 className={`${deviceInfo.isMobile ? 'w-4 h-4' : 'w-5 h-5'} text-purple-600 mx-auto mb-1`} />
-          <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} font-medium text-purple-700`}>
-            Performance Reports
-          </p>
-        </Link>
-        <Link to="/teacher/exams" className="bg-orange-100 hover:bg-orange-200 p-3 rounded-lg text-center transition-colors">
-          <FiCalendar className={`${deviceInfo.isMobile ? 'w-4 h-4' : 'w-5 h-5'} text-orange-600 mx-auto mb-1`} />
-          <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} font-medium text-orange-700`}>
-            Manage Exams
-          </p>
-        </Link>
       </div>
 
       {/* AI Responsive CSS */}
