@@ -5,7 +5,8 @@ import api from '../../services/api';
 import { 
   FiUsers, FiTrendingUp, FiCalendar, FiAward, FiRefreshCw, 
   FiTrash2, FiRotateCcw, FiClock, FiCheckCircle, FiAlertCircle,
-  FiUserCheck, FiUserX, FiArrowDown, FiInfo, FiGithub, FiX
+  FiUserCheck, FiUserX, FiArrowDown, FiInfo, FiGithub, FiX,
+  FiUserPlus, FiCornerDownLeft
 } from 'react-icons/fi';
 import toast from 'react-hot-toast';
 
@@ -94,14 +95,15 @@ const Alumni = () => {
   const [alumni, setAlumni] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedAlumnus, setSelectedAlumnus] = useState(null);
-  const [showDemoteModal, setShowDemoteModal] = useState(false);
-  const [demoteYear, setDemoteYear] = useState('');
-  const [demoteClass, setDemoteClass] = useState('');
+  const [showReturnModal, setShowReturnModal] = useState(false);
+  const [returnYear, setReturnYear] = useState('');
+  const [returnClass, setReturnClass] = useState('');
   const [availableClasses, setAvailableClasses] = useState([]);
   const [schoolInfo, setSchoolInfo] = useState({ classes: [] });
-  const [demoteReason, setDemoteReason] = useState('');
-  const [isDemoting, setIsDemoting] = useState(false);
+  const [returnReason, setReturnReason] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
   const [classOrderMap, setClassOrderMap] = useState({});
+  const [highestClass, setHighestClass] = useState('');
 
   useEffect(() => {
     loadData();
@@ -122,6 +124,11 @@ const Alumni = () => {
         
         setAvailableClasses(activeClasses);
         
+        // Set highest class (last in the order)
+        if (activeClasses.length > 0) {
+          setHighestClass(activeClasses[activeClasses.length - 1]);
+        }
+        
         // Create a map of class to its index for easy lookup
         const orderMap = {};
         activeClasses.forEach((cls, index) => {
@@ -130,7 +137,7 @@ const Alumni = () => {
         setClassOrderMap(orderMap);
         
         console.log('Loaded class order from school settings:', activeClasses);
-        console.log('Class order map:', orderMap);
+        console.log('Highest class:', activeClasses[activeClasses.length - 1]);
       } else {
         // Fallback classes if no school info
         const fallbackClasses = [
@@ -139,6 +146,7 @@ const Alumni = () => {
           'Grade 5', 'Grade 6', 'Grade 7', 'Grade 8', 'Grade 9'
         ];
         setAvailableClasses(fallbackClasses);
+        setHighestClass(fallbackClasses[fallbackClasses.length - 1]);
         const orderMap = {};
         fallbackClasses.forEach((cls, index) => {
           orderMap[cls] = index;
@@ -173,91 +181,60 @@ const Alumni = () => {
     }
   };
 
-  // ===== Get Previous Class Based on School Configuration =====
-  const getPreviousClass = (currentClass) => {
-    if (!currentClass) return '';
-    
-    // Get the index of the current class
-    const currentIndex = classOrderMap[currentClass];
-    
-    if (currentIndex === undefined) {
-      console.warn(`Class "${currentClass}" not found in class order map`);
-      // If class not found, try to find the previous class by searching in availableClasses
-      const index = availableClasses.indexOf(currentClass);
-      if (index > 0) {
-        return availableClasses[index - 1];
-      }
-      // If it's the first class or not found, return the first available class
-      return availableClasses[0] || currentClass;
-    }
-    
-    // If it's the first class, return the first class (or current if only one)
-    if (currentIndex === 0) {
-      return availableClasses[0] || currentClass;
-    }
-    
-    // Return the previous class
-    return availableClasses[currentIndex - 1];
+  // ===== Get the Highest Class =====
+  const getHighestClass = () => {
+    return highestClass || availableClasses[availableClasses.length - 1] || '';
   };
 
-  // ===== Get All Classes Before a Given Class =====
-  const getClassesBefore = (currentClass) => {
-    const currentIndex = classOrderMap[currentClass];
-    if (currentIndex === undefined) return [];
-    return availableClasses.slice(0, currentIndex + 1);
-  };
-
-  // ===== DEMOTE FUNCTIONALITY =====
-  const handleDemoteAlumni = (alumnus) => {
+  // ===== RE-ADMIT / RETURN FUNCTIONALITY =====
+  const handleReturnAlumni = (alumnus) => {
     setSelectedAlumnus(alumnus);
     // Pre-fill with current year
     const currentYear = new Date().getFullYear();
-    setDemoteYear(currentYear.toString());
+    setReturnYear(currentYear.toString());
     
-    // Get the graduation class
-    const graduationClass = alumnus.graduationClass || alumnus.class;
+    // Set to the highest class (for repeating)
+    const highest = getHighestClass();
     
-    // Find the previous class based on school configuration
-    const previousClass = getPreviousClass(graduationClass);
+    console.log(`Returning ${alumnus.name}: Graduated from ${alumnus.graduationClass || alumnus.class}, Will return to: ${highest}`);
     
-    console.log(`Demoting ${alumnus.name}: Graduated from ${graduationClass}, Previous class: ${previousClass}`);
-    
-    setDemoteClass(previousClass);
-    setDemoteReason('');
-    setShowDemoteModal(true);
+    setReturnClass(highest);
+    setReturnReason('');
+    setShowReturnModal(true);
   };
 
-  const confirmDemote = async () => {
+  const confirmReturn = async () => {
     if (!selectedAlumnus) return;
     
-    if (!demoteYear || !demoteClass) {
-      toast.error('Please select both year and class for demotion');
+    if (!returnYear || !returnClass) {
+      toast.error('Please select both year and class for re-admission');
       return;
     }
 
-    setIsDemoting(true);
+    setIsProcessing(true);
     
     try {
-      // Get the demotion data
-      const demotionData = {
-        year: demoteYear,
-        className: demoteClass,
-        reason: demoteReason || 'Demoted from alumni',
+      // Get the return data
+      const returnData = {
+        year: returnYear,
+        className: returnClass,
+        reason: returnReason || 'Re-admitted after graduation',
         previousStatus: 'alumni',
-        demotedAt: new Date().toISOString(),
-        previousClass: selectedAlumnus.graduationClass || selectedAlumnus.class
+        returnedAt: new Date().toISOString(),
+        previousClass: selectedAlumnus.graduationClass || selectedAlumnus.class,
+        actionType: 'readmission'
       };
 
       // Update pupil status to active and set class
       const response = await api.put(`/pupils/${selectedAlumnus._id}`, {
         status: 'active',
-        class: demoteClass,
+        class: returnClass,
         graduatedAt: null,
         graduationClass: '',
-        // Store demotion history
-        demotionHistory: [
-          ...(selectedAlumnus.demotionHistory || []),
-          demotionData
+        // Store return history
+        returnHistory: [
+          ...(selectedAlumnus.returnHistory || []),
+          returnData
         ],
         // Keep track of alumni status change
         statusHistory: [
@@ -265,26 +242,27 @@ const Alumni = () => {
           {
             from: 'alumni',
             to: 'active',
-            reason: `Demoted to ${demoteClass} (${demoteYear})`,
+            reason: `Re-admitted to ${returnClass} (${returnYear}) - Returning student`,
             date: new Date().toISOString(),
-            demotionData: demotionData
+            returnData: returnData,
+            action: 'readmission'
           }
         ]
       });
 
       if (response.data.success) {
-        toast.success(`${selectedAlumnus.name} demoted from alumni to ${demoteClass} for year ${demoteYear}`);
-        setShowDemoteModal(false);
+        toast.success(`${selectedAlumnus.name} has been re-admitted to ${returnClass} for year ${returnYear}`);
+        setShowReturnModal(false);
         setSelectedAlumnus(null);
         await loadData();
       } else {
-        toast.error('Failed to demote alumni');
+        toast.error('Failed to re-admit alumni');
       }
     } catch (error) {
-      console.error('Error demoting alumni:', error);
-      toast.error(error.response?.data?.message || 'Failed to demote alumni');
+      console.error('Error re-admitting alumni:', error);
+      toast.error(error.response?.data?.message || 'Failed to re-admit alumni');
     } finally {
-      setIsDemoting(false);
+      setIsProcessing(false);
     }
   };
 
@@ -323,7 +301,6 @@ const Alumni = () => {
     total: alumni.length,
     graduates: alumni.filter(a => {
       const gradClass = a.graduationClass || a.class;
-      // Check if this is the last class in the configured classes
       const lastClass = availableClasses[availableClasses.length - 1];
       return gradClass === lastClass;
     }).length,
@@ -335,9 +312,9 @@ const Alumni = () => {
     }, {})
   };
 
-  // ===== DEMOTE MODAL =====
-  const DemoteModal = () => {
-    if (!showDemoteModal || !selectedAlumnus) return null;
+  // ===== RETURN MODAL =====
+  const ReturnModal = () => {
+    if (!showReturnModal || !selectedAlumnus) return null;
 
     const graduationYear = new Date(selectedAlumnus.graduatedAt || selectedAlumnus.createdAt).getFullYear();
     const currentYear = new Date().getFullYear();
@@ -346,10 +323,7 @@ const Alumni = () => {
       years.push(y);
     }
 
-    // Get classes that come before the graduation class
-    const graduationClass = selectedAlumnus.graduationClass || selectedAlumnus.class;
-    const classesBefore = getClassesBefore(graduationClass);
-    const previousClass = getPreviousClass(graduationClass);
+    const highest = getHighestClass();
 
     return (
       <div className={`fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 ${
@@ -360,37 +334,35 @@ const Alumni = () => {
         } max-h-[90vh] overflow-y-auto`}>
           <div className="flex justify-between items-center mb-4">
             <h2 className={`${deviceInfo.isMobile ? 'text-lg' : 'text-2xl'} font-bold text-gray-800`}>
-              Demote from Alumni
+              Re-admit from Alumni
             </h2>
             <button 
-              onClick={() => setShowDemoteModal(false)} 
+              onClick={() => setShowReturnModal(false)} 
               className="text-gray-500 hover:text-gray-700"
             >
               <FiX className="w-6 h-6" />
             </button>
           </div>
 
-          <div className="mb-4 p-3 bg-yellow-50 rounded-lg flex items-start gap-2">
-            <FiAlertCircle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
-            <div className="text-sm text-yellow-800">
+          <div className="mb-4 p-3 bg-blue-50 rounded-lg flex items-start gap-2 border border-blue-200">
+            <FiInfo className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-blue-800">
               <p className="font-semibold">{selectedAlumnus.name}</p>
               <p>Current Status: Alumni ({selectedAlumnus.graduationClass || selectedAlumnus.class})</p>
               <p>Graduated: {new Date(selectedAlumnus.graduatedAt || selectedAlumnus.createdAt).toLocaleDateString()}</p>
-              {previousClass && (
-                <p className="text-xs text-yellow-600 mt-1">
-                  Suggested previous class: <strong>{previousClass}</strong>
-                </p>
-              )}
+              <p className="text-xs text-blue-600 mt-1">
+                <strong>Note:</strong> This student will be re-admitted to the highest class: <strong>{highest}</strong>
+              </p>
             </div>
           </div>
 
           <div className="space-y-4">
             <div>
-              <label className="block text-gray-700 font-medium mb-2">Demotion Year *</label>
+              <label className="block text-gray-700 font-medium mb-2">Re-admission Year *</label>
               <select
-                value={demoteYear}
-                onChange={(e) => setDemoteYear(e.target.value)}
-                className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 ${
+                value={returnYear}
+                onChange={(e) => setReturnYear(e.target.value)}
+                className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                   deviceInfo.isMobile ? 'text-base' : ''
                 }`}
               >
@@ -402,74 +374,74 @@ const Alumni = () => {
             </div>
 
             <div>
-              <label className="block text-gray-700 font-medium mb-2">Demote to Class *</label>
+              <label className="block text-gray-700 font-medium mb-2">Re-admit to Class *</label>
               <select
-                value={demoteClass}
-                onChange={(e) => setDemoteClass(e.target.value)}
-                className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 ${
+                value={returnClass}
+                onChange={(e) => setReturnClass(e.target.value)}
+                className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                   deviceInfo.isMobile ? 'text-base' : ''
                 }`}
               >
                 <option value="">Select Class</option>
-                {classesBefore.map(cls => (
-                  <option key={cls} value={cls}>
-                    {cls} {cls === previousClass ? '(Previous Class)' : ''}
-                  </option>
+                <option value={highest} className="font-semibold text-blue-600">
+                  {highest} (Highest Class - Recommended)
+                </option>
+                {availableClasses.filter(cls => cls !== highest).map(cls => (
+                  <option key={cls} value={cls}>{cls}</option>
                 ))}
               </select>
-              <p className="text-xs text-gray-400 mt-1">
-                {previousClass && `Suggested: ${previousClass} (the class before ${graduationClass})`}
-              </p>
               <p className="text-xs text-blue-500 mt-1">
-                Class order: {availableClasses.join(' → ')}
+                <FiInfo className="inline mr-1" /> 
+                Students returning after graduation typically re-join the highest class: <strong>{highest}</strong>
               </p>
             </div>
 
             <div>
-              <label className="block text-gray-700 font-medium mb-2">Reason for Demotion (Optional)</label>
+              <label className="block text-gray-700 font-medium mb-2">Reason for Re-admission (Optional)</label>
               <textarea
-                value={demoteReason}
-                onChange={(e) => setDemoteReason(e.target.value)}
-                placeholder="Why is this student being demoted from alumni status?"
-                className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 ${
+                value={returnReason}
+                onChange={(e) => setReturnReason(e.target.value)}
+                placeholder="Why is this student returning after graduation? (e.g., Wanting to repeat, Family reasons, etc.)"
+                className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                   deviceInfo.isMobile ? 'text-base' : ''
                 }`}
                 rows="3"
               />
             </div>
 
-            <div className="p-3 bg-blue-50 rounded-lg">
-              <p className="text-sm text-blue-800">
-                <strong>Note:</strong> Demoting a student from alumni status will:
+            <div className="p-3 bg-green-50 rounded-lg border border-green-200">
+              <p className="text-sm text-green-800">
+                <strong>What happens when you re-admit a student?</strong>
               </p>
-              <ul className="text-xs text-blue-700 mt-2 list-disc list-inside space-y-1">
-                <li>Remove them from the alumni list</li>
-                <li>Reactivate them as a current student</li>
-                <li>Place them in the selected class</li>
-                <li>Keep a record of this demotion</li>
+              <ul className="text-xs text-green-700 mt-2 list-disc list-inside space-y-1">
+                <li>Removed from the alumni list</li>
+                <li>Reactivated as a current student</li>
+                <li>Placed in the highest class ({highest})</li>
+                <li>Retains all academic history</li>
+                <li>A record of this re-admission is kept</li>
               </ul>
             </div>
           </div>
 
           <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'space-x-3'} mt-6`}>
             <button
-              onClick={confirmDemote}
-              disabled={isDemoting || !demoteYear || !demoteClass}
-              className={`${deviceInfo.isMobile ? 'w-full' : 'flex-1'} bg-yellow-600 hover:bg-yellow-700 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 disabled:opacity-50`}
+              onClick={confirmReturn}
+              disabled={isProcessing || !returnYear || !returnClass}
+              className={`${deviceInfo.isMobile ? 'w-full' : 'flex-1'} bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center justify-center gap-2 disabled:opacity-50`}
             >
-              {isDemoting ? (
+              {isProcessing ? (
                 <>
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                  DEMOTING...
+                  PROCESSING...
                 </>
               ) : (
                 <>
-                  <FiArrowDown className="w-4 h-4" /> DEMOTE STUDENT
+                  <FiUserPlus className="w-4 h-4" /> RE-ADMIT STUDENT
                 </>
               )}
             </button>
             <button
-              onClick={() => setShowDemoteModal(false)}
+              onClick={() => setShowReturnModal(false)}
               className={`${deviceInfo.isMobile ? 'w-full' : 'flex-1'} bg-gray-300 hover:bg-gray-400 text-gray-700 px-4 py-2 rounded-lg`}
             >
               CANCEL
@@ -608,13 +580,13 @@ const Alumni = () => {
 
                   <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'flex'} mt-3 pt-3 border-t border-gray-100`}>
                     <button
-                      onClick={() => handleDemoteAlumni(alumnus)}
-                      className={`bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg flex items-center justify-center gap-1 flex-1 ${
+                      onClick={() => handleReturnAlumni(alumnus)}
+                      className={`bg-blue-500 hover:bg-blue-600 text-white rounded-lg flex items-center justify-center gap-1 flex-1 ${
                         deviceInfo.isMobile ? 'px-2 py-1.5 text-xs' : 'px-3 py-1.5 text-xs'
                       }`}
-                      title="Demote from alumni"
+                      title="Re-admit to school"
                     >
-                      <FiArrowDown className="w-3 h-3" /> DEMOTE
+                      <FiUserPlus className="w-3 h-3" /> RE-ADMIT
                     </button>
                     <button
                       onClick={() => handleRemoveAlumni(alumnus)}
@@ -633,8 +605,8 @@ const Alumni = () => {
         )}
       </div>
 
-      {/* Demote Modal */}
-      <DemoteModal />
+      {/* Return/Re-admit Modal */}
+      <ReturnModal />
 
       {/* AI Responsive CSS - No visible device info */}
       <style jsx>{`
