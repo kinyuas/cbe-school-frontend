@@ -4,12 +4,14 @@ import Layout from '../common/Layout';
 import { 
   FiDownload, FiBarChart2, FiUsers, FiBookOpen, FiFilter, 
   FiFileText, FiAward, FiTrendingUp, FiPrinter, FiPercent, 
-  FiCheck, FiX, FiRefreshCw, FiMonitor, FiSmartphone, FiTablet
+  FiCheck, FiX, FiRefreshCw, FiMonitor, FiSmartphone, FiTablet,
+  FiAlertCircle
 } from 'react-icons/fi';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import toast from 'react-hot-toast';
 import api from '../../services/api';
 import * as XLSX from 'xlsx';
+import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, HeadingLevel, BorderStyle } from 'docx';
 import ReportCard from './ReportCard';
 
 // ===== AI Device Detection Hook =====
@@ -139,6 +141,7 @@ const Reports = () => {
   // Combined exam data for report cards
   const [combinedExamData, setCombinedExamData] = useState(null);
   const [examNamesList, setExamNamesList] = useState([]);
+  const [isGeneratingWord, setIsGeneratingWord] = useState(false);
 
   const terms = ['Term 1', 'Term 2', 'Term 3'];
   const years = [2023, 2024, 2025, 2026, 2027];
@@ -208,7 +211,7 @@ const Reports = () => {
     loadAllData();
   }, []);
 
-  // Load streams when class changes - ONLY show streams if class has them
+  // Load streams when class changes
   useEffect(() => {
     if (selectedClass) {
       const classData = schoolClasses.find(c => c.name === selectedClass);
@@ -264,25 +267,25 @@ const Reports = () => {
           .map(c => c.name);
         const sortedClasses = sortClassesByOrder(activeClasses);
         setAvailableClasses(sortedClasses);
-        console.log('Available classes (sorted):', sortedClasses);
       }
       
       const pupilsRes = await api.get('/pupils');
       if (pupilsRes.data?.success) {
         setPupils(pupilsRes.data.data || []);
-        console.log('Pupils loaded:', pupilsRes.data.data?.length || 0);
+        console.log('✅ Loaded pupils:', pupilsRes.data.data?.length || 0);
       }
       
       const resultsRes = await api.get('/results');
       if (resultsRes.data?.success) {
         setResults(resultsRes.data.data || []);
-        console.log('Results loaded:', resultsRes.data.data?.length || 0);
+        console.log('✅ Loaded results:', resultsRes.data.data?.length || 0);
       }
       
       const examsRes = await api.get('/exams');
       if (examsRes.data?.success) {
         const examsData = examsRes.data.data || [];
         setExams(examsData);
+        
         const examTypesFromDb = [...new Set(examsData.map(e => e.type).filter(Boolean))];
         setAvailableExamTypes(examTypesFromDb);
         console.log('📋 Exam types fetched from database:', examTypesFromDb);
@@ -311,15 +314,11 @@ const Reports = () => {
     setLoading(true);
     
     try {
-      console.log('Loading performance data...');
-      console.log('Filters:', { selectedClass, selectedTerm, selectedExamType, selectedExamName, selectedYear, selectedStream });
-      
       let finalResults = [];
       let combinedExamData = null;
       let selectedExamNames = [];
       
       if (isCombinedReport) {
-        // Handle combined exams
         if (selectedCombinedExams.length === 0) {
           toast.error('Please select at least one exam to combine');
           setLoading(false);
@@ -339,10 +338,8 @@ const Reports = () => {
             stream: selectedStream === 'all' ? undefined : selectedStream,
           };
           
-          console.log('Fetching results for exam:', examName, params);
           const response = await api.get('/results', { params });
           const examResults = response.data?.data || [];
-          console.log(`Found ${examResults.length} results for ${examName}`);
           const weight = parseFloat(examWeights[examName] || 100 / selectedCombinedExams.length);
           
           combinedExamData[examName] = {};
@@ -388,13 +385,14 @@ const Reports = () => {
           entry.totalWeight += r.weight;
         });
         
-        finalResults = Array.from(combinedMap.values()).map(entry => ({
+        const combinedResults = Array.from(combinedMap.values()).map(entry => ({
           ...entry,
           marks: entry.totalWeight > 0 ? entry.weightedMarks / entry.totalWeight : 0
         }));
         
+        finalResults = combinedResults;
+        
       } else {
-        // Single exam report
         if (!selectedExamType) {
           toast.error('Please select an exam type');
           setLoading(false);
@@ -418,10 +416,8 @@ const Reports = () => {
           stream: selectedStream === 'all' ? undefined : selectedStream,
         };
         
-        console.log('Fetching results with params:', params);
         const response = await api.get('/results', { params });
         finalResults = response.data?.data || [];
-        console.log(`Found ${finalResults.length} results`);
       }
       
       if (finalResults.length === 0) {
@@ -434,7 +430,6 @@ const Reports = () => {
       // Process results
       const subjects = [...new Set(finalResults.map(r => r.subject).filter(Boolean))];
       setAllSubjects(subjects);
-      console.log('Subjects found:', subjects);
       
       const studentMap = new Map();
       finalResults.forEach(r => {
@@ -664,10 +659,189 @@ const Reports = () => {
       toast.error('No data to download');
       return;
     }
-    
-    toast.info('Word document generation is currently disabled. Please use Excel format.');
-    // Word generation is disabled due to docx package issues
-    // To enable, uncomment the docx import and the full function
+
+    setIsGeneratingWord(true);
+
+    try {
+      const reportTitle = isCombinedReport ? 'COMBINED RESULTS' : `${selectedExamName} RESULTS`;
+      const schoolName = schoolInfo.name || 'School Name';
+      const schoolMotto = schoolInfo.motto || 'Excellence in Education';
+
+      const docChildren = [];
+
+      // Header
+      docChildren.push(new Paragraph({
+        text: schoolName.toUpperCase(),
+        heading: HeadingLevel.TITLE,
+        alignment: AlignmentType.CENTER,
+      }));
+
+      docChildren.push(new Paragraph({
+        text: schoolMotto,
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 100 },
+      }));
+
+      docChildren.push(new Paragraph({
+        text: reportTitle,
+        heading: HeadingLevel.HEADING_1,
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 200 },
+      }));
+
+      // Report Info
+      docChildren.push(new Paragraph({
+        children: [
+          new TextRun({ text: 'Class: ', bold: true }),
+          new TextRun(`${selectedClass}${selectedStream && selectedStream !== 'all' ? ` - ${selectedStream}` : ''}`),
+        ],
+      }));
+
+      docChildren.push(new Paragraph({
+        children: [
+          new TextRun({ text: 'Term: ', bold: true }),
+          new TextRun(`${selectedTerm}`),
+          new TextRun({ text: ' | Year: ', bold: true }),
+          new TextRun(`${selectedYear}`),
+        ],
+      }));
+
+      if (isCombinedReport) {
+        docChildren.push(new Paragraph({
+          children: [
+            new TextRun({ text: 'Combined Exams: ', bold: true }),
+            new TextRun(selectedCombinedExams.join(', ')),
+          ],
+        }));
+      } else {
+        docChildren.push(new Paragraph({
+          children: [
+            new TextRun({ text: 'Exam: ', bold: true }),
+            new TextRun(`${selectedExamName} (${selectedExamType})`),
+          ],
+        }));
+      }
+
+      docChildren.push(new Paragraph({
+        children: [
+          new TextRun({ text: 'Generated: ', bold: true }),
+          new TextRun(new Date().toLocaleString()),
+        ],
+        spacing: { after: 200 },
+      }));
+
+      // Student Performance Table
+      docChildren.push(new Paragraph({
+        text: 'STUDENT PERFORMANCE DETAILS',
+        heading: HeadingLevel.HEADING_2,
+        spacing: { after: 100 },
+      }));
+
+      const headerCells = [
+        new TableCell({ children: [new Paragraph({ text: 'Rank', bold: true, alignment: AlignmentType.CENTER })] }),
+        new TableCell({ children: [new Paragraph({ text: 'Name', bold: true })] }),
+        new TableCell({ children: [new Paragraph({ text: 'Adm', bold: true })] }),
+        ...allSubjects.map(subject => new TableCell({ children: [new Paragraph({ text: subject.substring(0, 4).toUpperCase(), bold: true, alignment: AlignmentType.CENTER })] })),
+        new TableCell({ children: [new Paragraph({ text: 'Total', bold: true, alignment: AlignmentType.CENTER })] }),
+        new TableCell({ children: [new Paragraph({ text: 'Avg%', bold: true, alignment: AlignmentType.CENTER })] }),
+        new TableCell({ children: [new Paragraph({ text: 'Grade', bold: true, alignment: AlignmentType.CENTER })] }),
+        new TableCell({ children: [new Paragraph({ text: 'Competency', bold: true, alignment: AlignmentType.CENTER })] }),
+      ];
+
+      const studentRows = filteredData.map(student => {
+        const subjectCells = allSubjects.map(subject => {
+          const marks = student[subject];
+          let markText = marks !== undefined && marks !== null ? marks.toString() : '-';
+          return new TableCell({ 
+            children: [new Paragraph({ text: markText, alignment: AlignmentType.CENTER })],
+          });
+        });
+
+        return new TableRow({
+          children: [
+            new TableCell({ children: [new Paragraph({ text: student.rank.toString(), alignment: AlignmentType.CENTER })] }),
+            new TableCell({ children: [new Paragraph({ text: student.name })] }),
+            new TableCell({ children: [new Paragraph({ text: student.admNo })] }),
+            ...subjectCells,
+            new TableCell({ children: [new Paragraph({ text: student.totalMarks.toString(), alignment: AlignmentType.CENTER })] }),
+            new TableCell({ children: [new Paragraph({ text: student.averageScore.toFixed(1), alignment: AlignmentType.CENTER })] }),
+            new TableCell({ children: [new Paragraph({ text: student.grade, alignment: AlignmentType.CENTER })] }),
+            new TableCell({ children: [new Paragraph({ text: student.competency?.level || 'N/A', alignment: AlignmentType.CENTER })] }),
+          ],
+        });
+      });
+
+      const avgCells = [
+        new TableCell({ children: [new Paragraph({ text: '', alignment: AlignmentType.CENTER })] }),
+        new TableCell({ children: [new Paragraph({ text: 'AVERAGE', bold: true })] }),
+        new TableCell({ children: [new Paragraph({ text: '', alignment: AlignmentType.CENTER })] }),
+        ...allSubjects.map(subject => new TableCell({ 
+          children: [new Paragraph({ text: (subjectAverages[subject] || 0).toFixed(1), alignment: AlignmentType.CENTER, bold: true })]
+        })),
+        new TableCell({ children: [new Paragraph({ text: (filteredData.reduce((sum, s) => sum + s.totalMarks, 0) / filteredData.length).toFixed(1), alignment: AlignmentType.CENTER, bold: true })] }),
+        new TableCell({ children: [new Paragraph({ text: `${analysisStats?.classAverage?.toFixed(1)}%`, alignment: AlignmentType.CENTER, bold: true })] }),
+        new TableCell({ children: [new Paragraph({ text: '', alignment: AlignmentType.CENTER })] }),
+        new TableCell({ children: [new Paragraph({ text: '', alignment: AlignmentType.CENTER })] }),
+      ];
+
+      docChildren.push(new Table({
+        rows: [
+          new TableRow({ children: headerCells }),
+          ...studentRows,
+          new TableRow({ children: avgCells }),
+        ],
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        borders: {
+          top: { style: BorderStyle.SINGLE, size: 1 },
+          bottom: { style: BorderStyle.SINGLE, size: 1 },
+          left: { style: BorderStyle.SINGLE, size: 1 },
+          right: { style: BorderStyle.SINGLE, size: 1 },
+          insideHorizontal: { style: BorderStyle.SINGLE, size: 1 },
+          insideVertical: { style: BorderStyle.SINGLE, size: 1 },
+        },
+      }));
+
+      // Footer
+      docChildren.push(new Paragraph({ text: '', spacing: { after: 200 } }));
+      docChildren.push(new Paragraph({
+        text: `Report generated on ${new Date().toLocaleString()}`,
+        alignment: AlignmentType.CENTER,
+      }));
+
+      docChildren.push(new Paragraph({
+        text: 'This is a computer-generated document.',
+        alignment: AlignmentType.CENTER,
+        spacing: { before: 100 },
+      }));
+
+      const doc = new Document({
+        sections: [{
+          properties: {},
+          children: docChildren,
+        }],
+      });
+
+      const blob = await Packer.toBlob(doc);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const fileName = `${schoolInfo.name || 'School'}_${selectedClass}_${selectedTerm}_${selectedYear}_Report.docx`;
+      a.download = fileName;
+      a.click();
+      URL.revokeObjectURL(url);
+      
+      toast.success('Word document downloaded successfully');
+    } catch (error) {
+      console.error('Error generating Word document:', error);
+      toast.error('Failed to generate Word document: ' + error.message);
+    } finally {
+      setIsGeneratingWord(false);
+    }
+  };
+
+  // ===== PRINT FUNCTION =====
+  const handlePrint = () => {
+    window.print();
   };
 
   // ===== EXCEL DOWNLOAD =====
@@ -785,7 +959,6 @@ const Reports = () => {
             </select>
           </div>
           
-          {/* Only show Stream dropdown if the selected class has streams */}
           {selectedClass && classHasStreams(selectedClass) && (
             <div>
               <label className={`block text-gray-600 ${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} mb-1`}>Stream</label>
@@ -975,8 +1148,18 @@ const Reports = () => {
                 <button onClick={downloadExcel} className="bg-green-600 text-white rounded ${deviceInfo.isMobile ? 'px-1.5 py-0.5 text-[8px]' : 'px-2 py-0.5 text-[10px]'} flex items-center gap-0.5">
                   <FiDownload className="w-3 h-3" /> Excel
                 </button>
-                <button onClick={generateWordDocument} className="bg-blue-600 text-white rounded ${deviceInfo.isMobile ? 'px-1.5 py-0.5 text-[8px]' : 'px-2 py-0.5 text-[10px]'} flex items-center gap-0.5">
-                  <FiFileText className="w-3 h-3" /> Word
+                <button 
+                  onClick={generateWordDocument} 
+                  disabled={isGeneratingWord}
+                  className={`bg-blue-600 text-white rounded ${deviceInfo.isMobile ? 'px-1.5 py-0.5 text-[8px]' : 'px-2 py-0.5 text-[10px]'} flex items-center gap-0.5 ${isGeneratingWord ? 'opacity-50' : ''}`}
+                >
+                  <FiFileText className="w-3 h-3" /> {isGeneratingWord ? 'Generating...' : 'Word'}
+                </button>
+                <button 
+                  onClick={handlePrint} 
+                  className="bg-purple-600 text-white rounded ${deviceInfo.isMobile ? 'px-1.5 py-0.5 text-[8px]' : 'px-2 py-0.5 text-[10px]'} flex items-center gap-0.5"
+                >
+                  <FiPrinter className="w-3 h-3" /> Print
                 </button>
               </div>
             </div>
@@ -1058,8 +1241,18 @@ const Reports = () => {
             <button onClick={downloadExcel} className={`bg-green-600 text-white rounded-lg flex items-center justify-center gap-1 ${deviceInfo.isMobile ? 'w-full px-4 py-2 text-sm' : 'px-4 py-1.5 text-sm'}`}>
               <FiDownload /> EXCEL
             </button>
-            <button onClick={generateWordDocument} className={`bg-blue-600 text-white rounded-lg flex items-center justify-center gap-1 ${deviceInfo.isMobile ? 'w-full px-4 py-2 text-sm' : 'px-4 py-1.5 text-sm'}`}>
-              <FiFileText /> WORD
+            <button 
+              onClick={generateWordDocument} 
+              disabled={isGeneratingWord}
+              className={`bg-blue-600 text-white rounded-lg flex items-center justify-center gap-1 ${deviceInfo.isMobile ? 'w-full px-4 py-2 text-sm' : 'px-4 py-1.5 text-sm'} ${isGeneratingWord ? 'opacity-50' : ''}`}
+            >
+              <FiFileText /> {isGeneratingWord ? 'GENERATING...' : 'WORD'}
+            </button>
+            <button 
+              onClick={handlePrint} 
+              className={`bg-purple-600 text-white rounded-lg flex items-center justify-center gap-1 ${deviceInfo.isMobile ? 'w-full px-4 py-2 text-sm' : 'px-4 py-1.5 text-sm'}`}
+            >
+              <FiPrinter /> PRINT
             </button>
           </div>
         </>
@@ -1067,7 +1260,8 @@ const Reports = () => {
       
       {showResults && filteredData.length === 0 && !loading && (
         <div className="bg-yellow-50 rounded-lg p-6 text-center">
-          <p className="text-gray-600 text-sm">No results found. Adjust your filters.</p>
+          <FiAlertCircle className={`${deviceInfo.isMobile ? 'w-8 h-8' : 'w-12 h-12'} text-yellow-500 mx-auto mb-3`} />
+          <p className="text-gray-600">No results found. Adjust your filters.</p>
         </div>
       )}
 
@@ -1115,6 +1309,13 @@ const Reports = () => {
         }
         .responsive-wrapper {
           transition: all 0.3s ease;
+        }
+        
+        @media print {
+          .no-print { display: none !important; }
+          .print-only { display: block !important; }
+          body { background: white; }
+          .card { box-shadow: none !important; border: 1px solid #ddd; }
         }
       `}</style>
     </Layout>
