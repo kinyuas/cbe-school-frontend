@@ -1,41 +1,43 @@
+// Results.js - Updated to use API
 import React, { useState, useEffect } from 'react';
 import Layout from '../common/Layout';
+import api from '../../services/api';
 import toast from 'react-hot-toast';
 import { FiSearch, FiEye, FiAward } from 'react-icons/fi';
 
-// CBE Learning Areas per grade level
-const cbELearningAreas = {
-  'PP1-PP2': ['Language Activities', 'Mathematical Activities', 'Environmental Activities', 'Psychomotor and Creative Activities', 'Religious Education Activities'],
-  'Grade 1-3': ['English', 'Kiswahili', 'Mathematics', 'Environmental Activities', 'Hygiene and Nutrition', 'Religious Education', 'Creative Arts'],
-  'Grade 4-6': ['English', 'Kiswahili', 'Mathematics', 'Science and Technology', 'Social Studies', 'Religious Education', 'Creative Arts', 'Physical and Health Education'],
-  'Grade 7-9': ['English', 'Kiswahili', 'Mathematics', 'Integrated Science', 'Social Studies', 'Religious Education', 'Creative Arts', 'Business Studies', 'Pre-technical Studies', 'Agriculture', 'Computer Science'],
-  'Grade 10-12': ['Core Subjects', 'Track Specialization Subjects', 'Electives']
-};
-
-const competenceLevels = [
-  { level: 'Exceeding Expectation', score: 80, color: 'green', description: 'The learner demonstrates in-depth understanding and applies skills independently' },
-  { level: 'Meeting Expectation', score: 60, color: 'blue', description: 'The learner demonstrates understanding and applies skills with minimal support' },
-  { level: 'Approaching Expectation', score: 40, color: 'yellow', description: 'The learner demonstrates partial understanding with some support' },
-  { level: 'Below Expectation', score: 20, color: 'orange', description: 'The learner demonstrates limited understanding with significant support' },
-  { level: 'Well Below Expectation', score: 0, color: 'red', description: 'The learner struggles to demonstrate understanding even with support' }
-];
+// ... (keep your existing competence levels and learning areas) ...
 
 const Results = () => {
   const [pupils, setPupils] = useState([]);
   const [results, setResults] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPupil, setSelectedPupil] = useState(null);
-  const [selectedCompetence, setSelectedCompetence] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     loadData();
   }, []);
 
-  const loadData = () => {
-    const storedPupils = localStorage.getItem('pupils') || '[]';
-    const storedResults = localStorage.getItem('results') || '[]';
-    setPupils(JSON.parse(storedPupils));
-    setResults(JSON.parse(storedResults));
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      // Fetch pupils from API
+      const pupilsRes = await api.get('/pupils');
+      if (pupilsRes.data?.success) {
+        setPupils(pupilsRes.data.data || []);
+      }
+
+      // Fetch results from API
+      const resultsRes = await api.get('/results');
+      if (resultsRes.data?.success) {
+        setResults(resultsRes.data.data || []);
+      }
+    } catch (error) {
+      console.error('Error loading data:', error);
+      toast.error('Failed to load data');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const getCompetenceLevel = (marks) => {
@@ -48,18 +50,30 @@ const Results = () => {
   };
 
   const filteredPupils = pupils.filter(pupil =>
-    pupil.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    pupil.admNo.includes(searchTerm) ||
+    pupil.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    pupil.admNo?.includes(searchTerm) ||
     (pupil.upi && pupil.upi.includes(searchTerm))
   );
 
   const getPupilResults = (pupilId) => {
-    return results.filter(r => r.pupilId === pupilId);
+    return results.filter(r => {
+      const rPupilId = r.pupilId?._id || r.pupilId || r.pupil_id;
+      return rPupilId === pupilId;
+    });
   };
+
+  if (loading) {
+    return (
+      <Layout title="CBE Learning Outcomes" subtitle="Competency Based Assessment Results">
+        <div className="flex justify-center items-center h-64">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
+        </div>
+      </Layout>
+    );
+  }
 
   return (
     <Layout title="CBE Learning Outcomes" subtitle="Competency Based Assessment Results">
-      
       {/* Competence Level Guide */}
       <div className="bg-gradient-to-r from-blue-50 to-green-50 rounded-xl p-4 mb-6">
         <h3 className="text-md font-bold text-gray-800 mb-2 flex items-center gap-2">
@@ -95,7 +109,7 @@ const Results = () => {
         {filteredPupils.map(pupil => {
           const pupilResults = getPupilResults(pupil._id);
           const averageScore = pupilResults.length > 0 
-            ? pupilResults.reduce((sum, r) => sum + r.marks, 0) / pupilResults.length
+            ? pupilResults.reduce((sum, r) => sum + (r.marks || r.score || 0), 0) / pupilResults.length
             : 0;
           const competence = getCompetenceLevel(averageScore);
           
@@ -105,7 +119,7 @@ const Results = () => {
                 <div>
                   <h3 className="text-lg font-bold text-gray-800">{pupil.name}</h3>
                   <p className="text-sm text-gray-500">
-                    Adm: {pupil.admNo} | UPI: {pupil.upi || 'N/A'} | Grade: {pupil.grade}
+                    Adm: {pupil.admNo} | UPI: {pupil.upi || 'N/A'} | Grade: {pupil.grade || pupil.class}
                   </p>
                   <div className="flex items-center gap-2 mt-2">
                     <span className="text-sm font-medium">Competency Level:</span>
@@ -129,13 +143,13 @@ const Results = () => {
                   {pupilResults.length > 0 ? (
                     <div className="space-y-3">
                       {pupilResults.map(result => {
-                        const resultCompetence = getCompetenceLevel(result.marks);
+                        const resultCompetence = getCompetenceLevel(result.marks || result.score || 0);
                         return (
-                          <div key={result.id} className="p-3 bg-gray-50 rounded-lg">
+                          <div key={result._id || result.id} className="p-3 bg-gray-50 rounded-lg">
                             <div className="flex justify-between items-center mb-2">
-                              <span className="font-medium">{result.subject}</span>
+                              <span className="font-medium">{result.subject || result.examName || 'Assessment'}</span>
                               <div className="flex items-center gap-2">
-                                <span className="text-sm">{result.marks}%</span>
+                                <span className="text-sm">{result.marks || result.score || 0}%</span>
                                 <span className={`px-2 py-0.5 text-xs rounded-full bg-${resultCompetence.color}-100 text-${resultCompetence.color}-800`}>
                                   {resultCompetence.level}
                                 </span>
@@ -144,10 +158,10 @@ const Results = () => {
                             <div className="w-full bg-gray-200 rounded-full h-2">
                               <div 
                                 className={`bg-${resultCompetence.color}-500 rounded-full h-2 transition-all`}
-                                style={{ width: `${result.marks}%` }}
+                                style={{ width: `${result.marks || result.score || 0}%` }}
                               ></div>
                             </div>
-                            <p className="text-xs text-gray-500 mt-1">{result.examName || 'Assessment'} - {result.term}</p>
+                            <p className="text-xs text-gray-500 mt-1">{result.examName || 'Assessment'} - {result.term || ''}</p>
                           </div>
                         );
                       })}
