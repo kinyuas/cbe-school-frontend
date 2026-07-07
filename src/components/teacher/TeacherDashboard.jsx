@@ -134,7 +134,7 @@ const TeacherDashboard = () => {
   const responsive = useResponsiveClasses(deviceInfo);
   
   const { user } = useAuth();
-  const teacherId = user?.teacherId || user?.id || user?._id;
+  const teacherId = user?._id || user?.id || user?.teacherId;
   const teacherName = user?.name || user?.username || '';
   
   // Store all dashboard numbers
@@ -176,6 +176,8 @@ const TeacherDashboard = () => {
     try {
       console.log('📊 Loading teacher dashboard data...');
       console.log('👤 User:', user);
+      console.log('🆔 Teacher ID:', teacherId);
+      console.log('📛 Teacher Name:', teacherName);
       
       // Load school info
       try {
@@ -216,7 +218,6 @@ const TeacherDashboard = () => {
           // Log sample results to see structure
           if (allResults.length > 0) {
             console.log('📋 Sample result structure:', JSON.stringify(allResults[0], null, 2));
-            console.log('📋 Available fields in results:', Object.keys(allResults[0]));
           }
         }
       } catch (err) {
@@ -247,70 +248,50 @@ const TeacherDashboard = () => {
       
       setPupils(learners);
       
-      // Get teacher's assigned class from user
-      const assignedClass = user?.classAssigned || 
-                           user?.class || 
-                           user?.grade || 
-                           '';
-      setTeacherClass(assignedClass);
-      console.log(`📚 Teacher assigned class: ${assignedClass || 'Not assigned'}`);
-      
       // ============================================================
-      // FILTER RESULTS FOR THIS TEACHER
+      // FILTER RESULTS FOR THIS TEACHER USING recordedBy FIELD
       // ============================================================
       let teacherResultsData = [];
       
-      console.log('🔍 Filtering results for teacher:', { teacherId, teacherName, assignedClass });
+      console.log('🔍 Filtering results by recordedBy:', teacherId);
       
-      // Try multiple methods to match results
-      allResults.forEach(result => {
-        // Check various possible fields for teacher identification
-        const resultTeacherId = result.teacherId || result.teacher_id || result.createdBy || result.uploadedBy;
-        const resultTeacherName = result.teacherName || result.teacher_name || result.createdByName;
-        const resultClass = result.class || result.grade || result.className || result.class_id;
-        
-        // Check if this result belongs to this teacher
-        const matchesTeacherId = resultTeacherId && (resultTeacherId === teacherId || resultTeacherId === user?._id);
-        const matchesTeacherName = resultTeacherName && (resultTeacherName === teacherName || resultTeacherName === user?.username);
-        const matchesClass = assignedClass && resultClass === assignedClass;
-        
-        // Also check if result has pupil with matching class
-        let pupilMatchesClass = false;
-        if (assignedClass && result.pupilId) {
-          const pupilId = result.pupilId._id || result.pupilId;
-          const pupil = learners.find(p => p._id === pupilId || p._id === result.pupilId);
-          if (pupil) {
-            pupilMatchesClass = pupil.class === assignedClass || pupil.grade === assignedClass;
-          }
-        }
-        
-        if (matchesTeacherId || matchesTeacherName || matchesClass || pupilMatchesClass) {
-          if (!result.class && (matchesClass || pupilMatchesClass)) {
-            result.class = assignedClass;
-          }
-          teacherResultsData.push(result);
-        }
-      });
-      
-      // If no results, try broader match
-      if (teacherResultsData.length === 0 && teacherName) {
-        console.log('🔄 Trying broader match with teacher name:', teacherName);
+      // Filter results where recordedBy matches the teacher's ID
+      if (teacherId) {
         teacherResultsData = allResults.filter(result => {
-          const createdBy = result.createdBy || result.uploadedBy || result.teacherName || '';
-          return createdBy.toLowerCase().includes(teacherName.toLowerCase()) || 
-                 teacherName.toLowerCase().includes(createdBy.toLowerCase());
+          // Check recordedBy field (this is the teacher ID who recorded the result)
+          const recordedBy = result.recordedBy || result.teacherId || result.createdBy;
+          return recordedBy === teacherId;
         });
-        console.log(`📚 Broader match found ${teacherResultsData.length} results`);
+        console.log(`📚 Found ${teacherResultsData.length} results recorded by teacher ID: ${teacherId}`);
       }
       
-      // Fallback to assigned class
-      if (teacherResultsData.length === 0 && assignedClass) {
-        console.log('🔄 Fallback to filtering by class:', assignedClass);
+      // If no results found by recordedBy, try by teacher name
+      if (teacherResultsData.length === 0 && teacherName) {
+        console.log('🔄 Trying to filter by teacher name:', teacherName);
         teacherResultsData = allResults.filter(result => {
-          const resultClass = result.class || result.grade || result.className || '';
-          return resultClass === assignedClass;
+          const recordedByName = result.recordedByName || result.teacherName || result.submittedBy || '';
+          return recordedByName === teacherName || recordedByName.includes(teacherName);
         });
-        console.log(`📚 Class filter found ${teacherResultsData.length} results`);
+        console.log(`📚 Found ${teacherResultsData.length} results by teacher name`);
+      }
+      
+      // If still no results, try by createdBy or updatedBy
+      if (teacherResultsData.length === 0 && teacherId) {
+        console.log('🔄 Trying createdBy/updatedBy filter');
+        teacherResultsData = allResults.filter(result => {
+          return result.createdBy === teacherId || 
+                 result.updatedBy === teacherId ||
+                 result.submittedBy === teacherName;
+        });
+        console.log(`📚 Found ${teacherResultsData.length} results by createdBy/updatedBy`);
+      }
+      
+      // If still no results, show all results for debugging
+      if (teacherResultsData.length === 0 && allResults.length > 0) {
+        console.log('⚠️ No results matched. Showing all results for debugging:');
+        allResults.forEach((r, i) => {
+          console.log(`  Result ${i+1}: recordedBy=${r.recordedBy}, subject=${r.subject}, examName=${r.examName}`);
+        });
       }
       
       console.log(`📚 FINAL: Found ${teacherResultsData.length} results for this teacher`);
@@ -324,13 +305,25 @@ const TeacherDashboard = () => {
       const uploadedResultsCount = teacherResultsData.length;
       
       // 2. CLASSES TAUGHT - Unique classes from results
+      // Note: Results don't have a class field directly, but we can get it from pupils
       const uniqueClasses = new Set();
+      const pupilsWithResults = new Set();
+      
       teacherResultsData.forEach(r => {
-        const classValue = r.class || r.grade || r.className || r.classAssigned || r.class_id;
-        if (classValue) {
-          uniqueClasses.add(classValue);
+        const pupilId = r.pupilId?._id || r.pupilId;
+        if (pupilId) {
+          pupilsWithResults.add(pupilId);
+          // Find the pupil to get their class
+          const pupil = learners.find(p => p._id === pupilId || p._id === r.pupilId);
+          if (pupil) {
+            const className = pupil.class || pupil.grade || pupil.className;
+            if (className) {
+              uniqueClasses.add(className);
+            }
+          }
         }
       });
+      
       const classesTaughtCount = uniqueClasses.size;
       setTeacherClasses([...uniqueClasses]);
       console.log(`📚 Classes taught: ${classesTaughtCount} - ${[...uniqueClasses].join(', ')}`);
@@ -338,7 +331,7 @@ const TeacherDashboard = () => {
       // 3. SUBJECTS TAUGHT - Unique subjects from results
       const uniqueSubjects = new Set();
       teacherResultsData.forEach(r => {
-        const subject = r.subject || r.subjectName || r.examName || r.learningArea || r.className;
+        const subject = r.subject || r.subjectName || r.learningArea;
         if (subject) {
           uniqueSubjects.add(subject);
         }
@@ -361,13 +354,13 @@ const TeacherDashboard = () => {
       let competenciesCount = 0;
       if (currentExam && teacherResultsData.length > 0) {
         const examResults = teacherResultsData.filter(r => {
-          const matchesExamName = r.examName === currentExam.title || 
-                                 r.exam === currentExam.title ||
-                                 r.examType === currentExam.type ||
-                                 r.exam_title === currentExam.title;
+          // Match by examName (which matches the exam title)
+          const matchesExamName = r.examName === currentExam.title;
           const matchesTerm = r.term === currentExam.term;
           const matchesYear = r.year === currentExam.year || r.year === new Date().getFullYear();
-          return matchesExamName || (matchesTerm && matchesYear);
+          const matchesExamType = r.examType === currentExam.type;
+          
+          return (matchesExamName || matchesExamType) && matchesTerm && matchesYear;
         });
         competenciesCount = examResults.length;
         console.log(`📊 Competencies recorded for active exam: ${competenciesCount}`);
@@ -380,14 +373,24 @@ const TeacherDashboard = () => {
       
       // Group results by subject
       teacherResultsData.forEach(result => {
-        const subject = result.subject || result.subjectName || result.examName || result.learningArea || 'Unknown Subject';
+        const subject = result.subject || result.subjectName || result.learningArea || 'Unknown Subject';
         const marks = result.marks || result.score || result.marksObtained || 0;
-        const className = result.class || result.grade || assignedClass || 'Unknown Class';
+        
+        // Get class from pupil
+        let className = 'Unknown Class';
+        const pupilId = result.pupilId?._id || result.pupilId;
+        if (pupilId) {
+          const pupil = learners.find(p => p._id === pupilId || p._id === result.pupilId);
+          if (pupil) {
+            className = pupil.class || pupil.grade || 'Unknown Class';
+          }
+        }
         
         if (!performanceBySubject[subject]) {
           performanceBySubject[subject] = {
             subject: subject,
             class: className,
+            examName: result.examName || 'Assessment',
             totalMarks: 0,
             count: 0,
             scores: [],
@@ -400,7 +403,6 @@ const TeacherDashboard = () => {
         performanceBySubject[subject].scores.push(marks);
         
         // Track unique students
-        const pupilId = result.pupilId?._id || result.pupilId || result.pupil_id;
         if (pupilId) {
           performanceBySubject[subject].students.add(pupilId);
         }
@@ -415,6 +417,7 @@ const TeacherDashboard = () => {
         return {
           subject: data.subject,
           class: data.class,
+          examName: data.examName,
           average: average.toFixed(1),
           students: data.students.size,
           totalResults: data.count,
@@ -879,13 +882,15 @@ const TeacherDashboard = () => {
         <FiInfo className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
         <div className="text-xs text-blue-700">
           <span className="font-semibold">📊 Results Summary:</span> 
-          {activeExam ? (
-            <> You've uploaded <strong>{stats.uploadedResults}</strong> total results across <strong>{stats.classesTaught}</strong> class(es). <strong>{stats.competenciesRecorded}</strong> results for the active exam (<strong>{activeExam.title}</strong>).</>
+          {teacherResults.length > 0 ? (
+            <>
+              You've uploaded <strong>{stats.uploadedResults}</strong> total results for <strong>{teacherSubjects.length}</strong> subject(s) across <strong>{stats.classesTaught}</strong> class(es).
+              {activeExam && (
+                <> <strong>{stats.competenciesRecorded}</strong> results for the active exam (<strong>{activeExam.title}</strong>).</>
+              )}
+            </>
           ) : (
-            <> You've uploaded <strong>{stats.uploadedResults}</strong> total results across <strong>{stats.classesTaught}</strong> class(es). No active exam currently.</>
-          )}
-          {teacherSubjects.length > 0 && (
-            <> Subjects: <strong>{teacherSubjects.join(', ')}</strong></>
+            <> No results uploaded yet. Click "Upload Results" to get started.</>
           )}
         </div>
       </div>
@@ -912,13 +917,13 @@ const TeacherDashboard = () => {
 
       <div className={`grid ${deviceInfo.isMobile ? 'grid-cols-1' : 'lg:grid-cols-2'} gap-6 mb-6`}>
         
-        {/* Class Performance Section - Now showing Subjects */}
+        {/* Subject Performance Section */}
         <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding}`}>
           <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-4 flex items-center gap-2`}>
             <FiBarChart2 className="text-green-600" /> Subject Performance
             {hasTeacherResults && (
               <span className="text-xs font-normal text-gray-500 ml-2">
-                ({teacherResults.length} results uploaded)
+                ({teacherResults.length} results)
               </span>
             )}
           </h2>
@@ -940,6 +945,7 @@ const TeacherDashboard = () => {
                     <div>
                       <span className="font-medium">{subject.subject}</span>
                       <span className="text-xs text-gray-500 ml-2">({subject.class})</span>
+                      <span className="text-xs text-gray-400 ml-1">- {subject.examName}</span>
                     </div>
                     <div className={`flex ${deviceInfo.isMobile ? 'flex-wrap gap-2' : 'gap-3'}`}>
                       <span className="text-green-600 text-xs">✓ {subject.passing}</span>
@@ -977,7 +983,6 @@ const TeacherDashboard = () => {
             <div className="text-center py-6">
               <FiBarChart2 className={`${deviceInfo.isMobile ? 'w-8 h-8' : 'w-10 h-10'} text-gray-300 mx-auto mb-2`} />
               <p className="text-gray-500 text-sm">No subject data available</p>
-              <p className="text-xs text-gray-400 mt-1">Upload results to see subject performance</p>
             </div>
           )}
           <Link to="/teacher/performance" className={`block text-center ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-green-600 hover:text-green-800 mt-4`}>
@@ -1113,8 +1118,8 @@ const TeacherDashboard = () => {
           </h2>
           <div className="space-y-3">
             <div className="flex justify-between items-center p-2 bg-gray-50 rounded-lg">
-              <span className="text-sm text-gray-600">Assigned Class</span>
-              <span className="font-semibold text-gray-800">{teacherClass || 'Not Assigned'}</span>
+              <span className="text-sm text-gray-600">Teacher ID</span>
+              <span className="font-semibold text-gray-800">{teacherId || 'Not Found'}</span>
             </div>
             <div className="flex justify-between items-center p-2 bg-gray-50 rounded-lg">
               <span className="text-sm text-gray-600">Active Exam</span>
@@ -1160,11 +1165,12 @@ const TeacherDashboard = () => {
                 ))}
               </div>
             )}
-            {activeExam && stats.competenciesRecorded === 0 && (
+            {activeExam && stats.competenciesRecorded === 0 && teacherResults.length > 0 && (
               <div className="bg-yellow-50 p-2 rounded-lg border border-yellow-200 text-center">
                 <p className="text-xs text-yellow-700">
                   <FiClock className="inline mr-1 w-3 h-3" />
-                  No results recorded yet for {activeExam.title}. Click "Upload Results" to get started.
+                  You have {teacherResults.length} total results but none for {activeExam.title}. 
+                  Upload results for this exam to track competencies.
                 </p>
               </div>
             )}
@@ -1172,6 +1178,13 @@ const TeacherDashboard = () => {
               <div className="bg-green-50 p-2 rounded-lg border border-green-200 text-center">
                 <p className="text-xs text-green-700">
                   ✅ {stats.competenciesRecorded} results recorded for {activeExam.title}. Keep going!
+                </p>
+              </div>
+            )}
+            {teacherResults.length === 0 && (
+              <div className="bg-gray-50 p-2 rounded-lg border border-gray-200 text-center">
+                <p className="text-xs text-gray-600">
+                  No results found. Click "Upload Results" to get started.
                 </p>
               </div>
             )}
