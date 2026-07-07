@@ -170,6 +170,16 @@ const TeacherDashboard = () => {
   const intervalRef = useRef(null);
   const alertIntervalRef = useRef(null);
 
+  // Helper function to find pupil by ID (handles both string and object IDs)
+  const findPupilById = (pupilId, learners) => {
+    if (!pupilId) return null;
+    const pupilIdStr = String(pupilId);
+    return learners.find(p => {
+      const pId = p._id?._id || p._id || p.id;
+      return String(pId) === pupilIdStr;
+    });
+  };
+
   // Load dashboard data
   const loadDashboardData = useCallback(async () => {
     setLoading(true);
@@ -258,7 +268,6 @@ const TeacherDashboard = () => {
       // Filter results where recordedBy matches the teacher's ID
       if (teacherId) {
         teacherResultsData = allResults.filter(result => {
-          // Check recordedBy field (this is the teacher ID who recorded the result)
           const recordedBy = result.recordedBy || result.teacherId || result.createdBy;
           return recordedBy === teacherId;
         });
@@ -305,16 +314,12 @@ const TeacherDashboard = () => {
       const uploadedResultsCount = teacherResultsData.length;
       
       // 2. CLASSES TAUGHT - Unique classes from results
-      // Note: Results don't have a class field directly, but we can get it from pupils
       const uniqueClasses = new Set();
-      const pupilsWithResults = new Set();
       
       teacherResultsData.forEach(r => {
         const pupilId = r.pupilId?._id || r.pupilId;
         if (pupilId) {
-          pupilsWithResults.add(pupilId);
-          // Find the pupil to get their class
-          const pupil = learners.find(p => p._id === pupilId || p._id === r.pupilId);
+          const pupil = findPupilById(pupilId, learners);
           if (pupil) {
             const className = pupil.class || pupil.grade || pupil.className;
             if (className) {
@@ -354,7 +359,6 @@ const TeacherDashboard = () => {
       let competenciesCount = 0;
       if (currentExam && teacherResultsData.length > 0) {
         const examResults = teacherResultsData.filter(r => {
-          // Match by examName (which matches the exam title)
           const matchesExamName = r.examName === currentExam.title;
           const matchesTerm = r.term === currentExam.term;
           const matchesYear = r.year === currentExam.year || r.year === new Date().getFullYear();
@@ -367,7 +371,7 @@ const TeacherDashboard = () => {
       }
       
       // ============================================================
-      // CLASS PERFORMANCE BY SUBJECT
+      // CLASS PERFORMANCE BY SUBJECT - WITH STREAM
       // ============================================================
       const performanceBySubject = {};
       
@@ -375,14 +379,17 @@ const TeacherDashboard = () => {
       teacherResultsData.forEach(result => {
         const subject = result.subject || result.subjectName || result.learningArea || 'Unknown Subject';
         const marks = result.marks || result.score || result.marksObtained || 0;
-        
-        // Get class from pupil
-        let className = 'Unknown Class';
+        const examName = result.examName || 'Assessment';
         const pupilId = result.pupilId?._id || result.pupilId;
+        
+        // Get class and stream from pupil
+        let className = 'Unknown Class';
+        let stream = 'Unknown Stream';
         if (pupilId) {
-          const pupil = learners.find(p => p._id === pupilId || p._id === result.pupilId);
+          const pupil = findPupilById(pupilId, learners);
           if (pupil) {
             className = pupil.class || pupil.grade || 'Unknown Class';
+            stream = pupil.stream || 'Unknown Stream';
           }
         }
         
@@ -390,11 +397,14 @@ const TeacherDashboard = () => {
           performanceBySubject[subject] = {
             subject: subject,
             class: className,
-            examName: result.examName || 'Assessment',
+            stream: stream,
+            examName: examName,
             totalMarks: 0,
             count: 0,
             scores: [],
-            students: new Set()
+            students: new Set(),
+            passing: 0,
+            failing: 0
           };
         }
         
@@ -402,27 +412,33 @@ const TeacherDashboard = () => {
         performanceBySubject[subject].count++;
         performanceBySubject[subject].scores.push(marks);
         
+        // Track passing/failing
+        if (marks >= 60) {
+          performanceBySubject[subject].passing++;
+        } else {
+          performanceBySubject[subject].failing++;
+        }
+        
         // Track unique students
         if (pupilId) {
           performanceBySubject[subject].students.add(pupilId);
         }
       });
       
-      // Calculate averages and passing/failing
+      // Calculate averages
       const performanceData = Object.values(performanceBySubject).map(data => {
         const average = data.count > 0 ? (data.totalMarks / data.count) : 0;
-        const passing = data.scores.filter(s => s >= 60).length;
-        const failing = data.scores.filter(s => s < 60).length;
         
         return {
           subject: data.subject,
           class: data.class,
+          stream: data.stream,
           examName: data.examName,
           average: average.toFixed(1),
           students: data.students.size,
           totalResults: data.count,
-          passing: passing,
-          failing: failing,
+          passing: data.passing,
+          failing: data.failing,
           scores: data.scores
         };
       });
@@ -430,7 +446,7 @@ const TeacherDashboard = () => {
       // Sort by subject name
       performanceData.sort((a, b) => a.subject.localeCompare(b.subject));
       
-      console.log(`📊 Performance data:`, performanceData);
+      console.log(`📊 Performance data with stream:`, performanceData);
       setClassPerformance(performanceData);
       
       // ---- FILTER ACTIVE AND UPCOMING EXAMS ----
@@ -917,7 +933,7 @@ const TeacherDashboard = () => {
 
       <div className={`grid ${deviceInfo.isMobile ? 'grid-cols-1' : 'lg:grid-cols-2'} gap-6 mb-6`}>
         
-        {/* Subject Performance Section */}
+        {/* Subject Performance Section - WITH STREAM DISPLAY */}
         <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding}`}>
           <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-4 flex items-center gap-2`}>
             <FiBarChart2 className="text-green-600" /> Subject Performance
@@ -942,13 +958,15 @@ const TeacherDashboard = () => {
               {classPerformance.map((subject, index) => (
                 <div key={index} className="border-b border-gray-100 pb-3 last:border-0">
                   <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-1' : 'justify-between'} text-sm mb-1`}>
-                   <div>
-  <span className="font-medium">{subject.subject}</span>
-  <span className="text-xs text-gray-500 ml-2">
-    ({subject.class}{subject.stream && subject.stream !== 'Unknown Stream' ? ` - ${subject.stream}` : ''})
-  </span>
-  <span className="text-xs text-gray-400 ml-1">- {subject.examName}</span>
-</div>
+                    <div>
+                      <span className="font-medium">{subject.subject}</span>
+                      <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500 ml-2`}>
+                        ({subject.class}{subject.stream && subject.stream !== 'Unknown Stream' ? ` - ${subject.stream}` : ''})
+                      </span>
+                      <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-400 ml-2`}>
+                        - {subject.examName}
+                      </span>
+                    </div>
                     <div className={`flex ${deviceInfo.isMobile ? 'flex-wrap gap-2' : 'gap-3'}`}>
                       <span className="text-green-600 text-xs">✓ {subject.passing}</span>
                       <span className="text-red-600 text-xs">✗ {subject.failing}</span>
