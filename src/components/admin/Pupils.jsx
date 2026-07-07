@@ -9,7 +9,7 @@ import {
   FiFile, FiArrowRight, FiAward, FiUserPlus, FiInfo,
   FiEdit2, FiTrash2, FiCheckCircle, FiAlertTriangle, FiSend,
   FiFilter, FiMonitor, FiSmartphone, FiTablet, FiBookOpen,
-  FiRotateCcw, FiArrowDown
+  FiRotateCcw, FiArrowDown, FiEye, FiBarChart2
 } from 'react-icons/fi';
 
 // ===== AI Device Detection Hook =====
@@ -98,7 +98,7 @@ const useResponsiveGrid = (deviceInfo) => {
   return 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3';
 };
 
-// ===== CLASS ORDER DEFINITION (Lowest to Highest) =====
+// ===== CLASS ORDER DEFINITION =====
 const CLASS_ORDER = [
   'Play Group',
   'Pre-Primary 1',
@@ -153,6 +153,12 @@ const Pupils = () => {
   const [showDemoteModal, setShowDemoteModal] = useState(false);
   const [demoteData, setDemoteData] = useState(null);
   
+  // View Results state
+  const [showResultsModal, setShowResultsModal] = useState(false);
+  const [viewingPupilResults, setViewingPupilResults] = useState(null);
+  const [pupilResults, setPupilResults] = useState([]);
+  const [loadingResults, setLoadingResults] = useState(false);
+  
   const [retainedData, setRetainedData] = useState({
     studentName: '',
     admNo: '',
@@ -169,10 +175,9 @@ const Pupils = () => {
     previousSchool: ''
   });
 
-  // ===== SORTING FUNCTIONS =====
   const getClassOrder = (className) => {
     const index = CLASS_ORDER.indexOf(className);
-    return index !== -1 ? index : 999; // Unknown classes go to the end
+    return index !== -1 ? index : 999;
   };
 
   const sortClassesByOrder = (classes) => {
@@ -313,12 +318,10 @@ const Pupils = () => {
           .filter(c => c.isActive !== false)
           .map(c => c.name);
         
-        // Sort classes by order
         const sortedClasses = sortClassesByOrder(activeClasses);
         setAvailableClasses(sortedClasses);
         setClassOrder(sortedClasses);
         
-        // Determine the highest class from the school settings
         if (sortedClasses.length > 0) {
           setHighestClass(sortedClasses[sortedClasses.length - 1]);
         }
@@ -347,7 +350,82 @@ const Pupils = () => {
     }
   };
 
-  // Get the next class (for promotion)
+  // ===== FETCH PUPIL RESULTS =====
+  const fetchPupilResults = async (pupilId) => {
+    setLoadingResults(true);
+    try {
+      const response = await api.get(`/results/pupil/${pupilId}`);
+      if (response.data.success) {
+        setPupilResults(response.data.data || []);
+      } else {
+        setPupilResults([]);
+      }
+    } catch (error) {
+      console.error('Error fetching pupil results:', error);
+      setPupilResults([]);
+      toast.error('Failed to load pupil results');
+    } finally {
+      setLoadingResults(false);
+    }
+  };
+
+  const handleViewResults = (pupil) => {
+    setViewingPupilResults(pupil);
+    setShowResultsModal(true);
+    fetchPupilResults(pupil._id);
+  };
+
+  // ===== FIXED: Handle Edit Student with proper data sanitization =====
+  const handleEditStudent = (pupil) => {
+    setEditingPupil(pupil);
+    setIsEditModalOpen(true);
+  };
+
+  // ===== FIXED: Update Student - Sanitize data before sending =====
+  const handleUpdatePupil = async (updatedData) => {
+    try {
+      // Remove any fields that might cause issues
+      const sanitizedData = { ...updatedData };
+      
+      // Remove fields that shouldn't be updated directly
+      delete sanitizedData._id;
+      delete sanitizedData.__v;
+      delete sanitizedData.createdAt;
+      delete sanitizedData.updatedAt;
+      delete sanitizedData.schoolId;
+      
+      // Ensure required fields are present
+      if (!sanitizedData.name || sanitizedData.name.trim() === '') {
+        toast.error('Student name is required');
+        return;
+      }
+      
+      if (!sanitizedData.admNo || sanitizedData.admNo.trim() === '') {
+        toast.error('Admission number is required');
+        return;
+      }
+      
+      console.log('📤 Updating pupil with data:', sanitizedData);
+      
+      const response = await api.put(`/pupils/${editingPupil._id}`, sanitizedData);
+      if (response.data.success) {
+        toast.success('Student updated successfully');
+        loadData();
+        setIsEditModalOpen(false);
+        setEditingPupil(null);
+      } else {
+        toast.error(response.data.message || 'Failed to update student');
+      }
+    } catch (error) {
+      console.error('Error updating student:', error);
+      if (error.response?.data?.message) {
+        toast.error(error.response.data.message);
+      } else {
+        toast.error('Failed to update student. Please check the data and try again.');
+      }
+    }
+  };
+
   const getNextClass = (currentClass) => {
     const classOrderList = classOrder;
     const currentIndex = classOrderList.indexOf(currentClass);
@@ -357,13 +435,12 @@ const Pupils = () => {
     return classOrderList[currentIndex + 1];
   };
 
-  // Get the previous class (for demotion)
   const getPreviousClass = (currentClass) => {
     const classOrderList = classOrder;
     const currentIndex = classOrderList.indexOf(currentClass);
     
     if (currentIndex === -1) return null;
-    if (currentIndex === 0) return null; // Cannot demote from the lowest class
+    if (currentIndex === 0) return null;
     return classOrderList[currentIndex - 1];
   };
 
@@ -425,7 +502,6 @@ const Pupils = () => {
   };
 
   const handleGraduateClass = (className) => {
-    // Only allow graduation if this is the highest class
     if (className !== highestClass) {
       toast.error(`Graduation is only available for the highest class: ${highestClass}`);
       return;
@@ -528,26 +604,6 @@ const Pupils = () => {
   const handleViewStudent = (pupil) => {
     setViewingStudent(pupil);
     setShowStudentDetail(true);
-  };
-
-  const handleEditStudent = (pupil) => {
-    setEditingPupil(pupil);
-    setIsEditModalOpen(true);
-  };
-
-  const handleUpdatePupil = async (updatedData) => {
-    try {
-      const response = await api.put(`/pupils/${editingPupil._id}`, updatedData);
-      if (response.data.success) {
-        toast.success('Student updated successfully');
-        loadData();
-        setIsEditModalOpen(false);
-        setEditingPupil(null);
-      }
-    } catch (error) {
-      console.error('Error updating student:', error);
-      toast.error(error.response?.data?.message || 'Failed to update student');
-    }
   };
 
   const handleDeleteStudent = async (id) => {
@@ -805,6 +861,86 @@ const Pupils = () => {
     setDownloadStream('');
   };
 
+  // ===== VIEW RESULTS MODAL =====
+  const ResultsModal = () => {
+    if (!viewingPupilResults) return null;
+    
+    const getCompetencyLevel = (marks) => {
+      if (marks >= 80) return { level: 'Exceeding Expectation', color: 'bg-purple-100 text-purple-800' };
+      if (marks >= 60) return { level: 'Meeting Expectation', color: 'bg-green-100 text-green-800' };
+      if (marks >= 40) return { level: 'Approaching Expectation', color: 'bg-blue-100 text-blue-800' };
+      if (marks >= 20) return { level: 'Below Expectation', color: 'bg-yellow-100 text-yellow-800' };
+      return { level: 'Well Below Expectation', color: 'bg-red-100 text-red-800' };
+    };
+    
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto p-4">
+        <div className="bg-white rounded-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+          <div className="sticky top-0 bg-white border-b border-gray-200 p-4 flex justify-between items-center">
+            <div>
+              <h2 className="text-xl font-bold text-gray-800">{viewingPupilResults.name}</h2>
+              <p className="text-sm text-gray-500">
+                Adm: {viewingPupilResults.admNo} • Class: {viewingPupilResults.class}
+                {viewingPupilResults.stream && ` • Stream: ${viewingPupilResults.stream}`}
+              </p>
+            </div>
+            <button onClick={() => { setShowResultsModal(false); setViewingPupilResults(null); setPupilResults([]); }} className="text-gray-500 hover:text-gray-700">
+              <FiX className="w-6 h-6" />
+            </button>
+          </div>
+          
+          <div className="p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <FiBarChart2 className="text-blue-600 w-5 h-5" />
+              <h3 className="font-semibold text-gray-800">All Exam Results</h3>
+              <span className="text-sm text-gray-500 ml-2">({pupilResults.length} exams)</span>
+            </div>
+            
+            {loadingResults ? (
+              <div className="flex justify-center py-12">
+                <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-green-600"></div>
+              </div>
+            ) : pupilResults.length === 0 ? (
+              <div className="text-center py-12 bg-gray-50 rounded-lg">
+                <FiBookOpen className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                <p className="text-gray-500">No results recorded for this student yet</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {pupilResults.map((result, index) => {
+                  const competency = getCompetencyLevel(result.marks);
+                  return (
+                    <div key={result._id || index} className="bg-gray-50 rounded-lg p-4 border border-gray-200 hover:shadow-md transition-shadow">
+                      <div className="flex flex-wrap justify-between items-start gap-2">
+                        <div>
+                          <p className="font-medium text-gray-800">{result.subject || 'Subject'}</p>
+                          <p className="text-xs text-gray-500">
+                            {result.examName || 'Exam'} • {result.term || 'Term'} {result.year || ''}
+                          </p>
+                          {result.examType && (
+                            <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full mt-1 inline-block">
+                              {result.examType}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          <p className="text-2xl font-bold text-blue-600">{result.marks || 0}%</p>
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${competency.color}`}>
+                            {competency.level}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const DownloadModal = () => (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white rounded-xl p-6 w-full max-w-md">
@@ -947,6 +1083,12 @@ const Pupils = () => {
               </button>
               <button onClick={() => { setShowStudentDetail(false); handleTransferClick(viewingStudent); }} className="bg-yellow-600 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-yellow-700">
                 TRANSFER
+              </button>
+              <button 
+                onClick={() => { setShowStudentDetail(false); handleViewResults(viewingStudent); }} 
+                className="bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-indigo-700 flex items-center gap-1"
+              >
+                <FiBarChart2 className="w-3 h-3" /> VIEW RESULTS
               </button>
               {previousClass && (
                 <button 
@@ -1234,7 +1376,6 @@ const Pupils = () => {
             </div>
           </div>
           
-          {/* Only show classes that have students - sorted by order */}
           {sortedClassesWithStudents.length > 0 && (
             <select
               value={selectedClass}
@@ -1385,6 +1526,12 @@ const Pupils = () => {
                                 </span>
                               </div>
                             )}
+                            <button 
+                              onClick={(e) => { e.stopPropagation(); handleViewResults(pupil); }}
+                              className="mt-1 text-xs bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded flex items-center gap-0.5 hover:bg-indigo-200 transition-colors"
+                            >
+                              <FiEye className="w-2.5 h-2.5" /> Results
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -1428,6 +1575,7 @@ const Pupils = () => {
       {showStudentDetail && <StudentDetailModal />}
       {showDownloadModal && <DownloadModal />}
       {showDemoteModal && <DemoteModal />}
+      {showResultsModal && <ResultsModal />}
     </Layout>
   );
 };
