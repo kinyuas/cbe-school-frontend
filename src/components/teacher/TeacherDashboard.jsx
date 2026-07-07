@@ -139,9 +139,10 @@ const TeacherDashboard = () => {
   // Store all dashboard numbers
   const [stats, setStats] = useState({
     totalLearners: 0,
-    competenciesRecorded: 0,
-    classesTaught: 0,
-   UpcomingExams: 0,
+    uploadedResults: 0,  // NEW: Total results uploaded by teacher
+    competenciesRecorded: 0,  // Results for active exam only
+    classesTaught: 0,  // Unique classes where results are uploaded
+    UpcomingExams: 0,
     attendance: 0,
     events: 0
   });
@@ -274,7 +275,27 @@ const TeacherDashboard = () => {
       setActiveExam(currentExam || null);
       console.log(`📝 Active exam: ${currentExam?.title || 'None'}`);
       
-      // ---- CALCULATE COMPETENCIES RECORDED (only for active exam) ----
+      // ============================================================
+      // FIXED: CALCULATE UPLOADED RESULTS (Total number of result entries uploaded by teacher)
+      // ============================================================
+      const uploadedResultsCount = teacherResultsData.length;
+      
+      // ============================================================
+      // FIXED: CALCULATE CLASSES TAUGHT (Unique classes where teacher has uploaded results)
+      // ============================================================
+      const uniqueClasses = new Set();
+      teacherResultsData.forEach(r => {
+        if (r.class) {
+          uniqueClasses.add(r.class);
+        }
+      });
+      const classesTaughtCount = uniqueClasses.size;
+      console.log(`📚 Classes taught (unique classes): ${classesTaughtCount}`);
+      console.log(`📊 Classes: ${[...uniqueClasses].join(', ')}`);
+      
+      // ============================================================
+      // CALCULATE COMPETENCIES RECORDED (Only for active exam)
+      // ============================================================
       let competenciesCount = 0;
       if (currentExam && teacherResultsData.length > 0) {
         // Filter results for current active exam
@@ -288,14 +309,6 @@ const TeacherDashboard = () => {
         competenciesCount = examResults.length;
         console.log(`📊 Competencies recorded for active exam: ${competenciesCount}`);
       }
-      
-      // ---- CALCULATE CLASSES TAUGHT ----
-      let classesTaughtCount = 0;
-      if (teacherResultsData.length > 0) {
-        const uniqueClasses = [...new Set(teacherResultsData.map(r => r.class).filter(Boolean))];
-        classesTaughtCount = uniqueClasses.length;
-      }
-      console.log(`📚 Classes taught: ${classesTaughtCount}`);
       
       // ---- CLASS PERFORMANCE - TEACHER'S UPLOADED RESULTS ONLY ----
       // Only show students who have results uploaded by this teacher
@@ -340,7 +353,8 @@ const TeacherDashboard = () => {
         students: data.count,
         passing: data.scores.filter(s => s >= 60).length,
         failing: data.scores.filter(s => s < 60).length,
-        totalStudents: data.scores.length
+        totalStudents: data.scores.length,
+        uploadedResults: teacherResultsData.filter(r => r.class === className).length // Results per class
       }));
       console.log(`📊 Class performance data: ${performanceData.length} classes`);
       
@@ -371,14 +385,13 @@ const TeacherDashboard = () => {
         return dateA - dateB;
       });
       
-      // Update stats
-      const UpcomingExams = activeAndUpcomingExams.length;
-      
+      // Update stats with correct counts
       setStats({
         totalLearners: learners.length,
-        competenciesRecorded: competenciesCount,
-        classesTaught: classesTaughtCount,
-        UpcomingExams: UpcomingExams,
+        uploadedResults: uploadedResultsCount,  // Total results uploaded by teacher
+        competenciesRecorded: competenciesCount,  // Only for active exam
+        classesTaught: classesTaughtCount,  // Unique classes
+        UpcomingExams: activeAndUpcomingExams.length,
         attendance: 92,
         events: activeAndUpcomingEvents.length
       });
@@ -400,6 +413,7 @@ const TeacherDashboard = () => {
       checkExamAlerts(sortedExams);
       
       console.log('✅ Dashboard data loaded successfully');
+      console.log(`📊 Stats: Uploaded=${uploadedResultsCount}, Classes=${classesTaughtCount}, Competencies=${competenciesCount}`);
       
     } catch (error) {
       console.error('❌ Error loading dashboard data:', error);
@@ -569,11 +583,34 @@ const TeacherDashboard = () => {
     };
   };
 
+  // Updated stat cards with correct titles and subtitles
   const statCards = [
-    { title: 'Uploaded Results', value: stats.competenciesRecorded, icon: FiBookOpen, color: 'from-green-500 to-green-600' },
-    { title: 'Classes Taught', value: stats.classesTaught, icon: FiTarget, color: 'from-purple-500 to-purple-600' },
-    { title: 'Upcoming Exams', value: stats.UpcomingExams, icon: FiCalendar, color: 'from-orange-500 to-orange-600' },
-    { title: 'School Events', value: stats.events, icon: FiTrendingUp, color: 'from-blue-500 to-blue-600' },
+    { 
+      title: 'Uploaded Results', 
+      value: stats.uploadedResults, 
+      icon: FiBookOpen, 
+      color: 'from-green-500 to-green-600',
+      subtitle: `${stats.competenciesRecorded} for active exam`
+    },
+    { 
+      title: 'Classes Taught', 
+      value: stats.classesTaught, 
+      icon: FiTarget, 
+      color: 'from-purple-500 to-purple-600',
+      subtitle: 'Classes with uploaded results'
+    },
+    { 
+      title: 'Upcoming Exams', 
+      value: stats.UpcomingExams, 
+      icon: FiCalendar, 
+      color: 'from-orange-500 to-orange-600' 
+    },
+    { 
+      title: 'School Events', 
+      value: stats.events, 
+      icon: FiTrendingUp, 
+      color: 'from-blue-500 to-blue-600' 
+    },
   ];
 
   if (loading) {
@@ -788,16 +825,16 @@ const TeacherDashboard = () => {
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 flex items-start gap-2">
         <FiInfo className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
         <div className="text-xs text-blue-700">
-          <span className="font-semibold">Uploaded Results:</span> 
+          <span className="font-semibold">📊 Results Summary:</span> 
           {activeExam ? (
-            <> Recorded for <strong>{activeExam.title}</strong>. {stats.competenciesRecorded} competencies recorded so far.</>
+            <> You've uploaded <strong>{stats.uploadedResults}</strong> total results across <strong>{stats.classesTaught}</strong> class(es). <strong>{stats.competenciesRecorded}</strong> results for the active exam (<strong>{activeExam.title}</strong>).</>
           ) : (
-            <> No active exam. Results will appear when an exam is scheduled and active.</>
+            <> You've uploaded <strong>{stats.uploadedResults}</strong> total results across <strong>{stats.classesTaught}</strong> class(es). No active exam currently.</>
           )}
         </div>
       </div>
 
-      {/* Quick Stats Cards */}
+      {/* Quick Stats Cards with subtitles */}
       <div className={`grid ${responsive.statsGrid} ${responsive.gridGap} mb-6`}>
         {statCards.map((stat, index) => (
           <div key={index} className={`bg-white rounded-xl shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-5'} hover:shadow-lg transition-shadow`}>
@@ -805,6 +842,9 @@ const TeacherDashboard = () => {
               <div>
                 <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-sm'} text-gray-500`}>{stat.title}</p>
                 <p className={`${deviceInfo.isMobile ? 'text-xl' : 'text-3xl'} font-bold text-gray-800 mt-0.5`}>{stat.value}</p>
+                {stat.subtitle && (
+                  <p className={`${deviceInfo.isMobile ? 'text-[8px]' : 'text-[10px]'} text-gray-400 mt-0.5`}>{stat.subtitle}</p>
+                )}
               </div>
               <div className={`bg-gradient-to-r ${stat.color} ${deviceInfo.isMobile ? 'p-2' : 'p-3'} rounded-full shadow-lg`}>
                 <stat.icon className={`${deviceInfo.isMobile ? 'w-4 h-4' : 'w-6 h-6'} text-white`} />
@@ -846,6 +886,7 @@ const TeacherDashboard = () => {
                       <span className="text-green-600 text-xs">✓ {cls.passing}</span>
                       <span className="text-red-600 text-xs">✗ {cls.failing}</span>
                       <span className="font-bold text-xs">Avg: {cls.average}%</span>
+                      <span className="text-gray-400 text-xs">({cls.uploadedResults} results)</span>
                     </div>
                   </div>
                   <div className="w-full bg-gray-200 rounded-full h-2">
@@ -864,7 +905,7 @@ const TeacherDashboard = () => {
                 </div>
               ))}
               <div className="mt-3 text-xs text-gray-400 border-t pt-2">
-                <p>Showing results uploaded by you for {teacherClass || 'your class'}</p>
+                <p>Showing {teacherResults.length} results uploaded by you for {teacherClass || 'your class'}</p>
               </div>
             </div>
           ) : (
@@ -1019,21 +1060,29 @@ const TeacherDashboard = () => {
               <span className="font-semibold text-gray-800">{stats.totalLearners}</span>
             </div>
             <div className="flex justify-between items-center p-2 bg-blue-50 rounded-lg border border-blue-100">
-              <span className="text-sm text-blue-700">Competencies Recorded</span>
-              <span className="font-bold text-blue-700 text-lg">{stats.competenciesRecorded}</span>
+              <span className="text-sm text-blue-700">Uploaded Results</span>
+              <span className="font-bold text-blue-700 text-lg">{stats.uploadedResults}</span>
+            </div>
+            <div className="flex justify-between items-center p-2 bg-purple-50 rounded-lg border border-purple-100">
+              <span className="text-sm text-purple-700">Classes Taught</span>
+              <span className="font-bold text-purple-700 text-lg">{stats.classesTaught}</span>
             </div>
             <div className="flex justify-between items-center p-2 bg-green-50 rounded-lg border border-green-100">
-              <span className="text-sm text-green-700">Results Uploaded</span>
-              <span className="font-bold text-green-700 text-lg">{teacherResults.length}</span>
+              <span className="text-sm text-green-700">Active Exam Results</span>
+              <span className="font-bold text-green-700 text-lg">{stats.competenciesRecorded}</span>
             </div>
-            {activeExam && (
+            {activeExam && stats.competenciesRecorded === 0 && (
               <div className="bg-yellow-50 p-2 rounded-lg border border-yellow-200 text-center">
                 <p className="text-xs text-yellow-700">
                   <FiClock className="inline mr-1 w-3 h-3" />
-                  {stats.competenciesRecorded === 0 
-                    ? 'No competencies recorded yet for this exam. Click "Upload Results" to get started.' 
-                    : `${stats.competenciesRecorded} competencies recorded for ${activeExam.title}. Keep going!`
-                  }
+                  No results recorded yet for {activeExam.title}. Click "Upload Results" to get started.
+                </p>
+              </div>
+            )}
+            {activeExam && stats.competenciesRecorded > 0 && (
+              <div className="bg-green-50 p-2 rounded-lg border border-green-200 text-center">
+                <p className="text-xs text-green-700">
+                  ✅ {stats.competenciesRecorded} results recorded for {activeExam.title}. Keep going!
                 </p>
               </div>
             )}
