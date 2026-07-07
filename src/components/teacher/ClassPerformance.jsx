@@ -238,7 +238,7 @@ const ClassPerformance = () => {
       const allResults = resultsRes.data?.data || [];
       setResults(allResults);
       
-      // Filter results for this teacher
+      // Filter results for this teacher using recordedBy field
       let teacherResultsData = [];
       if (teacherId) {
         teacherResultsData = allResults.filter(r => r.recordedBy === teacherId);
@@ -258,10 +258,7 @@ const ClassPerformance = () => {
       setTeacherResults(teacherResultsData);
       setTotalResults(teacherResultsData.length);
       
-      // Calculate subject performance
-      calculateSubjectPerformance(teacherResultsData);
-      
-      // Extract unique classes and subjects
+      // Extract unique classes and subjects from teacher's results
       const classes = new Set();
       const subjects = new Set();
       teacherResultsData.forEach(r => {
@@ -275,6 +272,9 @@ const ClassPerformance = () => {
       });
       setTeacherClasses([...classes]);
       setTeacherSubjects([...subjects]);
+      
+      // Calculate subject performance
+      calculateSubjectPerformance(teacherResultsData);
       
       const examsRes = await api.get('/exams');
       if (examsRes.data.success) {
@@ -564,7 +564,7 @@ const ClassPerformance = () => {
   const [topStudent, setTopStudent] = useState(null);
   const [availableStreams, setAvailableStreams] = useState([]);
 
-  // Download Excel
+  // Download Excel - Vercel compatible
   const downloadResultsExcel = () => {
     if (performanceData.length === 0) {
       toast.error('No data to download');
@@ -635,301 +635,6 @@ const ClassPerformance = () => {
     XLSX.writeFile(wb, `${schoolInfo.name}_${selectedClass}_${selectedStream}_${selectedSubject}_${selectedExamName}_${selectedYear}.xlsx`);
     
     toast.success('Excel report downloaded successfully');
-  };
-
-  // Download Word Document - Vercel compatible (dynamic import)
-  const downloadWordDoc = async () => {
-    if (performanceData.length === 0) {
-      toast.error('No data to download');
-      return;
-    }
-
-    if (userRole === 'teacher') {
-      if (!selectedSubject) {
-        toast.error('Please select a specific subject to download');
-        return;
-      }
-      if (!selectedStream || selectedStream === 'all') {
-        toast.error('Please select a specific stream to download');
-        return;
-      }
-    }
-
-    try {
-      // Dynamic import for docx - Vercel compatible
-      const docx = await import('docx');
-      const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, HeadingLevel, BorderStyle } = docx;
-      
-      const docChildren = [];
-
-      // Title
-      docChildren.push(new Paragraph({
-        text: schoolInfo.name || 'School Name',
-        heading: HeadingLevel.TITLE,
-        alignment: AlignmentType.CENTER,
-      }));
-
-      docChildren.push(new Paragraph({
-        text: `Subject Performance Report - ${selectedSubject}`,
-        heading: HeadingLevel.HEADING_1,
-        alignment: AlignmentType.CENTER,
-        spacing: { after: 200 },
-      }));
-
-      // Report Info
-      docChildren.push(new Paragraph({
-        children: [
-          new TextRun({ text: `Class: `, bold: true }),
-          new TextRun(`${selectedClass}${selectedStream && selectedStream !== 'all' ? ` - ${selectedStream}` : ''}`),
-        ],
-      }));
-
-      docChildren.push(new Paragraph({
-        children: [
-          new TextRun({ text: `Year: `, bold: true }),
-          new TextRun(`${selectedYear}`),
-          new TextRun({ text: ` | Term: `, bold: true }),
-          new TextRun(`${selectedTerm || 'All Terms'}`),
-        ],
-      }));
-
-      docChildren.push(new Paragraph({
-        children: [
-          new TextRun({ text: `Exam: `, bold: true }),
-          new TextRun(`${selectedExamName} (${selectedExamType})`),
-        ],
-      }));
-
-      docChildren.push(new Paragraph({
-        children: [
-          new TextRun({ text: `Subject: `, bold: true }),
-          new TextRun(`${selectedSubject}`),
-        ],
-      }));
-
-      docChildren.push(new Paragraph({
-        children: [
-          new TextRun({ text: `Stream: `, bold: true }),
-          new TextRun(`${selectedStream}`),
-        ],
-      }));
-
-      docChildren.push(new Paragraph({
-        children: [
-          new TextRun({ text: `Generated: `, bold: true }),
-          new TextRun(`${new Date().toLocaleString()}`),
-        ],
-        spacing: { after: 200 },
-      }));
-
-      // Summary Statistics
-      docChildren.push(new Paragraph({
-        text: 'Summary Statistics',
-        heading: HeadingLevel.HEADING_2,
-        spacing: { after: 100 },
-      }));
-
-      const statsTableRows = [
-        new TableRow({
-          children: [
-            new TableCell({ children: [new Paragraph({ text: 'Total Students', bold: true })], width: { size: 50, type: WidthType.PERCENTAGE } }),
-            new TableCell({ children: [new Paragraph({ text: performanceData.length.toString() })] }),
-          ],
-        }),
-        new TableRow({
-          children: [
-            new TableCell({ children: [new Paragraph({ text: 'Class Average', bold: true })] }),
-            new TableCell({ children: [new Paragraph({ text: `${classAverage.toFixed(1)}%` })] }),
-          ],
-        }),
-        new TableRow({
-          children: [
-            new TableCell({ children: [new Paragraph({ text: 'Highest Score', bold: true })] }),
-            new TableCell({ children: [new Paragraph({ text: `${Math.max(...performanceData.map(s => s.marks))}%` })] }),
-          ],
-        }),
-        new TableRow({
-          children: [
-            new TableCell({ children: [new Paragraph({ text: 'Lowest Score', bold: true })] }),
-            new TableCell({ children: [new Paragraph({ text: `${Math.min(...performanceData.map(s => s.marks))}%` })] }),
-          ],
-        }),
-        new TableRow({
-          children: [
-            new TableCell({ children: [new Paragraph({ text: 'Top Student', bold: true })] }),
-            new TableCell({ children: [new Paragraph({ text: `${topStudent?.name || 'N/A'} (${topStudent?.score?.toFixed(1)}%)` })] }),
-          ],
-        }),
-      ];
-
-      docChildren.push(new Table({
-        rows: statsTableRows,
-        width: { size: 100, type: WidthType.PERCENTAGE },
-        borders: { top: { style: BorderStyle.SINGLE }, bottom: { style: BorderStyle.SINGLE }, left: { style: BorderStyle.SINGLE }, right: { style: BorderStyle.SINGLE } },
-      }));
-
-      docChildren.push(new Paragraph({ text: '', spacing: { after: 200 } }));
-
-      // Competency Distribution
-      docChildren.push(new Paragraph({
-        text: 'Competency Distribution',
-        heading: HeadingLevel.HEADING_2,
-        spacing: { after: 100 },
-      }));
-
-      const competencyRows = competencyLevels.map(level => {
-        const count = performanceData.filter(s => {
-          const competency = getCompetencyFromMarks(s.marks);
-          return competency?.level === level.level;
-        }).length;
-        const percentage = performanceData.length > 0 ? (count / performanceData.length * 100).toFixed(1) : 0;
-        
-        return new TableRow({
-          children: [
-            new TableCell({ children: [new Paragraph({ text: level.level })] }),
-            new TableCell({ children: [new Paragraph({ text: `${count} students` })] }),
-            new TableCell({ children: [new Paragraph({ text: `${percentage}%` })] }),
-          ],
-        });
-      });
-
-      docChildren.push(new Table({
-        rows: [
-          new TableRow({
-            children: [
-              new TableCell({ children: [new Paragraph({ text: 'Level', bold: true })] }),
-              new TableCell({ children: [new Paragraph({ text: 'Count', bold: true })] }),
-              new TableCell({ children: [new Paragraph({ text: 'Percentage', bold: true })] }),
-            ],
-          }),
-          ...competencyRows,
-        ],
-        width: { size: 100, type: WidthType.PERCENTAGE },
-      }));
-
-      docChildren.push(new Paragraph({ text: '', spacing: { after: 200 } }));
-
-      // Historical Performance Comparison
-      if (historicalData.length > 0) {
-        docChildren.push(new Paragraph({
-          text: 'Historical Performance Comparison',
-          heading: HeadingLevel.HEADING_2,
-          spacing: { after: 100 },
-        }));
-
-        const historicalRows = historicalData.map(data => {
-          return new TableRow({
-            children: [
-              new TableCell({ children: [new Paragraph({ text: data.year.toString() })] }),
-              new TableCell({ children: [new Paragraph({ text: data.examName })] }),
-              new TableCell({ children: [new Paragraph({ text: `${data.average.toFixed(1)}%` })] }),
-              new TableCell({ children: [new Paragraph({ text: data.studentCount.toString() })] }),
-            ],
-          });
-        });
-
-        docChildren.push(new Table({
-          rows: [
-            new TableRow({
-              children: [
-                new TableCell({ children: [new Paragraph({ text: 'Year', bold: true })] }),
-                new TableCell({ children: [new Paragraph({ text: 'Exam Name', bold: true })] }),
-                new TableCell({ children: [new Paragraph({ text: 'Average Score', bold: true })] }),
-                new TableCell({ children: [new Paragraph({ text: 'Students', bold: true })] }),
-              ],
-            }),
-            ...historicalRows,
-          ],
-          width: { size: 100, type: WidthType.PERCENTAGE },
-        }));
-
-        if (performanceTrend) {
-          docChildren.push(new Paragraph({ text: '', spacing: { after: 100 } }));
-          docChildren.push(new Paragraph({
-            children: [
-              new TextRun({ text: `Trend: `, bold: true }),
-              new TextRun(`${performanceTrend.direction === 'up' ? 'Improving 📈' : performanceTrend.direction === 'down' ? 'Declining 📉' : 'Stable ➡️'}`),
-            ],
-          }));
-          docChildren.push(new Paragraph({
-            children: [
-              new TextRun({ text: `Change: `, bold: true }),
-              new TextRun(`${performanceTrend.direction === 'up' ? '+' : ''}${performanceTrend.percentage}% (${performanceTrend.difference > 0 ? '+' : ''}${performanceTrend.difference} points)`),
-            ],
-          }));
-        }
-
-        docChildren.push(new Paragraph({ text: '', spacing: { after: 200 } }));
-      }
-
-      // Student Performance Table
-      docChildren.push(new Paragraph({
-        text: 'Student Performance Details',
-        heading: HeadingLevel.HEADING_2,
-        spacing: { after: 100 },
-      }));
-
-      const studentRows = performanceData.map(student => {
-        const competency = getCompetencyFromMarks(student.marks);
-        return new TableRow({
-          children: [
-            new TableCell({ children: [new Paragraph({ text: student.name })] }),
-            new TableCell({ children: [new Paragraph({ text: student.admNo || '-' })] }),
-            new TableCell({ children: [new Paragraph({ text: student.stream || '-' })] }),
-            new TableCell({ children: [new Paragraph({ text: `${student.marks.toFixed(1)}%`, alignment: AlignmentType.CENTER })] }),
-            new TableCell({ children: [new Paragraph({ text: student.grade, alignment: AlignmentType.CENTER })] }),
-            new TableCell({ children: [new Paragraph({ text: competency?.level || 'Not Assessed' })] }),
-            new TableCell({ children: [new Paragraph({ text: student.remarks })] }),
-          ],
-        });
-      });
-
-      docChildren.push(new Table({
-        rows: [
-          new TableRow({
-            children: [
-              new TableCell({ children: [new Paragraph({ text: 'Student Name', bold: true })] }),
-              new TableCell({ children: [new Paragraph({ text: 'Admission No', bold: true })] }),
-              new TableCell({ children: [new Paragraph({ text: 'Stream', bold: true })] }),
-              new TableCell({ children: [new Paragraph({ text: 'Marks (%)', bold: true, alignment: AlignmentType.CENTER })] }),
-              new TableCell({ children: [new Paragraph({ text: 'Grade', bold: true, alignment: AlignmentType.CENTER })] }),
-              new TableCell({ children: [new Paragraph({ text: 'Competency Level', bold: true })] }),
-              new TableCell({ children: [new Paragraph({ text: 'Remarks', bold: true })] }),
-            ],
-          }),
-          ...studentRows,
-        ],
-        width: { size: 100, type: WidthType.PERCENTAGE },
-      }));
-
-      // Footer
-      docChildren.push(new Paragraph({ text: '', spacing: { after: 200 } }));
-      docChildren.push(new Paragraph({
-        text: `Report generated on ${new Date().toLocaleString()}`,
-        alignment: AlignmentType.CENTER,
-        spacing: { after: 100 },
-      }));
-
-      const doc = new Document({
-        sections: [{
-          properties: {},
-          children: docChildren,
-        }],
-      });
-
-      const blob = await Packer.toBlob(doc);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${schoolInfo.name}_${selectedClass}_${selectedStream}_${selectedSubject}_${selectedExamName}_${selectedYear}.docx`;
-      a.click();
-      URL.revokeObjectURL(url);
-      
-      toast.success('Word document downloaded successfully');
-    } catch (error) {
-      console.error('Error generating Word document:', error);
-      toast.error('Failed to generate Word document. Please try again.');
-    }
   };
 
   const years = [2023, 2024, 2025, 2026];
@@ -1242,12 +947,6 @@ const ClassPerformance = () => {
                 >
                   <FiDownload className={deviceInfo.isMobile ? 'w-3 h-3' : 'w-4 h-4'} /> Excel
                 </button>
-                <button 
-                  onClick={downloadWordDoc} 
-                  className={`bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center justify-center gap-1 transition-colors disabled:opacity-50 ${deviceInfo.isMobile ? 'flex-1 px-2 py-1.5 text-xs' : 'px-4 py-2 text-sm'}`}
-                >
-                  <FiFileText className={deviceInfo.isMobile ? 'w-3 h-3' : 'w-4 h-4'} /> Word
-                </button>
               </div>
             </div>
             <div className="overflow-x-auto">
@@ -1308,12 +1007,6 @@ const ClassPerformance = () => {
               className={`bg-gradient-to-r from-green-600 to-green-700 text-white rounded-lg font-semibold flex items-center justify-center gap-2 shadow-md hover:from-green-700 hover:to-green-800 disabled:opacity-50 ${deviceInfo.isMobile ? 'w-full px-4 py-3 text-sm' : 'px-6 py-3'}`}
             >
               <FiDownload /> DOWNLOAD EXCEL
-            </button>
-            <button 
-              onClick={downloadWordDoc} 
-              className={`bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg font-semibold flex items-center justify-center gap-2 shadow-md hover:from-blue-700 hover:to-blue-800 disabled:opacity-50 ${deviceInfo.isMobile ? 'w-full px-4 py-3 text-sm' : 'px-6 py-3'}`}
-            >
-              <FiFileText /> DOWNLOAD WORD
             </button>
           </div>
         </>
