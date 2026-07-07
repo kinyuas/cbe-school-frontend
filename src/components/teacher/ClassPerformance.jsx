@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import Layout from '../common/Layout';
 import { 
   FiFilter, FiDownload, FiBarChart2, FiCalendar, FiBookOpen, 
@@ -91,6 +92,8 @@ const ClassPerformance = () => {
   const [teacherResults, setTeacherResults] = useState([]);
   const [subjectPerformance, setSubjectPerformance] = useState([]);
   const [totalResults, setTotalResults] = useState(0);
+  const [teacherClasses, setTeacherClasses] = useState([]);
+  const [teacherSubjects, setTeacherSubjects] = useState([]);
   
   // User role
   const [userRole, setUserRole] = useState(null);
@@ -257,6 +260,21 @@ const ClassPerformance = () => {
       
       // Calculate subject performance
       calculateSubjectPerformance(teacherResultsData);
+      
+      // Extract unique classes and subjects
+      const classes = new Set();
+      const subjects = new Set();
+      teacherResultsData.forEach(r => {
+        const pupilId = r.pupilId?._id || r.pupilId;
+        const pupil = students.find(p => p._id === pupilId);
+        if (pupil) {
+          if (pupil.class) classes.add(pupil.class);
+          if (pupil.grade) classes.add(pupil.grade);
+        }
+        if (r.subject) subjects.add(r.subject);
+      });
+      setTeacherClasses([...classes]);
+      setTeacherSubjects([...subjects]);
       
       const examsRes = await api.get('/exams');
       if (examsRes.data.success) {
@@ -619,7 +637,7 @@ const ClassPerformance = () => {
     toast.success('Excel report downloaded successfully');
   };
 
-  // Download Word Document
+  // Download Word Document - Vercel compatible (dynamic import)
   const downloadWordDoc = async () => {
     if (performanceData.length === 0) {
       toast.error('No data to download');
@@ -638,8 +656,9 @@ const ClassPerformance = () => {
     }
 
     try {
-      // Import docx dynamically
-      const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, HeadingLevel, BorderStyle } = await import('docx');
+      // Dynamic import for docx - Vercel compatible
+      const docx = await import('docx');
+      const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, HeadingLevel, BorderStyle } = docx;
       
       const docChildren = [];
 
