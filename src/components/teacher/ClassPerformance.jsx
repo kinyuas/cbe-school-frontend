@@ -4,13 +4,13 @@ import {
   FiFilter, FiDownload, FiBarChart2, FiCalendar, FiBookOpen, 
   FiFileText, FiUsers, FiAward, FiTrendingUp, FiTrendingDown, 
   FiMinus, FiAlertCircle, FiMonitor, FiSmartphone, FiTablet,
-  FiRefreshCw
+  FiRefreshCw, FiCheckCircle, FiXCircle
 } from 'react-icons/fi';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
 import toast from 'react-hot-toast';
 import api from '../../services/api';
 import * as XLSX from 'xlsx';
-// import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, HeadingLevel, BorderStyle } from "docx";
+import { useAuth } from '../../context/AuthContext';
 
 // ===== AI Device Detection Hook =====
 const useDeviceDetection = () => {
@@ -75,203 +75,22 @@ const useResponsiveClasses = (deviceInfo) => {
   };
 };
 
-// ===== CLASS ORDER DEFINITION (Lowest to Highest) =====
-const CLASS_ORDER = [
-  'Play Group',
-  'Pre-Primary 1',
-  'Pre-Primary 2',
-  'Grade 1',
-  'Grade 2',
-  'Grade 3',
-  'Grade 4',
-  'Grade 5',
-  'Grade 6',
-  'Grade 7',
-  'Grade 8',
-  'Grade 9',
-  'Grade 10',
-  'Grade 11',
-  'Grade 12'
-];
-
-// ===== COMPLETE CBE SUBJECT CONFIGURATION =====
-const CBE_SUBJECTS_BY_GRADE = {
-  'Play Group': [
-    'Language Activities',
-    'Mathematical Activities',
-    'Environmental Activities',
-    'Psychomotor and Creative Activities'
-  ],
-  'Pre-Primary 1': [
-    'Language Activities',
-    'Mathematical Activities',
-    'Environmental Activities',
-    'Psychomotor and Creative Activities'
-  ],
-  'Pre-Primary 2': [
-    'Language Activities',
-    'Mathematical Activities',
-    'Environmental Activities',
-    'Psychomotor and Creative Activities'
-  ],
-  'Grade 1': [
-    'English',
-    'Kiswahili',
-    'Mathematics',
-    'Environmental Activities',
-    'Hygiene and Nutrition',
-    'Religious Education',
-    'Creative Arts'
-  ],
-  'Grade 2': [
-    'English',
-    'Kiswahili',
-    'Mathematics',
-    'Environmental Activities',
-    'Hygiene and Nutrition',
-    'Religious Education',
-    'Creative Arts'
-  ],
-  'Grade 3': [
-    'English',
-    'Kiswahili',
-    'Mathematics',
-    'Environmental Activities',
-    'Hygiene and Nutrition',
-    'Religious Education',
-    'Creative Arts'
-  ],
-  'Grade 4': [
-    'English',
-    'Kiswahili',
-    'Mathematics',
-    'Science and Technology',
-    'Social Studies',
-    'Religious Education',
-    'Creative Arts',
-    'Physical and Health Education'
-  ],
-  'Grade 5': [
-    'English',
-    'Kiswahili',
-    'Mathematics',
-    'Science and Technology',
-    'Social Studies',
-    'Religious Education',
-    'Creative Arts',
-    'Physical and Health Education',
-    'Agriculture and Nutrition'
-  ],
-  'Grade 6': [
-    'English',
-    'Kiswahili',
-    'Mathematics',
-    'Science and Technology',
-    'Social Studies',
-    'Religious Education',
-    'Creative Arts',
-    'Physical and Health Education',
-    'Agriculture and Nutrition'
-  ],
-  'Grade 7': [
-    'English',
-    'Kiswahili',
-    'Mathematics',
-    'Integrated Science',
-    'Health Education',
-    'Pre-Technical Studies',
-    'Social Studies',
-    'Religious Education',
-    'Creative Arts and Sports',
-    'Business Studies',
-    'Agriculture',
-    'Computer Science'
-  ],
-  'Grade 8': [
-    'English',
-    'Kiswahili',
-    'Mathematics',
-    'Integrated Science',
-    'Health Education',
-    'Pre-Technical Studies',
-    'Social Studies',
-    'Religious Education',
-    'Creative Arts and Sports',
-    'Business Studies',
-    'Agriculture',
-    'Computer Science'
-  ],
-  'Grade 9': [
-    'English',
-    'Kiswahili',
-    'Mathematics',
-    'Integrated Science',
-    'Health Education',
-    'Pre-Technical Studies',
-    'Social Studies',
-    'Religious Education',
-    'Creative Arts and Sports',
-    'Business Studies',
-    'Agriculture',
-    'Computer Science'
-  ],
-  'Grade 10': [
-    'English',
-    'Kiswahili',
-    'Mathematics',
-    'Biology',
-    'Chemistry',
-    'Physics',
-    'History and Government',
-    'Geography',
-    'Religious Education',
-    'Business Studies',
-    'Agriculture',
-    'Computer Science'
-  ],
-  'Grade 11': [
-    'English',
-    'Kiswahili',
-    'Mathematics',
-    'Biology',
-    'Chemistry',
-    'Physics',
-    'History and Government',
-    'Geography',
-    'Religious Education',
-    'Business Studies',
-    'Agriculture',
-    'Computer Science'
-  ],
-  'Grade 12': [
-    'English',
-    'Kiswahili',
-    'Mathematics',
-    'Biology',
-    'Chemistry',
-    'Physics',
-    'History and Government',
-    'Geography',
-    'Religious Education',
-    'Business Studies',
-    'Agriculture',
-    'Computer Science'
-  ]
-};
-
 const ClassPerformance = () => {
   // AI Device Detection
   const deviceInfo = useDeviceDetection();
   const responsive = useResponsiveClasses(deviceInfo);
   
+  const { user } = useAuth();
+  const teacherId = user?._id || user?.id || user?.teacherId;
+  const teacherName = user?.name || user?.username || '';
+  
   const [students, setStudents] = useState([]);
   const [results, setResults] = useState([]);
   const [exams, setExams] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [performanceData, setPerformanceData] = useState([]);
-  const [classAverage, setClassAverage] = useState(0);
-  const [topStudent, setTopStudent] = useState(null);
-  const [subjectAverages, setSubjectAverages] = useState([]);
+  const [teacherResults, setTeacherResults] = useState([]);
+  const [subjectPerformance, setSubjectPerformance] = useState([]);
+  const [totalResults, setTotalResults] = useState(0);
   
   // User role
   const [userRole, setUserRole] = useState(null);
@@ -320,34 +139,26 @@ const ClassPerformance = () => {
     return competencyLevels.find(l => score >= l.minScore && score <= l.maxScore);
   };
 
-  // ===== SORTING FUNCTIONS =====
-  const getClassOrder = (className) => {
-    const index = CLASS_ORDER.indexOf(className);
-    return index !== -1 ? index : 999;
-  };
-
-  const sortClassesByOrder = (classes) => {
-    return [...classes].sort((a, b) => {
-      const orderA = getClassOrder(a);
-      const orderB = getClassOrder(b);
-      return orderA - orderB;
-    });
-  };
-
   useEffect(() => {
     loadData();
     getUserRole();
   }, []);
 
   const getUserRole = () => {
-    const user = JSON.parse(localStorage.getItem('user') || '{}');
-    setUserRole(user.role);
+    const userData = JSON.parse(localStorage.getItem('user') || '{}');
+    setUserRole(userData.role);
   };
 
   // Update available subjects when class changes
   useEffect(() => {
     if (selectedClass) {
-      const subjects = CBE_SUBJECTS_BY_GRADE[selectedClass] || [];
+      // Get subjects from results data instead of predefined list
+      const classResults = teacherResults.filter(r => {
+        const pupilId = r.pupilId?._id || r.pupilId;
+        const pupil = students.find(p => p._id === pupilId);
+        return pupil?.class === selectedClass || pupil?.grade === selectedClass;
+      });
+      const subjects = [...new Set(classResults.map(r => r.subject).filter(Boolean))];
       setAvailableSubjects(subjects);
       
       if (selectedSubject && !subjects.includes(selectedSubject)) {
@@ -357,17 +168,24 @@ const ClassPerformance = () => {
       // Update streams
       const classData = schoolInfo.classes?.find(c => c.name === selectedClass);
       const streams = classData?.streams || [];
-      setAvailableStreams(streams);
-      if (streams.length === 1) {
-        setSelectedStream(streams[0]);
+      // Get unique streams from results
+      const resultStreams = [...new Set(
+        classResults.map(r => {
+          const pupilId = r.pupilId?._id || r.pupilId;
+          const pupil = students.find(p => p._id === pupilId);
+          return pupil?.stream;
+        }).filter(Boolean)
+      )];
+      const allStreams = [...new Set([...streams, ...resultStreams])];
+      if (allStreams.length === 1) {
+        setSelectedStream(allStreams[0]);
       } else {
         setSelectedStream('');
       }
     } else {
       setAvailableSubjects([]);
-      setAvailableStreams([]);
     }
-  }, [selectedClass, schoolInfo]);
+  }, [selectedClass, schoolInfo, students, teacherResults]);
 
   useEffect(() => {
     if (selectedExamType && selectedTerm && selectedSubject) {
@@ -393,10 +211,8 @@ const ClassPerformance = () => {
         const activeClasses = (school.classes || [])
           .filter(c => c.isActive !== false)
           .map(c => c.name);
-        // Sort classes from lowest to highest
-        const sortedClasses = sortClassesByOrder(activeClasses);
-        setAvailableClasses(sortedClasses);
-        console.log('📋 Sorted classes:', sortedClasses);
+        setAvailableClasses(activeClasses);
+        console.log('📋 Classes:', activeClasses);
       } else {
         // Fallback to localStorage
         const storedSchool = localStorage.getItem('schoolInfo');
@@ -406,10 +222,8 @@ const ClassPerformance = () => {
           const activeClasses = (school.classes || [])
             .filter(c => c.isActive !== false)
             .map(c => c.name);
-          setAvailableClasses(sortClassesByOrder(activeClasses));
+          setAvailableClasses(activeClasses);
         } else {
-          const fallbackClasses = ['Play Group', 'Pre-Primary 1', 'Pre-Primary 2', 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6', 'Grade 7', 'Grade 8', 'Grade 9'];
-          setAvailableClasses(sortClassesByOrder(fallbackClasses));
           setSchoolInfo({ name: 'School Name', classes: [] });
         }
       }
@@ -418,7 +232,31 @@ const ClassPerformance = () => {
       setStudents(studentsRes.data?.data || []);
       
       const resultsRes = await api.get('/results');
-      setResults(resultsRes.data?.data || []);
+      const allResults = resultsRes.data?.data || [];
+      setResults(allResults);
+      
+      // Filter results for this teacher
+      let teacherResultsData = [];
+      if (teacherId) {
+        teacherResultsData = allResults.filter(r => r.recordedBy === teacherId);
+        console.log(`📚 Found ${teacherResultsData.length} results recorded by teacher: ${teacherName}`);
+      }
+      
+      // If no results by recordedBy, try by teacher name
+      if (teacherResultsData.length === 0 && teacherName) {
+        teacherResultsData = allResults.filter(r => 
+          r.submittedBy === teacherName || 
+          r.updatedBy === teacherName ||
+          r.createdBy === teacherName
+        );
+        console.log(`📚 Found ${teacherResultsData.length} results by teacher name`);
+      }
+      
+      setTeacherResults(teacherResultsData);
+      setTotalResults(teacherResultsData.length);
+      
+      // Calculate subject performance
+      calculateSubjectPerformance(teacherResultsData);
       
       const examsRes = await api.get('/exams');
       if (examsRes.data.success) {
@@ -434,26 +272,77 @@ const ClassPerformance = () => {
     } catch (error) {
       console.error('Error loading data:', error);
       toast.error('Failed to load data from database');
-      
-      // Fallback to localStorage if API fails
-      try {
-        const storedSchool = localStorage.getItem('schoolInfo');
-        if (storedSchool) {
-          const school = JSON.parse(storedSchool);
-          setSchoolInfo(school);
-          const activeClasses = (school.classes || [])
-            .filter(c => c.isActive !== false)
-            .map(c => c.name);
-          if (activeClasses.length > 0) {
-            setAvailableClasses(sortClassesByOrder(activeClasses));
-          }
-        }
-      } catch (e) {
-        console.error('Error loading from localStorage:', e);
-      }
     } finally {
       setLoading(false);
     }
+  };
+
+  const calculateSubjectPerformance = (resultsData) => {
+    const performanceBySubject = {};
+    
+    resultsData.forEach(result => {
+      const subject = result.subject || 'Unknown Subject';
+      const marks = result.marks || result.score || 0;
+      const examName = result.examName || 'Assessment';
+      const pupilId = result.pupilId?._id || result.pupilId;
+      
+      // Get pupil info
+      const pupil = students.find(p => p._id === pupilId);
+      const className = pupil?.class || pupil?.grade || 'Unknown Class';
+      const stream = pupil?.stream || 'Unknown Stream';
+      
+      if (!performanceBySubject[subject]) {
+        performanceBySubject[subject] = {
+          subject: subject,
+          class: className,
+          stream: stream,
+          examName: examName,
+          totalMarks: 0,
+          count: 0,
+          scores: [],
+          passing: 0,
+          failing: 0,
+          students: new Set()
+        };
+      }
+      
+      performanceBySubject[subject].totalMarks += marks;
+      performanceBySubject[subject].count++;
+      performanceBySubject[subject].scores.push(marks);
+      
+      if (marks >= 60) {
+        performanceBySubject[subject].passing++;
+      } else {
+        performanceBySubject[subject].failing++;
+      }
+      
+      if (pupilId) {
+        performanceBySubject[subject].students.add(pupilId);
+      }
+    });
+    
+    // Convert to array and calculate averages
+    const performanceData = Object.values(performanceBySubject).map(data => {
+      const average = data.count > 0 ? (data.totalMarks / data.count) : 0;
+      return {
+        subject: data.subject,
+        class: data.class,
+        stream: data.stream,
+        examName: data.examName,
+        average: average.toFixed(1),
+        students: data.students.size,
+        totalResults: data.count,
+        passing: data.passing,
+        failing: data.failing,
+        scores: data.scores
+      };
+    });
+    
+    // Sort by subject name
+    performanceData.sort((a, b) => a.subject.localeCompare(b.subject));
+    
+    setSubjectPerformance(performanceData);
+    console.log('📊 Subject Performance:', performanceData);
   };
 
   const loadHistoricalData = async () => {
@@ -496,35 +385,6 @@ const ClassPerformance = () => {
       }
       
       setHistoricalData(historicalPerformance);
-      
-      if (historicalPerformance.length >= 2) {
-        const currentAvg = classAverage;
-        const previousAvg = historicalPerformance[0]?.average || 0;
-        const difference = currentAvg - previousAvg;
-        
-        setPerformanceTrend({
-          direction: difference > 0 ? 'up' : difference < 0 ? 'down' : 'stable',
-          percentage: Math.abs((difference / previousAvg) * 100).toFixed(1),
-          difference: difference.toFixed(1)
-        });
-      }
-      
-      if (historicalPerformance.length > 0) {
-        const bestYear = historicalPerformance.reduce((best, current) => 
-          current.average > best.average ? current : best, historicalPerformance[0]);
-        const worstYear = historicalPerformance.reduce((worst, current) => 
-          current.average < worst.average ? current : worst, historicalPerformance[0]);
-        
-        setComparisonStats({
-          bestYear,
-          worstYear,
-          averageOverYears: historicalPerformance.reduce((sum, h) => sum + h.average, 0) / historicalPerformance.length,
-          yearOverYearChange: historicalPerformance.map((h, i) => ({
-            year: h.year,
-            change: i > 0 ? ((h.average - historicalPerformance[i-1].average) / historicalPerformance[i-1].average * 100).toFixed(1) : 0
-          }))
-        });
-      }
       
     } catch (error) {
       console.error('Error loading historical data:', error);
@@ -575,7 +435,8 @@ const ClassPerformance = () => {
           term: selectedTerm,
           year: selectedYear,
           stream: selectedStream,
-          subject: selectedSubject
+          subject: selectedSubject,
+          recordedBy: teacherId
         }
       });
       
@@ -588,27 +449,11 @@ const ClassPerformance = () => {
         return;
       }
       
+      // Calculate stats for the filtered data
       const totalScore = filteredResults.reduce((sum, r) => sum + (r.marks || 0), 0);
       const avgScore = totalScore / filteredResults.length;
-      setClassAverage(avgScore);
       
-      let topStudentData = null;
-      let highestScore = 0;
-      filteredResults.forEach(r => {
-        if ((r.marks || 0) > highestScore) {
-          highestScore = r.marks || 0;
-          const student = classStudents.find(s => s._id === (r.pupilId?._id || r.pupilId));
-          if (student) {
-            topStudentData = {
-              name: student.name,
-              admNo: student.admNo,
-              score: r.marks
-            };
-          }
-        }
-      });
-      setTopStudent(topStudentData);
-      
+      // Prepare student performance data
       const studentPerformance = classStudents.map(student => {
         const studentResult = filteredResults.find(r => {
           const pupilId = r.pupilId?._id || r.pupilId;
@@ -628,6 +473,26 @@ const ClassPerformance = () => {
       }).filter(s => s.marks > 0 || s.marks === 0).sort((a, b) => b.marks - a.marks);
       
       setPerformanceData(studentPerformance);
+      setClassAverage(avgScore);
+      
+      // Find top student
+      let topStudentData = null;
+      let highestScore = 0;
+      filteredResults.forEach(r => {
+        if ((r.marks || 0) > highestScore) {
+          highestScore = r.marks || 0;
+          const student = classStudents.find(s => s._id === (r.pupilId?._id || r.pupilId));
+          if (student) {
+            topStudentData = {
+              name: student.name,
+              admNo: student.admNo,
+              score: r.marks
+            };
+          }
+        }
+      });
+      setTopStudent(topStudentData);
+      
       setShowResults(true);
       
       await loadHistoricalData();
@@ -675,297 +540,11 @@ const ClassPerformance = () => {
     toast.success('Filters reset');
   };
 
-  // Check if a class has streams (more than 1 stream)
-  const classHasMultipleStreams = (className) => {
-    const classData = schoolInfo.classes?.find(c => c.name === className);
-    return classData?.streams && classData.streams.length > 1;
-  };
-
-  // Generate Word Document
-  const downloadWordDoc = async () => {
-    if (performanceData.length === 0) {
-      toast.error('No data to download');
-      return;
-    }
-
-    if (userRole === 'teacher') {
-      if (!selectedSubject) {
-        toast.error('Please select a specific subject to download');
-        return;
-      }
-      if (!selectedStream || selectedStream === 'all') {
-        toast.error('Please select a specific stream to download');
-        return;
-      }
-    }
-
-    const docChildren = [];
-
-    // Title
-    docChildren.push(new Paragraph({
-      text: schoolInfo.name || 'School Name',
-      heading: HeadingLevel.TITLE,
-      alignment: AlignmentType.CENTER,
-    }));
-
-    docChildren.push(new Paragraph({
-      text: `Subject Performance Report - ${selectedSubject}`,
-      heading: HeadingLevel.HEADING_1,
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 200 },
-    }));
-
-    // Report Info
-    docChildren.push(new Paragraph({
-      children: [
-        new TextRun({ text: `Class: `, bold: true }),
-        new TextRun(`${selectedClass}${selectedStream && selectedStream !== 'all' ? ` - ${selectedStream}` : ''}`),
-      ],
-    }));
-
-    docChildren.push(new Paragraph({
-      children: [
-        new TextRun({ text: `Year: `, bold: true }),
-        new TextRun(`${selectedYear}`),
-        new TextRun({ text: ` | Term: `, bold: true }),
-        new TextRun(`${selectedTerm || 'All Terms'}`),
-      ],
-    }));
-
-    docChildren.push(new Paragraph({
-      children: [
-        new TextRun({ text: `Exam: `, bold: true }),
-        new TextRun(`${selectedExamName} (${selectedExamType})`),
-      ],
-    }));
-
-    docChildren.push(new Paragraph({
-      children: [
-        new TextRun({ text: `Subject: `, bold: true }),
-        new TextRun(`${selectedSubject}`),
-      ],
-    }));
-
-    docChildren.push(new Paragraph({
-      children: [
-        new TextRun({ text: `Stream: `, bold: true }),
-        new TextRun(`${selectedStream}`),
-      ],
-    }));
-
-    docChildren.push(new Paragraph({
-      children: [
-        new TextRun({ text: `Generated: `, bold: true }),
-        new TextRun(`${new Date().toLocaleString()}`),
-      ],
-      spacing: { after: 200 },
-    }));
-
-    // Summary Statistics
-    docChildren.push(new Paragraph({
-      text: 'Summary Statistics',
-      heading: HeadingLevel.HEADING_2,
-      spacing: { after: 100 },
-    }));
-
-    const statsTableRows = [
-      new TableRow({
-        children: [
-          new TableCell({ children: [new Paragraph({ text: 'Total Students', bold: true })], width: { size: 50, type: WidthType.PERCENTAGE } }),
-          new TableCell({ children: [new Paragraph({ text: performanceData.length.toString() })] }),
-        ],
-      }),
-      new TableRow({
-        children: [
-          new TableCell({ children: [new Paragraph({ text: 'Class Average', bold: true })] }),
-          new TableCell({ children: [new Paragraph({ text: `${classAverage.toFixed(1)}%` })] }),
-        ],
-      }),
-      new TableRow({
-        children: [
-          new TableCell({ children: [new Paragraph({ text: 'Highest Score', bold: true })] }),
-          new TableCell({ children: [new Paragraph({ text: `${Math.max(...performanceData.map(s => s.marks))}%` })] }),
-        ],
-      }),
-      new TableRow({
-        children: [
-          new TableCell({ children: [new Paragraph({ text: 'Lowest Score', bold: true })] }),
-          new TableCell({ children: [new Paragraph({ text: `${Math.min(...performanceData.map(s => s.marks))}%` })] }),
-        ],
-      }),
-      new TableRow({
-        children: [
-          new TableCell({ children: [new Paragraph({ text: 'Top Student', bold: true })] }),
-          new TableCell({ children: [new Paragraph({ text: `${topStudent?.name || 'N/A'} (${topStudent?.score?.toFixed(1)}%)` })] }),
-        ],
-      }),
-    ];
-
-    docChildren.push(new Table({
-      rows: statsTableRows,
-      width: { size: 100, type: WidthType.PERCENTAGE },
-      borders: { top: { style: BorderStyle.SINGLE }, bottom: { style: BorderStyle.SINGLE }, left: { style: BorderStyle.SINGLE }, right: { style: BorderStyle.SINGLE } },
-    }));
-
-    docChildren.push(new Paragraph({ text: '', spacing: { after: 200 } }));
-
-    // Competency Distribution
-    docChildren.push(new Paragraph({
-      text: 'Competency Distribution',
-      heading: HeadingLevel.HEADING_2,
-      spacing: { after: 100 },
-    }));
-
-    const competencyRows = competencyLevels.map(level => {
-      const count = performanceData.filter(s => {
-        const competency = getCompetencyFromMarks(s.marks);
-        return competency?.level === level.level;
-      }).length;
-      const percentage = performanceData.length > 0 ? (count / performanceData.length * 100).toFixed(1) : 0;
-      
-      return new TableRow({
-        children: [
-          new TableCell({ children: [new Paragraph({ text: level.level })] }),
-          new TableCell({ children: [new Paragraph({ text: `${count} students` })] }),
-          new TableCell({ children: [new Paragraph({ text: `${percentage}%` })] }),
-        ],
-      });
-    });
-
-    docChildren.push(new Table({
-      rows: [
-        new TableRow({
-          children: [
-            new TableCell({ children: [new Paragraph({ text: 'Level', bold: true })] }),
-            new TableCell({ children: [new Paragraph({ text: 'Count', bold: true })] }),
-            new TableCell({ children: [new Paragraph({ text: 'Percentage', bold: true })] }),
-          ],
-        }),
-        ...competencyRows,
-      ],
-      width: { size: 100, type: WidthType.PERCENTAGE },
-    }));
-
-    docChildren.push(new Paragraph({ text: '', spacing: { after: 200 } }));
-
-    // Historical Performance Comparison
-    if (historicalData.length > 0) {
-      docChildren.push(new Paragraph({
-        text: 'Historical Performance Comparison',
-        heading: HeadingLevel.HEADING_2,
-        spacing: { after: 100 },
-      }));
-
-      const historicalRows = historicalData.map(data => {
-        return new TableRow({
-          children: [
-            new TableCell({ children: [new Paragraph({ text: data.year.toString() })] }),
-            new TableCell({ children: [new Paragraph({ text: data.examName })] }),
-            new TableCell({ children: [new Paragraph({ text: `${data.average.toFixed(1)}%` })] }),
-            new TableCell({ children: [new Paragraph({ text: data.studentCount.toString() })] }),
-          ],
-        });
-      });
-
-      docChildren.push(new Table({
-        rows: [
-          new TableRow({
-            children: [
-              new TableCell({ children: [new Paragraph({ text: 'Year', bold: true })] }),
-              new TableCell({ children: [new Paragraph({ text: 'Exam Name', bold: true })] }),
-              new TableCell({ children: [new Paragraph({ text: 'Average Score', bold: true })] }),
-              new TableCell({ children: [new Paragraph({ text: 'Students', bold: true })] }),
-            ],
-          }),
-          ...historicalRows,
-        ],
-        width: { size: 100, type: WidthType.PERCENTAGE },
-      }));
-
-      if (performanceTrend) {
-        docChildren.push(new Paragraph({ text: '', spacing: { after: 100 } }));
-        docChildren.push(new Paragraph({
-          children: [
-            new TextRun({ text: `Trend: `, bold: true }),
-            new TextRun(`${performanceTrend.direction === 'up' ? 'Improving 📈' : performanceTrend.direction === 'down' ? 'Declining 📉' : 'Stable ➡️'}`),
-          ],
-        }));
-        docChildren.push(new Paragraph({
-          children: [
-            new TextRun({ text: `Change: `, bold: true }),
-            new TextRun(`${performanceTrend.direction === 'up' ? '+' : ''}${performanceTrend.percentage}% (${performanceTrend.difference > 0 ? '+' : ''}${performanceTrend.difference} points)`),
-          ],
-        }));
-      }
-
-      docChildren.push(new Paragraph({ text: '', spacing: { after: 200 } }));
-    }
-
-    // Student Performance Table
-    docChildren.push(new Paragraph({
-      text: 'Student Performance Details',
-      heading: HeadingLevel.HEADING_2,
-      spacing: { after: 100 },
-    }));
-
-    const studentRows = performanceData.map(student => {
-      const competency = getCompetencyFromMarks(student.marks);
-      return new TableRow({
-        children: [
-          new TableCell({ children: [new Paragraph({ text: student.name })] }),
-          new TableCell({ children: [new Paragraph({ text: student.admNo || '-' })] }),
-          new TableCell({ children: [new Paragraph({ text: student.stream || '-' })] }),
-          new TableCell({ children: [new Paragraph({ text: `${student.marks.toFixed(1)}%`, alignment: AlignmentType.CENTER })] }),
-          new TableCell({ children: [new Paragraph({ text: student.grade, alignment: AlignmentType.CENTER })] }),
-          new TableCell({ children: [new Paragraph({ text: competency?.level || 'Not Assessed' })] }),
-          new TableCell({ children: [new Paragraph({ text: student.remarks })] }),
-        ],
-      });
-    });
-
-    docChildren.push(new Table({
-      rows: [
-        new TableRow({
-          children: [
-            new TableCell({ children: [new Paragraph({ text: 'Student Name', bold: true })] }),
-            new TableCell({ children: [new Paragraph({ text: 'Admission No', bold: true })] }),
-            new TableCell({ children: [new Paragraph({ text: 'Stream', bold: true })] }),
-            new TableCell({ children: [new Paragraph({ text: 'Marks (%)', bold: true, alignment: AlignmentType.CENTER })] }),
-            new TableCell({ children: [new Paragraph({ text: 'Grade', bold: true, alignment: AlignmentType.CENTER })] }),
-            new TableCell({ children: [new Paragraph({ text: 'Competency Level', bold: true })] }),
-            new TableCell({ children: [new Paragraph({ text: 'Remarks', bold: true })] }),
-          ],
-        }),
-        ...studentRows,
-      ],
-      width: { size: 100, type: WidthType.PERCENTAGE },
-    }));
-
-    // Footer
-    docChildren.push(new Paragraph({ text: '', spacing: { after: 200 } }));
-    docChildren.push(new Paragraph({
-      text: `Report generated on ${new Date().toLocaleString()}`,
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 100 },
-    }));
-
-    const doc = new Document({
-      sections: [{
-        properties: {},
-        children: docChildren,
-      }],
-    });
-
-    const blob = await Packer.toBlob(doc);
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${schoolInfo.name}_${selectedClass}_${selectedStream}_${selectedSubject}_${selectedExamName}_${selectedYear}.docx`;
-    a.click();
-    URL.revokeObjectURL(url);
-    
-    toast.success('Word document downloaded successfully');
-  };
+  // State for detailed view
+  const [performanceData, setPerformanceData] = useState([]);
+  const [classAverage, setClassAverage] = useState(0);
+  const [topStudent, setTopStudent] = useState(null);
+  const [availableStreams, setAvailableStreams] = useState([]);
 
   // Download Excel
   const downloadResultsExcel = () => {
@@ -995,7 +574,6 @@ const ClassPerformance = () => {
       [`Subject: ${selectedSubject}`],
       [`Stream: ${selectedStream}`],
       [`Generated: ${new Date().toLocaleString()}`],
-      [`Report Type: Single Subject & Single Stream Analysis`],
       [],
       ['Student Name', 'Admission Number', 'Stream', 'Marks (%)', 'Grade', 'Competency Level', 'Remarks'],
       ...performanceData.map(student => [
@@ -1031,13 +609,6 @@ const ClassPerformance = () => {
       historicalData.forEach(data => {
         worksheetData.push([data.year, data.examName, data.average.toFixed(1), data.studentCount]);
       });
-      
-      if (performanceTrend) {
-        worksheetData.push([], ['Performance Trend']);
-        worksheetData.push([`Trend Direction: ${performanceTrend.direction === 'up' ? 'Improving 📈' : performanceTrend.direction === 'down' ? 'Declining 📉' : 'Stable ➡️'}`]);
-        worksheetData.push([`Change: ${performanceTrend.direction === 'up' ? '+' : ''}${performanceTrend.percentage}%`]);
-        worksheetData.push([`Point Difference: ${performanceTrend.difference}%`]);
-      }
     }
     
     const ws = XLSX.utils.aoa_to_sheet(worksheetData);
@@ -1048,8 +619,301 @@ const ClassPerformance = () => {
     toast.success('Excel report downloaded successfully');
   };
 
+  // Download Word Document
+  const downloadWordDoc = async () => {
+    if (performanceData.length === 0) {
+      toast.error('No data to download');
+      return;
+    }
+
+    if (userRole === 'teacher') {
+      if (!selectedSubject) {
+        toast.error('Please select a specific subject to download');
+        return;
+      }
+      if (!selectedStream || selectedStream === 'all') {
+        toast.error('Please select a specific stream to download');
+        return;
+      }
+    }
+
+    try {
+      // Import docx dynamically
+      const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType, HeadingLevel, BorderStyle } = await import('docx');
+      
+      const docChildren = [];
+
+      // Title
+      docChildren.push(new Paragraph({
+        text: schoolInfo.name || 'School Name',
+        heading: HeadingLevel.TITLE,
+        alignment: AlignmentType.CENTER,
+      }));
+
+      docChildren.push(new Paragraph({
+        text: `Subject Performance Report - ${selectedSubject}`,
+        heading: HeadingLevel.HEADING_1,
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 200 },
+      }));
+
+      // Report Info
+      docChildren.push(new Paragraph({
+        children: [
+          new TextRun({ text: `Class: `, bold: true }),
+          new TextRun(`${selectedClass}${selectedStream && selectedStream !== 'all' ? ` - ${selectedStream}` : ''}`),
+        ],
+      }));
+
+      docChildren.push(new Paragraph({
+        children: [
+          new TextRun({ text: `Year: `, bold: true }),
+          new TextRun(`${selectedYear}`),
+          new TextRun({ text: ` | Term: `, bold: true }),
+          new TextRun(`${selectedTerm || 'All Terms'}`),
+        ],
+      }));
+
+      docChildren.push(new Paragraph({
+        children: [
+          new TextRun({ text: `Exam: `, bold: true }),
+          new TextRun(`${selectedExamName} (${selectedExamType})`),
+        ],
+      }));
+
+      docChildren.push(new Paragraph({
+        children: [
+          new TextRun({ text: `Subject: `, bold: true }),
+          new TextRun(`${selectedSubject}`),
+        ],
+      }));
+
+      docChildren.push(new Paragraph({
+        children: [
+          new TextRun({ text: `Stream: `, bold: true }),
+          new TextRun(`${selectedStream}`),
+        ],
+      }));
+
+      docChildren.push(new Paragraph({
+        children: [
+          new TextRun({ text: `Generated: `, bold: true }),
+          new TextRun(`${new Date().toLocaleString()}`),
+        ],
+        spacing: { after: 200 },
+      }));
+
+      // Summary Statistics
+      docChildren.push(new Paragraph({
+        text: 'Summary Statistics',
+        heading: HeadingLevel.HEADING_2,
+        spacing: { after: 100 },
+      }));
+
+      const statsTableRows = [
+        new TableRow({
+          children: [
+            new TableCell({ children: [new Paragraph({ text: 'Total Students', bold: true })], width: { size: 50, type: WidthType.PERCENTAGE } }),
+            new TableCell({ children: [new Paragraph({ text: performanceData.length.toString() })] }),
+          ],
+        }),
+        new TableRow({
+          children: [
+            new TableCell({ children: [new Paragraph({ text: 'Class Average', bold: true })] }),
+            new TableCell({ children: [new Paragraph({ text: `${classAverage.toFixed(1)}%` })] }),
+          ],
+        }),
+        new TableRow({
+          children: [
+            new TableCell({ children: [new Paragraph({ text: 'Highest Score', bold: true })] }),
+            new TableCell({ children: [new Paragraph({ text: `${Math.max(...performanceData.map(s => s.marks))}%` })] }),
+          ],
+        }),
+        new TableRow({
+          children: [
+            new TableCell({ children: [new Paragraph({ text: 'Lowest Score', bold: true })] }),
+            new TableCell({ children: [new Paragraph({ text: `${Math.min(...performanceData.map(s => s.marks))}%` })] }),
+          ],
+        }),
+        new TableRow({
+          children: [
+            new TableCell({ children: [new Paragraph({ text: 'Top Student', bold: true })] }),
+            new TableCell({ children: [new Paragraph({ text: `${topStudent?.name || 'N/A'} (${topStudent?.score?.toFixed(1)}%)` })] }),
+          ],
+        }),
+      ];
+
+      docChildren.push(new Table({
+        rows: statsTableRows,
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        borders: { top: { style: BorderStyle.SINGLE }, bottom: { style: BorderStyle.SINGLE }, left: { style: BorderStyle.SINGLE }, right: { style: BorderStyle.SINGLE } },
+      }));
+
+      docChildren.push(new Paragraph({ text: '', spacing: { after: 200 } }));
+
+      // Competency Distribution
+      docChildren.push(new Paragraph({
+        text: 'Competency Distribution',
+        heading: HeadingLevel.HEADING_2,
+        spacing: { after: 100 },
+      }));
+
+      const competencyRows = competencyLevels.map(level => {
+        const count = performanceData.filter(s => {
+          const competency = getCompetencyFromMarks(s.marks);
+          return competency?.level === level.level;
+        }).length;
+        const percentage = performanceData.length > 0 ? (count / performanceData.length * 100).toFixed(1) : 0;
+        
+        return new TableRow({
+          children: [
+            new TableCell({ children: [new Paragraph({ text: level.level })] }),
+            new TableCell({ children: [new Paragraph({ text: `${count} students` })] }),
+            new TableCell({ children: [new Paragraph({ text: `${percentage}%` })] }),
+          ],
+        });
+      });
+
+      docChildren.push(new Table({
+        rows: [
+          new TableRow({
+            children: [
+              new TableCell({ children: [new Paragraph({ text: 'Level', bold: true })] }),
+              new TableCell({ children: [new Paragraph({ text: 'Count', bold: true })] }),
+              new TableCell({ children: [new Paragraph({ text: 'Percentage', bold: true })] }),
+            ],
+          }),
+          ...competencyRows,
+        ],
+        width: { size: 100, type: WidthType.PERCENTAGE },
+      }));
+
+      docChildren.push(new Paragraph({ text: '', spacing: { after: 200 } }));
+
+      // Historical Performance Comparison
+      if (historicalData.length > 0) {
+        docChildren.push(new Paragraph({
+          text: 'Historical Performance Comparison',
+          heading: HeadingLevel.HEADING_2,
+          spacing: { after: 100 },
+        }));
+
+        const historicalRows = historicalData.map(data => {
+          return new TableRow({
+            children: [
+              new TableCell({ children: [new Paragraph({ text: data.year.toString() })] }),
+              new TableCell({ children: [new Paragraph({ text: data.examName })] }),
+              new TableCell({ children: [new Paragraph({ text: `${data.average.toFixed(1)}%` })] }),
+              new TableCell({ children: [new Paragraph({ text: data.studentCount.toString() })] }),
+            ],
+          });
+        });
+
+        docChildren.push(new Table({
+          rows: [
+            new TableRow({
+              children: [
+                new TableCell({ children: [new Paragraph({ text: 'Year', bold: true })] }),
+                new TableCell({ children: [new Paragraph({ text: 'Exam Name', bold: true })] }),
+                new TableCell({ children: [new Paragraph({ text: 'Average Score', bold: true })] }),
+                new TableCell({ children: [new Paragraph({ text: 'Students', bold: true })] }),
+              ],
+            }),
+            ...historicalRows,
+          ],
+          width: { size: 100, type: WidthType.PERCENTAGE },
+        }));
+
+        if (performanceTrend) {
+          docChildren.push(new Paragraph({ text: '', spacing: { after: 100 } }));
+          docChildren.push(new Paragraph({
+            children: [
+              new TextRun({ text: `Trend: `, bold: true }),
+              new TextRun(`${performanceTrend.direction === 'up' ? 'Improving 📈' : performanceTrend.direction === 'down' ? 'Declining 📉' : 'Stable ➡️'}`),
+            ],
+          }));
+          docChildren.push(new Paragraph({
+            children: [
+              new TextRun({ text: `Change: `, bold: true }),
+              new TextRun(`${performanceTrend.direction === 'up' ? '+' : ''}${performanceTrend.percentage}% (${performanceTrend.difference > 0 ? '+' : ''}${performanceTrend.difference} points)`),
+            ],
+          }));
+        }
+
+        docChildren.push(new Paragraph({ text: '', spacing: { after: 200 } }));
+      }
+
+      // Student Performance Table
+      docChildren.push(new Paragraph({
+        text: 'Student Performance Details',
+        heading: HeadingLevel.HEADING_2,
+        spacing: { after: 100 },
+      }));
+
+      const studentRows = performanceData.map(student => {
+        const competency = getCompetencyFromMarks(student.marks);
+        return new TableRow({
+          children: [
+            new TableCell({ children: [new Paragraph({ text: student.name })] }),
+            new TableCell({ children: [new Paragraph({ text: student.admNo || '-' })] }),
+            new TableCell({ children: [new Paragraph({ text: student.stream || '-' })] }),
+            new TableCell({ children: [new Paragraph({ text: `${student.marks.toFixed(1)}%`, alignment: AlignmentType.CENTER })] }),
+            new TableCell({ children: [new Paragraph({ text: student.grade, alignment: AlignmentType.CENTER })] }),
+            new TableCell({ children: [new Paragraph({ text: competency?.level || 'Not Assessed' })] }),
+            new TableCell({ children: [new Paragraph({ text: student.remarks })] }),
+          ],
+        });
+      });
+
+      docChildren.push(new Table({
+        rows: [
+          new TableRow({
+            children: [
+              new TableCell({ children: [new Paragraph({ text: 'Student Name', bold: true })] }),
+              new TableCell({ children: [new Paragraph({ text: 'Admission No', bold: true })] }),
+              new TableCell({ children: [new Paragraph({ text: 'Stream', bold: true })] }),
+              new TableCell({ children: [new Paragraph({ text: 'Marks (%)', bold: true, alignment: AlignmentType.CENTER })] }),
+              new TableCell({ children: [new Paragraph({ text: 'Grade', bold: true, alignment: AlignmentType.CENTER })] }),
+              new TableCell({ children: [new Paragraph({ text: 'Competency Level', bold: true })] }),
+              new TableCell({ children: [new Paragraph({ text: 'Remarks', bold: true })] }),
+            ],
+          }),
+          ...studentRows,
+        ],
+        width: { size: 100, type: WidthType.PERCENTAGE },
+      }));
+
+      // Footer
+      docChildren.push(new Paragraph({ text: '', spacing: { after: 200 } }));
+      docChildren.push(new Paragraph({
+        text: `Report generated on ${new Date().toLocaleString()}`,
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 100 },
+      }));
+
+      const doc = new Document({
+        sections: [{
+          properties: {},
+          children: docChildren,
+        }],
+      });
+
+      const blob = await Packer.toBlob(doc);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${schoolInfo.name}_${selectedClass}_${selectedStream}_${selectedSubject}_${selectedExamName}_${selectedYear}.docx`;
+      a.click();
+      URL.revokeObjectURL(url);
+      
+      toast.success('Word document downloaded successfully');
+    } catch (error) {
+      console.error('Error generating Word document:', error);
+      toast.error('Failed to generate Word document. Please try again.');
+    }
+  };
+
   const years = [2023, 2024, 2025, 2026];
-  const [availableStreams, setAvailableStreams] = useState([]);
 
   if (loading) {
     return (
@@ -1073,7 +937,7 @@ const ClassPerformance = () => {
               <h2 className={`${deviceInfo.isMobile ? 'text-base' : 'text-xl'} font-bold`}>Subject Performance Analysis</h2>
               <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-sm'} opacity-90`}>
                 {userRole === 'teacher' 
-                  ? 'Teachers can view all subjects and streams, but can only download reports for ONE subject and ONE stream'
+                  ? `Welcome, ${teacherName} - Your uploaded results`
                   : 'Track and analyze student performance across subjects'}
               </p>
             </div>
@@ -1087,10 +951,105 @@ const ClassPerformance = () => {
         </div>
       </div>
 
+      {/* Teacher Results Summary - Shows all uploaded results */}
+      {teacherResults.length > 0 && (
+        <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding} mb-4`}>
+          <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'justify-between items-center'}`}>
+            <div>
+              <h3 className={`${responsive.headingSize} font-bold text-gray-800 flex items-center gap-2`}>
+                <FiBookOpen className="text-green-600" /> 
+                Your Uploaded Results
+                <span className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} bg-green-100 text-green-700 px-2 py-0.5 rounded-full ml-2`}>
+                  {totalResults} results
+                </span>
+              </h3>
+              <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500 mt-1`}>
+                Showing all results you've uploaded across all subjects and classes
+              </p>
+            </div>
+            <div className={`flex ${deviceInfo.isMobile ? 'flex-wrap gap-1' : 'gap-2'}`}>
+              {teacherSubjects.length > 0 && (
+                <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} bg-blue-100 text-blue-700 px-2 py-1 rounded-full`}>
+                  {teacherSubjects.length} Subjects
+                </span>
+              )}
+              {teacherClasses.length > 0 && (
+                <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} bg-purple-100 text-purple-700 px-2 py-1 rounded-full`}>
+                  {teacherClasses.length} Classes
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Subject Performance Cards - Shows all subjects with stats */}
+      {subjectPerformance.length > 0 && (
+        <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding} mb-4`}>
+          <h3 className={`${responsive.headingSize} font-bold text-gray-800 mb-3 flex items-center gap-2`}>
+            <FiBarChart2 className="text-green-600" /> Subject Performance
+            <span className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full ml-2`}>
+              {subjectPerformance.length} subjects
+            </span>
+          </h3>
+          
+          <div className="space-y-4">
+            {subjectPerformance.map((subject, index) => (
+              <div key={index} className="border-b border-gray-100 pb-3 last:border-0">
+                <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-1' : 'justify-between'} text-sm mb-1`}>
+                  <div>
+                    <span className="font-medium text-gray-800">{subject.subject}</span>
+                    <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500 ml-2`}>
+                      ({subject.class} - {subject.stream})
+                    </span>
+                    <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-400 ml-2`}>
+                      - {subject.examName}
+                    </span>
+                  </div>
+                  <div className={`flex ${deviceInfo.isMobile ? 'flex-wrap gap-2' : 'gap-3'} items-center`}>
+                    <span className="text-green-600 text-xs flex items-center gap-1">
+                      <FiCheckCircle className="w-3 h-3" /> {subject.passing}
+                    </span>
+                    <span className="text-red-600 text-xs flex items-center gap-1">
+                      <FiXCircle className="w-3 h-3" /> {subject.failing}
+                    </span>
+                    <span className="font-bold text-xs text-blue-600">Avg: {subject.average}%</span>
+                    <span className="text-gray-400 text-xs">({subject.totalResults} results)</span>
+                  </div>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div 
+                    className={`rounded-full h-2 transition-all ${
+                      subject.average >= 80 ? 'bg-purple-500' :
+                      subject.average >= 60 ? 'bg-green-500' :
+                      subject.average >= 40 ? 'bg-blue-500' : 'bg-red-500'
+                    }`}
+                    style={{ width: `${Math.min(subject.average, 100)}%` }}
+                  />
+                </div>
+                <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500 mt-1`}>
+                  {subject.students} students • {subject.totalResults} total results
+                </p>
+              </div>
+            ))}
+          </div>
+          
+          <div className={`mt-3 text-xs text-gray-400 border-t pt-2`}>
+            <p>Showing {totalResults} results uploaded by you</p>
+            {teacherClasses.length > 0 && (
+              <p className="text-gray-400">Classes: {teacherClasses.join(', ')}</p>
+            )}
+            {teacherSubjects.length > 0 && (
+              <p className="text-gray-400">Subjects: {teacherSubjects.join(', ')}</p>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Filter Section - AI Responsive */}
       <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding} mb-4`}>
         <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-3 flex items-center gap-2`}>
-          <FiFilter className="text-green-600" /> Select Performance Criteria
+          <FiFilter className="text-green-600" /> Detailed Performance Filters
         </h2>
         
         <div className={`grid ${responsive.filterGrid} ${responsive.gridGap}`}>
@@ -1112,35 +1071,8 @@ const ClassPerformance = () => {
               onChange={(e) => setSelectedClass(e.target.value)} 
               className={`input-field w-full ${deviceInfo.isMobile ? 'text-base' : ''}`}
             >
-              <option value="">Select Class</option>
+              <option value="">All Classes</option>
               {availableClasses.map(cls => <option key={cls} value={cls}>{cls}</option>)}
-            </select>
-          </div>
-          
-          {/* Only show Stream dropdown if class has MORE than 1 stream */}
-          {selectedClass && classHasMultipleStreams(selectedClass) && (
-            <div>
-              <label className={`block text-gray-700 font-medium mb-1 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>Stream</label>
-              <select 
-                value={selectedStream} 
-                onChange={(e) => setSelectedStream(e.target.value)} 
-                className={`input-field w-full ${deviceInfo.isMobile ? 'text-base' : ''}`}
-              >
-                <option value="">Select Stream</option>
-                {availableStreams.map(stream => <option key={stream} value={stream}>{stream}</option>)}
-              </select>
-            </div>
-          )}
-          
-          <div>
-            <label className={`block text-gray-700 font-medium mb-1 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>Term</label>
-            <select 
-              value={selectedTerm} 
-              onChange={(e) => setSelectedTerm(e.target.value)} 
-              className={`input-field w-full ${deviceInfo.isMobile ? 'text-base' : ''}`}
-            >
-              <option value="">Select Term</option>
-              {terms.map(term => <option key={term} value={term}>{term}</option>)}
             </select>
           </div>
           
@@ -1151,16 +1083,23 @@ const ClassPerformance = () => {
               onChange={(e) => setSelectedSubject(e.target.value)} 
               className={`input-field w-full ${deviceInfo.isMobile ? 'text-base' : ''}`}
             >
-              <option value="">Select Subject</option>
+              <option value="">All Subjects</option>
               {availableSubjects.map(subject => (
                 <option key={subject} value={subject}>{subject}</option>
               ))}
             </select>
-            {selectedClass && availableSubjects.length > 0 && (
-              <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-400 mt-1`}>
-                {availableSubjects.length} subjects available for {selectedClass}
-              </p>
-            )}
+          </div>
+          
+          <div>
+            <label className={`block text-gray-700 font-medium mb-1 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>Term</label>
+            <select 
+              value={selectedTerm} 
+              onChange={(e) => setSelectedTerm(e.target.value)} 
+              className={`input-field w-full ${deviceInfo.isMobile ? 'text-base' : ''}`}
+            >
+              <option value="">All Terms</option>
+              {terms.map(term => <option key={term} value={term}>{term}</option>)}
+            </select>
           </div>
           
           <div>
@@ -1170,13 +1109,10 @@ const ClassPerformance = () => {
               onChange={(e) => setSelectedExamType(e.target.value)} 
               className={`input-field w-full ${deviceInfo.isMobile ? 'text-base' : ''}`}
             >
-              <option value="">Select Exam Type</option>
+              <option value="">All Exam Types</option>
               {availableExamTypes.map(type => (
                 <option key={type} value={type}>{type}</option>
               ))}
-              {availableExamTypes.length === 0 && (
-                <option value="" disabled>No exam types scheduled</option>
-              )}
             </select>
           </div>
           
@@ -1188,7 +1124,7 @@ const ClassPerformance = () => {
               className={`input-field w-full ${deviceInfo.isMobile ? 'text-base' : ''}`}
               disabled={!selectedExamType}
             >
-              <option value="">{!selectedExamType ? 'Select exam type first' : 'Select Exam Name'}</option>
+              <option value="">{!selectedExamType ? 'Select exam type first' : 'All Exam Names'}</option>
               {availableExamNames.map(name => <option key={name} value={name}>{name}</option>)}
             </select>
           </div>
@@ -1197,107 +1133,23 @@ const ClassPerformance = () => {
         <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'gap-3'} mt-4`}>
           <button 
             onClick={loadPerformanceData} 
-            disabled={loadingData || !selectedClass || !selectedSubject || !selectedExamType || !selectedExamName} 
+            disabled={loadingData} 
             className={`btn-primary flex items-center justify-center gap-2 disabled:opacity-50 ${deviceInfo.isMobile ? 'w-full py-2.5 text-sm' : ''}`}
           >
-            <FiBarChart2 /> {loadingData ? 'Loading...' : 'LOAD PERFORMANCE DATA'}
+            <FiBarChart2 /> {loadingData ? 'Loading...' : 'VIEW DETAILED PERFORMANCE'}
           </button>
           <button 
             onClick={resetFilters} 
             className={`bg-gray-500 hover:bg-gray-600 text-white rounded-lg ${deviceInfo.isMobile ? 'w-full px-4 py-2.5 text-sm' : 'px-4 py-2'}`}
           >
-            RESET
+            RESET FILTERS
           </button>
         </div>
       </div>
 
-      {/* Performance Results Section */}
-      {showResults && (
+      {/* Detailed Performance Results Section */}
+      {showResults && performanceData.length > 0 && (
         <>
-          {/* Teacher Warning Message - AI Responsive */}
-          {userRole === 'teacher' && (
-            <div className="bg-yellow-50 border-l-4 border-yellow-400 rounded-lg p-3 mb-4">
-              <div className="flex items-start">
-                <div className="flex-shrink-0">
-                  <FiAlertCircle className="h-5 w-5 text-yellow-400" />
-                </div>
-                <div className={`ml-3 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>
-                  <p className="text-yellow-700">
-                    <strong>Teacher Download Restriction:</strong> You can only download reports for ONE subject and ONE stream at a time. 
-                    The current download includes only <strong>{selectedSubject}</strong> for <strong>{selectedStream || 'selected stream'}</strong>.
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Historical Comparison Section - AI Responsive */}
-          {historicalData.length > 0 && (
-            <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding} mb-4`}>
-              <h3 className={`${responsive.headingSize} font-bold text-gray-800 mb-3 flex items-center gap-2`}>
-                <FiTrendingUp className="text-green-600" /> Historical Performance Comparison - {selectedSubject}
-              </h3>
-              
-              {performanceTrend && (
-                <div className={`mb-4 p-3 bg-gray-50 rounded-lg ${deviceInfo.isMobile ? 'text-sm' : ''}`}>
-                  <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'items-center justify-between'}`}>
-                    <div>
-                      <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-gray-600`}>Performance vs Previous Year</p>
-                      <div className="flex items-center gap-2 mt-1">
-                        {performanceTrend.direction === 'up' && <FiTrendingUp className="text-green-600 text-2xl" />}
-                        {performanceTrend.direction === 'down' && <FiTrendingDown className="text-red-600 text-2xl" />}
-                        {performanceTrend.direction === 'stable' && <FiMinus className="text-yellow-600 text-2xl" />}
-                        <span className={`text-2xl font-bold ${performanceTrend.direction === 'up' ? 'text-green-600' : performanceTrend.direction === 'down' ? 'text-red-600' : 'text-yellow-600'}`}>
-                          {performanceTrend.direction === 'up' ? '+' : ''}{performanceTrend.percentage}%
-                        </span>
-                        <span className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-gray-600`}>
-                          ({performanceTrend.difference > 0 ? '+' : ''}{performanceTrend.difference}% points)
-                        </span>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-gray-600`}>Current Average</p>
-                      <p className={`${deviceInfo.isMobile ? 'text-xl' : 'text-2xl'} font-bold text-blue-600`}>{classAverage.toFixed(1)}%</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-              
-              {/* Historical Chart - AI Responsive */}
-              {historicalData.length > 0 && (
-                <ResponsiveContainer width="100%" height={deviceInfo.isMobile ? 200 : 300}>
-                  <LineChart data={historicalData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="year" />
-                    <YAxis domain={[0, 100]} />
-                    <Tooltip formatter={(value) => `${value.toFixed(1)}%`} />
-                    <Legend />
-                    <Line type="monotone" dataKey="average" stroke="#3B82F6" name={`${selectedSubject} Average Score (%)`} strokeWidth={2} />
-                  </LineChart>
-                </ResponsiveContainer>
-              )}
-              
-              {comparisonStats && (
-                <div className={`grid ${deviceInfo.isMobile ? 'grid-cols-1 gap-2' : 'grid-cols-1 md:grid-cols-3 gap-4'} mt-3`}>
-                  <div className="bg-green-50 p-3 rounded-lg">
-                    <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-600`}>Best Year</p>
-                    <p className={`${deviceInfo.isMobile ? 'text-base' : 'text-lg'} font-bold text-green-600`}>{comparisonStats.bestYear?.year}</p>
-                    <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>{comparisonStats.bestYear?.average.toFixed(1)}%</p>
-                  </div>
-                  <div className="bg-red-50 p-3 rounded-lg">
-                    <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-600`}>Needs Improvement Year</p>
-                    <p className={`${deviceInfo.isMobile ? 'text-base' : 'text-lg'} font-bold text-red-600`}>{comparisonStats.worstYear?.year}</p>
-                    <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>{comparisonStats.worstYear?.average.toFixed(1)}%</p>
-                  </div>
-                  <div className="bg-blue-50 p-3 rounded-lg">
-                    <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-600`}>Average Over Years</p>
-                    <p className={`${deviceInfo.isMobile ? 'text-base' : 'text-lg'} font-bold text-blue-600`}>{comparisonStats.averageOverYears.toFixed(1)}%</p>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
           {/* Stats Cards - AI Responsive */}
           <div className={`grid ${responsive.statsGrid} ${responsive.gridGap} mb-4`}>
             <div className={`bg-white rounded-xl shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-4'} text-center`}>
@@ -1368,14 +1220,12 @@ const ClassPerformance = () => {
                 <button 
                   onClick={downloadResultsExcel} 
                   className={`bg-green-600 hover:bg-green-700 text-white rounded-lg flex items-center justify-center gap-1 transition-colors disabled:opacity-50 ${deviceInfo.isMobile ? 'flex-1 px-2 py-1.5 text-xs' : 'px-4 py-2 text-sm'}`}
-                  disabled={userRole === 'teacher' && (!selectedStream || selectedStream === 'all')}
                 >
                   <FiDownload className={deviceInfo.isMobile ? 'w-3 h-3' : 'w-4 h-4'} /> Excel
                 </button>
                 <button 
                   onClick={downloadWordDoc} 
                   className={`bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center justify-center gap-1 transition-colors disabled:opacity-50 ${deviceInfo.isMobile ? 'flex-1 px-2 py-1.5 text-xs' : 'px-4 py-2 text-sm'}`}
-                  disabled={userRole === 'teacher' && (!selectedStream || selectedStream === 'all')}
                 >
                   <FiFileText className={deviceInfo.isMobile ? 'w-3 h-3' : 'w-4 h-4'} /> Word
                 </button>
@@ -1437,14 +1287,12 @@ const ClassPerformance = () => {
             <button 
               onClick={downloadResultsExcel} 
               className={`bg-gradient-to-r from-green-600 to-green-700 text-white rounded-lg font-semibold flex items-center justify-center gap-2 shadow-md hover:from-green-700 hover:to-green-800 disabled:opacity-50 ${deviceInfo.isMobile ? 'w-full px-4 py-3 text-sm' : 'px-6 py-3'}`}
-              disabled={userRole === 'teacher' && (!selectedStream || selectedStream === 'all')}
             >
               <FiDownload /> DOWNLOAD EXCEL
             </button>
             <button 
               onClick={downloadWordDoc} 
               className={`bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg font-semibold flex items-center justify-center gap-2 shadow-md hover:from-blue-700 hover:to-blue-800 disabled:opacity-50 ${deviceInfo.isMobile ? 'w-full px-4 py-3 text-sm' : 'px-6 py-3'}`}
-              disabled={userRole === 'teacher' && (!selectedStream || selectedStream === 'all')}
             >
               <FiFileText /> DOWNLOAD WORD
             </button>
@@ -1457,6 +1305,19 @@ const ClassPerformance = () => {
           <FiBarChart2 className={`${deviceInfo.isMobile ? 'w-10 h-10' : 'w-12 h-12'} text-yellow-500 mx-auto mb-3`} />
           <h3 className={`${deviceInfo.isMobile ? 'text-base' : 'text-lg'} font-semibold text-gray-800 mb-2`}>No Performance Data Found</h3>
           <p className={`${deviceInfo.isMobile ? 'text-sm' : 'text-base'} text-gray-600`}>No performance data found for the selected criteria. Please adjust your selections and try again.</p>
+        </div>
+      )}
+
+      {teacherResults.length === 0 && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-8 text-center">
+          <FiBookOpen className={`${deviceInfo.isMobile ? 'w-10 h-10' : 'w-12 h-12'} text-blue-500 mx-auto mb-3`} />
+          <h3 className={`${deviceInfo.isMobile ? 'text-base' : 'text-lg'} font-semibold text-gray-800 mb-2`}>No Results Uploaded Yet</h3>
+          <p className={`${deviceInfo.isMobile ? 'text-sm' : 'text-base'} text-gray-600`}>
+            You haven't uploaded any results yet. Click "Upload Results" in the quick actions to get started.
+          </p>
+          <Link to="/teacher/results" className="mt-4 inline-block bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg">
+            Upload Results →
+          </Link>
         </div>
       )}
 
