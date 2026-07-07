@@ -65,7 +65,7 @@ const Sidebar = ({ isMobile, isOpen, onClose }) => {
     { path: '/teacher/students', icon: FiUsers, label: 'Students' },
     { path: '/teacher/results', icon: FiBookOpen, label: 'Update Results' },
     { path: '/teacher/performance', icon: FiBarChart2, label: 'Performance' },
-    { path: '/teacher/announcements', icon: FiBell, label: 'Announcements' },
+    { path: '/teacher/announcements', icon: FiBell, label: 'Exams/Events' },
   ];
 
   const menuItems = user?.role === 'admin' ? adminMenu : teacherMenu;
