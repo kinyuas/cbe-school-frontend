@@ -142,14 +142,29 @@ const ClassPerformance = () => {
     return competencyLevels.find(l => score >= l.minScore && score <= l.maxScore);
   };
 
-  // Helper function to find pupil by ID (handles both string and object IDs)
+  // Helper function to find pupil by ID - FIXED to handle all ID formats
   const findPupilById = (pupilId, learners) => {
-    if (!pupilId) return null;
+    if (!pupilId || !learners || learners.length === 0) return null;
+    
+    // Convert to string for comparison
     const pupilIdStr = String(pupilId);
-    return learners.find(p => {
-      const pId = p._id?._id || p._id || p.id;
-      return String(pId) === pupilIdStr;
+    
+    // Try to find by _id (handles both string and object formats)
+    let pupil = learners.find(p => {
+      if (!p) return false;
+      // Check if p._id exists and compare
+      if (p._id) {
+        const pId = typeof p._id === 'object' ? String(p._id) : String(p._id);
+        return pId === pupilIdStr;
+      }
+      // Check if p.id exists
+      if (p.id) {
+        return String(p.id) === pupilIdStr;
+      }
+      return false;
     });
+    
+    return pupil || null;
   };
 
   useEffect(() => {
@@ -244,11 +259,14 @@ const ClassPerformance = () => {
       }
       
       const studentsRes = await api.get('/pupils');
-      setStudents(studentsRes.data?.data || []);
+      const studentsData = studentsRes.data?.data || [];
+      setStudents(studentsData);
+      console.log(`📚 Loaded ${studentsData.length} students`);
       
       const resultsRes = await api.get('/results');
       const allResults = resultsRes.data?.data || [];
       setResults(allResults);
+      console.log(`📊 Loaded ${allResults.length} results`);
       
       // Filter results for this teacher using recordedBy field
       let teacherResultsData = [];
@@ -276,7 +294,7 @@ const ClassPerformance = () => {
       teacherResultsData.forEach(r => {
         const pupilId = r.pupilId?._id || r.pupilId;
         if (pupilId) {
-          const pupil = findPupilById(pupilId, students);
+          const pupil = findPupilById(pupilId, studentsData);
           if (pupil) {
             if (pupil.class) classes.add(pupil.class);
             if (pupil.grade) classes.add(pupil.grade);
@@ -288,7 +306,7 @@ const ClassPerformance = () => {
       setTeacherSubjects([...subjects]);
       
       // Calculate subject performance with stream separation
-      calculateSubjectPerformance(teacherResultsData);
+      calculateSubjectPerformance(teacherResultsData, studentsData);
       
       const examsRes = await api.get('/exams');
       if (examsRes.data.success) {
@@ -309,8 +327,13 @@ const ClassPerformance = () => {
     }
   };
 
-  const calculateSubjectPerformance = (resultsData) => {
+  const calculateSubjectPerformance = (resultsData, learners) => {
     const performanceBySubject = {};
+    
+    // Use the learners array passed in, or fallback to state
+    const studentList = learners || students;
+    
+    console.log(`📊 Calculating performance with ${studentList.length} students available`);
     
     resultsData.forEach(result => {
       const subject = result.subject || 'Unknown Subject';
@@ -318,14 +341,36 @@ const ClassPerformance = () => {
       const examName = result.examName || 'Assessment';
       const pupilId = result.pupilId?._id || result.pupilId;
       
-      // Get pupil info
+      // Get pupil info - FIXED to use the helper
       let pupil = null;
       if (pupilId) {
-        pupil = findPupilById(pupilId, students);
+        pupil = findPupilById(pupilId, studentList);
+        if (!pupil) {
+          // Try one more time with a different approach
+          const pupilIdStr = String(pupilId);
+          pupil = studentList.find(p => {
+            // Check if p._id is an object with toString
+            if (p._id && typeof p._id === 'object') {
+              return String(p._id) === pupilIdStr;
+            }
+            if (p._id && typeof p._id === 'string') {
+              return p._id === pupilIdStr;
+            }
+            if (p.id) {
+              return String(p.id) === pupilIdStr;
+            }
+            return false;
+          });
+        }
       }
       
       const className = pupil?.class || pupil?.grade || 'Unknown Class';
       const stream = pupil?.stream || 'Unknown Stream';
+      
+      // Log if unknown class is found
+      if (className === 'Unknown Class') {
+        console.log(`⚠️ Unknown class for pupilId: ${pupilId}, subject: ${subject}`);
+      }
       
       // Create a unique key that includes subject, class, and stream
       const key = `${subject}_${className}_${stream}`;
