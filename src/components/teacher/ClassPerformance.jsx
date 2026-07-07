@@ -142,6 +142,16 @@ const ClassPerformance = () => {
     return competencyLevels.find(l => score >= l.minScore && score <= l.maxScore);
   };
 
+  // Helper function to find pupil by ID (handles both string and object IDs)
+  const findPupilById = (pupilId, learners) => {
+    if (!pupilId) return null;
+    const pupilIdStr = String(pupilId);
+    return learners.find(p => {
+      const pId = p._id?._id || p._id || p.id;
+      return String(pId) === pupilIdStr;
+    });
+  };
+
   useEffect(() => {
     loadData();
     getUserRole();
@@ -159,11 +169,7 @@ const ClassPerformance = () => {
       const classResults = teacherResults.filter(r => {
         const pupilId = r.pupilId?._id || r.pupilId;
         if (!pupilId) return false;
-        const pupilIdStr = String(pupilId);
-        const pupil = students.find(p => {
-          const pId = p._id?._id || p._id || p.id;
-          return String(pId) === pupilIdStr;
-        });
+        const pupil = findPupilById(pupilId, students);
         return pupil?.class === selectedClass || pupil?.grade === selectedClass;
       });
       const subjects = [...new Set(classResults.map(r => r.subject).filter(Boolean))];
@@ -181,11 +187,7 @@ const ClassPerformance = () => {
         classResults.map(r => {
           const pupilId = r.pupilId?._id || r.pupilId;
           if (!pupilId) return null;
-          const pupilIdStr = String(pupilId);
-          const pupil = students.find(p => {
-            const pId = p._id?._id || p._id || p.id;
-            return String(pId) === pupilIdStr;
-          });
+          const pupil = findPupilById(pupilId, students);
           return pupil?.stream;
         }).filter(Boolean)
       )];
@@ -274,11 +276,7 @@ const ClassPerformance = () => {
       teacherResultsData.forEach(r => {
         const pupilId = r.pupilId?._id || r.pupilId;
         if (pupilId) {
-          const pupilIdStr = String(pupilId);
-          const pupil = students.find(p => {
-            const pId = p._id?._id || p._id || p.id;
-            return String(pId) === pupilIdStr;
-          });
+          const pupil = findPupilById(pupilId, students);
           if (pupil) {
             if (pupil.class) classes.add(pupil.class);
             if (pupil.grade) classes.add(pupil.grade);
@@ -289,7 +287,7 @@ const ClassPerformance = () => {
       setTeacherClasses([...classes]);
       setTeacherSubjects([...subjects]);
       
-      // Calculate subject performance
+      // Calculate subject performance with stream separation
       calculateSubjectPerformance(teacherResultsData);
       
       const examsRes = await api.get('/exams');
@@ -320,21 +318,20 @@ const ClassPerformance = () => {
       const examName = result.examName || 'Assessment';
       const pupilId = result.pupilId?._id || result.pupilId;
       
-      // Get pupil info - FIXED: Handle both string and object IDs
+      // Get pupil info
       let pupil = null;
       if (pupilId) {
-        const pupilIdStr = String(pupilId);
-        pupil = students.find(p => {
-          const pId = p._id?._id || p._id || p.id;
-          return String(pId) === pupilIdStr;
-        });
+        pupil = findPupilById(pupilId, students);
       }
       
       const className = pupil?.class || pupil?.grade || 'Unknown Class';
       const stream = pupil?.stream || 'Unknown Stream';
       
-      if (!performanceBySubject[subject]) {
-        performanceBySubject[subject] = {
+      // Create a unique key that includes subject, class, and stream
+      const key = `${subject}_${className}_${stream}`;
+      
+      if (!performanceBySubject[key]) {
+        performanceBySubject[key] = {
           subject: subject,
           class: className,
           stream: stream,
@@ -348,18 +345,18 @@ const ClassPerformance = () => {
         };
       }
       
-      performanceBySubject[subject].totalMarks += marks;
-      performanceBySubject[subject].count++;
-      performanceBySubject[subject].scores.push(marks);
+      performanceBySubject[key].totalMarks += marks;
+      performanceBySubject[key].count++;
+      performanceBySubject[key].scores.push(marks);
       
       if (marks >= 60) {
-        performanceBySubject[subject].passing++;
+        performanceBySubject[key].passing++;
       } else {
-        performanceBySubject[subject].failing++;
+        performanceBySubject[key].failing++;
       }
       
       if (pupilId) {
-        performanceBySubject[subject].students.add(pupilId);
+        performanceBySubject[key].students.add(pupilId);
       }
     });
     
@@ -380,11 +377,15 @@ const ClassPerformance = () => {
       };
     });
     
-    // Sort by subject name
-    performanceData.sort((a, b) => a.subject.localeCompare(b.subject));
+    // Sort by subject name, then class, then stream
+    performanceData.sort((a, b) => {
+      if (a.subject !== b.subject) return a.subject.localeCompare(b.subject);
+      if (a.class !== b.class) return a.class.localeCompare(b.class);
+      return a.stream.localeCompare(b.stream);
+    });
     
     setSubjectPerformance(performanceData);
-    console.log('📊 Subject Performance:', performanceData);
+    console.log('📊 Subject Performance (separated by stream):', performanceData);
   };
 
   const loadHistoricalData = async () => {
@@ -722,7 +723,7 @@ const ClassPerformance = () => {
                 </span>
               </h3>
               <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500 mt-1`}>
-                Showing all results you've uploaded across all subjects and classes
+                Showing all results you've uploaded across all subjects, classes, and streams
               </p>
             </div>
             <div className={`flex ${deviceInfo.isMobile ? 'flex-wrap gap-1' : 'gap-2'}`}>
@@ -741,13 +742,13 @@ const ClassPerformance = () => {
         </div>
       )}
 
-      {/* Subject Performance Cards - Shows all subjects with stats including Class & Stream */}
+      {/* Subject Performance Cards - Shows each stream separately */}
       {subjectPerformance.length > 0 && (
         <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding} mb-4`}>
           <h3 className={`${responsive.headingSize} font-bold text-gray-800 mb-3 flex items-center gap-2`}>
-            <FiBarChart2 className="text-green-600" /> Subject Performance
+            <FiBarChart2 className="text-green-600" /> Subject Performance by Stream
             <span className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full ml-2`}>
-              {subjectPerformance.length} subjects
+              {subjectPerformance.length} entries
             </span>
           </h3>
           
@@ -758,7 +759,7 @@ const ClassPerformance = () => {
                   <div>
                     <span className="font-medium text-gray-800">{subject.subject}</span>
                     <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500 ml-2`}>
-                      ({subject.class} {subject.stream && subject.stream !== 'Unknown Stream' ? `- ${subject.stream}` : ''})
+                      ({subject.class}{subject.stream && subject.stream !== 'Unknown Stream' ? ` - ${subject.stream}` : ''})
                     </span>
                     <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-400 ml-2`}>
                       - {subject.examName}
