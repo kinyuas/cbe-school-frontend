@@ -942,11 +942,13 @@ const TeacherDashboard = () => {
               {classPerformance.map((subject, index) => (
                 <div key={index} className="border-b border-gray-100 pb-3 last:border-0">
                   <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-1' : 'justify-between'} text-sm mb-1`}>
-                    <div>
-                      <span className="font-medium">{subject.subject}</span>
-                      <span className="text-xs text-gray-500 ml-2">({subject.class})</span>
-                      <span className="text-xs text-gray-400 ml-1">- {subject.examName}</span>
-                    </div>
+                   <div>
+  <span className="font-medium">{subject.subject}</span>
+  <span className="text-xs text-gray-500 ml-2">
+    ({subject.class}{subject.stream && subject.stream !== 'Unknown Stream' ? ` - ${subject.stream}` : ''})
+  </span>
+  <span className="text-xs text-gray-400 ml-1">- {subject.examName}</span>
+</div>
                     <div className={`flex ${deviceInfo.isMobile ? 'flex-wrap gap-2' : 'gap-3'}`}>
                       <span className="text-green-600 text-xs">✓ {subject.passing}</span>
                       <span className="text-red-600 text-xs">✗ {subject.failing}</span>
