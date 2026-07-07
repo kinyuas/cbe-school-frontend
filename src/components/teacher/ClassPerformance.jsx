@@ -707,7 +707,7 @@ const ClassPerformance = () => {
         </div>
       )}
 
-      {/* Subject Performance Cards - Shows all subjects with stats */}
+      {/* Subject Performance Cards - Shows all subjects with stats including Class & Stream */}
       {subjectPerformance.length > 0 && (
         <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding} mb-4`}>
           <h3 className={`${responsive.headingSize} font-bold text-gray-800 mb-3 flex items-center gap-2`}>
@@ -724,7 +724,7 @@ const ClassPerformance = () => {
                   <div>
                     <span className="font-medium text-gray-800">{subject.subject}</span>
                     <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500 ml-2`}>
-                      ({subject.class} - {subject.stream})
+                      ({subject.class} {subject.stream && subject.stream !== 'Unknown Stream' ? `- ${subject.stream}` : ''})
                     </span>
                     <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-400 ml-2`}>
                       - {subject.examName}
