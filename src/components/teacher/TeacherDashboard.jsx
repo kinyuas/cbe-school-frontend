@@ -159,7 +159,8 @@ const TeacherDashboard = () => {
   const [teacherResults, setTeacherResults] = useState([]);
   const [activeExam, setActiveExam] = useState(null);
   const [teacherClass, setTeacherClass] = useState('');
-  const [teacherClasses, setTeacherClasses] = useState([]); // All classes taught by teacher
+  const [teacherClasses, setTeacherClasses] = useState([]);
+  const [teacherSubjects, setTeacherSubjects] = useState([]);
   
   // Exam time alert state
   const [examTimeAlerts, setExamTimeAlerts] = useState([]);
@@ -175,8 +176,6 @@ const TeacherDashboard = () => {
     try {
       console.log('📊 Loading teacher dashboard data...');
       console.log('👤 User:', user);
-      console.log('🆔 Teacher ID:', teacherId);
-      console.log('📛 Teacher Name:', teacherName);
       
       // Load school info
       try {
@@ -219,8 +218,6 @@ const TeacherDashboard = () => {
             console.log('📋 Sample result structure:', JSON.stringify(allResults[0], null, 2));
             console.log('📋 Available fields in results:', Object.keys(allResults[0]));
           }
-        } else {
-          console.warn('⚠️ Results API returned success: false');
         }
       } catch (err) {
         console.error('❌ Error loading results:', err);
@@ -250,11 +247,7 @@ const TeacherDashboard = () => {
       
       setPupils(learners);
       
-      // ============================================================
-      // FIXED: MULTIPLE METHODS TO FILTER RESULTS FOR THIS TEACHER
-      // ============================================================
-      
-      // Method 1: Get teacher's assigned class from user
+      // Get teacher's assigned class from user
       const assignedClass = user?.classAssigned || 
                            user?.class || 
                            user?.grade || 
@@ -262,12 +255,14 @@ const TeacherDashboard = () => {
       setTeacherClass(assignedClass);
       console.log(`📚 Teacher assigned class: ${assignedClass || 'Not assigned'}`);
       
-      // Method 2: Filter results using multiple criteria
+      // ============================================================
+      // FILTER RESULTS FOR THIS TEACHER
+      // ============================================================
       let teacherResultsData = [];
       
-      // Log all results for debugging
       console.log('🔍 Filtering results for teacher:', { teacherId, teacherName, assignedClass });
       
+      // Try multiple methods to match results
       allResults.forEach(result => {
         // Check various possible fields for teacher identification
         const resultTeacherId = result.teacherId || result.teacher_id || result.createdBy || result.uploadedBy;
@@ -289,9 +284,7 @@ const TeacherDashboard = () => {
           }
         }
         
-        // Add to teacher results if any condition matches
         if (matchesTeacherId || matchesTeacherName || matchesClass || pupilMatchesClass) {
-          // Add the class to the result if missing
           if (!result.class && (matchesClass || pupilMatchesClass)) {
             result.class = assignedClass;
           }
@@ -299,7 +292,7 @@ const TeacherDashboard = () => {
         }
       });
       
-      // If still no results, try a broader match with just the teacher's name
+      // If no results, try broader match
       if (teacherResultsData.length === 0 && teacherName) {
         console.log('🔄 Trying broader match with teacher name:', teacherName);
         teacherResultsData = allResults.filter(result => {
@@ -310,7 +303,7 @@ const TeacherDashboard = () => {
         console.log(`📚 Broader match found ${teacherResultsData.length} results`);
       }
       
-      // If still no results, fallback to assigned class
+      // Fallback to assigned class
       if (teacherResultsData.length === 0 && assignedClass) {
         console.log('🔄 Fallback to filtering by class:', assignedClass);
         teacherResultsData = allResults.filter(result => {
@@ -320,38 +313,38 @@ const TeacherDashboard = () => {
         console.log(`📚 Class filter found ${teacherResultsData.length} results`);
       }
       
-      // If STILL no results, and we have any results at all, check if teacher field exists
-      if (teacherResultsData.length === 0 && allResults.length > 0) {
-        // Try to find results that might be associated with this teacher via any field
-        console.log('🔄 Checking all possible teacher fields...');
-        const teacherFields = ['teacherId', 'teacher_id', 'teacher', 'createdBy', 'uploadedBy', 'teacherName', 'teacher_name'];
-        
-        teacherResultsData = allResults.filter(result => {
-          let match = false;
-          teacherFields.forEach(field => {
-            const fieldValue = result[field];
-            if (fieldValue) {
-              const fieldStr = String(fieldValue);
-              if (fieldStr === teacherId || fieldStr === user?._id || 
-                  fieldStr.toLowerCase() === teacherName.toLowerCase() ||
-                  fieldStr.includes(teacherName)) {
-                match = true;
-              }
-            }
-          });
-          return match;
-        });
-        console.log(`📚 Field-based match found ${teacherResultsData.length} results`);
-      }
-      
       console.log(`📚 FINAL: Found ${teacherResultsData.length} results for this teacher`);
-      
-      // Log sample of teacher results
-      if (teacherResultsData.length > 0) {
-        console.log('📋 Sample teacher result:', JSON.stringify(teacherResultsData[0], null, 2));
-      }
-      
       setTeacherResults(teacherResultsData);
+      
+      // ============================================================
+      // CALCULATE STATS
+      // ============================================================
+      
+      // 1. UPLOADED RESULTS - Total number of result entries
+      const uploadedResultsCount = teacherResultsData.length;
+      
+      // 2. CLASSES TAUGHT - Unique classes from results
+      const uniqueClasses = new Set();
+      teacherResultsData.forEach(r => {
+        const classValue = r.class || r.grade || r.className || r.classAssigned || r.class_id;
+        if (classValue) {
+          uniqueClasses.add(classValue);
+        }
+      });
+      const classesTaughtCount = uniqueClasses.size;
+      setTeacherClasses([...uniqueClasses]);
+      console.log(`📚 Classes taught: ${classesTaughtCount} - ${[...uniqueClasses].join(', ')}`);
+      
+      // 3. SUBJECTS TAUGHT - Unique subjects from results
+      const uniqueSubjects = new Set();
+      teacherResultsData.forEach(r => {
+        const subject = r.subject || r.subjectName || r.examName || r.learningArea || r.className;
+        if (subject) {
+          uniqueSubjects.add(subject);
+        }
+      });
+      setTeacherSubjects([...uniqueSubjects]);
+      console.log(`📚 Subjects taught: ${[...uniqueSubjects].join(', ')}`);
       
       // Find active exam
       const now = new Date();
@@ -364,116 +357,77 @@ const TeacherDashboard = () => {
       setActiveExam(currentExam || null);
       console.log(`📝 Active exam: ${currentExam?.title || 'None'}`);
       
-      // ============================================================
-      // CALCULATE UPLOADED RESULTS (Total number of result entries)
-      // ============================================================
-      const uploadedResultsCount = teacherResultsData.length;
-      
-      // ============================================================
-      // CALCULATE CLASSES TAUGHT (Unique classes with uploaded results)
-      // ============================================================
-      const uniqueClasses = new Set();
-      teacherResultsData.forEach(r => {
-        // Try multiple possible class fields
-        const classValue = r.class || r.grade || r.className || r.classAssigned || r.class_id;
-        if (classValue) {
-          uniqueClasses.add(classValue);
-        }
-      });
-      const classesTaughtCount = uniqueClasses.size;
-      setTeacherClasses([...uniqueClasses]);
-      console.log(`📚 Classes taught: ${classesTaughtCount} - ${[...uniqueClasses].join(', ')}`);
-      
-      // ============================================================
-      // CALCULATE COMPETENCIES RECORDED (Only for active exam)
-      // ============================================================
+      // 4. COMPETENCIES RECORDED - Results for active exam
       let competenciesCount = 0;
       if (currentExam && teacherResultsData.length > 0) {
-        // Filter results for current active exam
         const examResults = teacherResultsData.filter(r => {
-          // Check if result belongs to the active exam
           const matchesExamName = r.examName === currentExam.title || 
                                  r.exam === currentExam.title ||
                                  r.examType === currentExam.type ||
                                  r.exam_title === currentExam.title;
-          
-          const matchesTerm = r.term === currentExam.term || r.term === currentExam.term;
-          const matchesYear = r.year === currentExam.year || 
-                             r.year === new Date().getFullYear() ||
-                             r.academicYear === currentExam.year;
-          
+          const matchesTerm = r.term === currentExam.term;
+          const matchesYear = r.year === currentExam.year || r.year === new Date().getFullYear();
           return matchesExamName || (matchesTerm && matchesYear);
         });
         competenciesCount = examResults.length;
         console.log(`📊 Competencies recorded for active exam: ${competenciesCount}`);
       }
       
-      // ---- CLASS PERFORMANCE ----
-      const performanceByClass = {};
+      // ============================================================
+      // CLASS PERFORMANCE BY SUBJECT
+      // ============================================================
+      const performanceBySubject = {};
       
-      // Get pupils who have results from this teacher
-      const pupilIdsWithResults = new Set();
-      teacherResultsData.forEach(r => {
-        const pupilId = r.pupilId?._id || r.pupilId || r.pupil_id;
-        if (pupilId) {
-          pupilIdsWithResults.add(pupilId);
-        }
-      });
-      
-      // Filter learners to only those with results from this teacher
-      const learnersWithResults = learners.filter(learner => 
-        pupilIdsWithResults.has(learner._id)
-      );
-      console.log(`📚 Learners with results: ${learnersWithResults.length}`);
-      
-      learnersWithResults.forEach(learner => {
-        const learnerResults = teacherResultsData.filter(r => {
-          const pupilId = r.pupilId?._id || r.pupilId || r.pupil_id;
-          return pupilId === learner._id;
-        });
+      // Group results by subject
+      teacherResultsData.forEach(result => {
+        const subject = result.subject || result.subjectName || result.examName || result.learningArea || 'Unknown Subject';
+        const marks = result.marks || result.score || result.marksObtained || 0;
+        const className = result.class || result.grade || assignedClass || 'Unknown Class';
         
-        if (learnerResults.length > 0) {
-          // Calculate average score
-          const totalMarks = learnerResults.reduce((sum, r) => sum + (r.marks || r.score || r.marksObtained || 0), 0);
-          const avgScore = totalMarks / learnerResults.length;
-          
-          // Get class name
-          const className = learner.class || learner.grade || assignedClass || 'Class';
-          
-          if (!performanceByClass[className]) {
-            performanceByClass[className] = { 
-              total: 0, 
-              count: 0, 
-              scores: [],
-              results: 0
-            };
-          }
-          performanceByClass[className].total += avgScore;
-          performanceByClass[className].count++;
-          performanceByClass[className].scores.push(avgScore);
+        if (!performanceBySubject[subject]) {
+          performanceBySubject[subject] = {
+            subject: subject,
+            class: className,
+            totalMarks: 0,
+            count: 0,
+            scores: [],
+            students: new Set()
+          };
+        }
+        
+        performanceBySubject[subject].totalMarks += marks;
+        performanceBySubject[subject].count++;
+        performanceBySubject[subject].scores.push(marks);
+        
+        // Track unique students
+        const pupilId = result.pupilId?._id || result.pupilId || result.pupil_id;
+        if (pupilId) {
+          performanceBySubject[subject].students.add(pupilId);
         }
       });
       
-      // Calculate performance per class
-      const performanceData = Object.entries(performanceByClass).map(([className, data]) => {
-        // Count results for this class
-        const classResults = teacherResultsData.filter(r => {
-          const rClass = r.class || r.grade || r.className;
-          return rClass === className;
-        });
+      // Calculate averages and passing/failing
+      const performanceData = Object.values(performanceBySubject).map(data => {
+        const average = data.count > 0 ? (data.totalMarks / data.count) : 0;
+        const passing = data.scores.filter(s => s >= 60).length;
+        const failing = data.scores.filter(s => s < 60).length;
         
         return {
-          class: className,
-          average: data.count > 0 ? (data.total / data.count).toFixed(1) : 0,
-          students: data.count,
-          passing: data.scores.filter(s => s >= 60).length,
-          failing: data.scores.filter(s => s < 60).length,
-          totalStudents: data.scores.length,
-          uploadedResults: classResults.length
+          subject: data.subject,
+          class: data.class,
+          average: average.toFixed(1),
+          students: data.students.size,
+          totalResults: data.count,
+          passing: passing,
+          failing: failing,
+          scores: data.scores
         };
       });
       
-      console.log(`📊 Class performance data:`, performanceData);
+      // Sort by subject name
+      performanceData.sort((a, b) => a.subject.localeCompare(b.subject));
+      
+      console.log(`📊 Performance data:`, performanceData);
       setClassPerformance(performanceData);
       
       // ---- FILTER ACTIVE AND UPCOMING EXAMS ----
@@ -532,7 +486,7 @@ const TeacherDashboard = () => {
       checkExamAlerts(sortedExams);
       
       console.log('✅ Dashboard data loaded successfully');
-      console.log(`📊 FINAL STATS: Uploaded=${uploadedResultsCount}, Classes=${classesTaughtCount}, Competencies=${competenciesCount}`);
+      console.log(`📊 FINAL STATS: Uploaded=${uploadedResultsCount}, Classes=${classesTaughtCount}, Subjects=${uniqueSubjects.size}, Competencies=${competenciesCount}`);
       
     } catch (error) {
       console.error('❌ Error loading dashboard data:', error);
@@ -741,7 +695,6 @@ const TeacherDashboard = () => {
   else if (currentHour < 17) greeting = "Good Afternoon";
   else greeting = "Good Evening";
 
-  // Determine if there are any teacher results to show
   const hasTeacherResults = teacherResults.length > 0;
 
   return (
@@ -931,6 +884,9 @@ const TeacherDashboard = () => {
           ) : (
             <> You've uploaded <strong>{stats.uploadedResults}</strong> total results across <strong>{stats.classesTaught}</strong> class(es). No active exam currently.</>
           )}
+          {teacherSubjects.length > 0 && (
+            <> Subjects: <strong>{teacherSubjects.join(', ')}</strong></>
+          )}
         </div>
       </div>
 
@@ -956,10 +912,10 @@ const TeacherDashboard = () => {
 
       <div className={`grid ${deviceInfo.isMobile ? 'grid-cols-1' : 'lg:grid-cols-2'} gap-6 mb-6`}>
         
-        {/* Class Performance Section */}
+        {/* Class Performance Section - Now showing Subjects */}
         <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding}`}>
           <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-4 flex items-center gap-2`}>
-            <FiBarChart2 className="text-green-600" /> Class Performance
+            <FiBarChart2 className="text-green-600" /> Subject Performance
             {hasTeacherResults && (
               <span className="text-xs font-normal text-gray-500 ml-2">
                 ({teacherResults.length} results uploaded)
@@ -971,36 +927,39 @@ const TeacherDashboard = () => {
             <div className="text-center py-6">
               <FiBarChart2 className={`${deviceInfo.isMobile ? 'w-8 h-8' : 'w-10 h-10'} text-gray-300 mx-auto mb-2`} />
               <p className="text-gray-500 text-sm">No results uploaded yet</p>
-              <p className="text-xs text-gray-400 mt-1">Upload results to see class performance</p>
+              <p className="text-xs text-gray-400 mt-1">Upload results to see subject performance</p>
               <Link to="/teacher/results" className="mt-3 inline-block text-sm text-green-600 hover:text-green-800">
                 Upload Results →
               </Link>
             </div>
           ) : classPerformance.length > 0 ? (
-            <div className="space-y-3">
-              {classPerformance.map((cls, index) => (
-                <div key={index}>
+            <div className="space-y-4">
+              {classPerformance.map((subject, index) => (
+                <div key={index} className="border-b border-gray-100 pb-3 last:border-0">
                   <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-1' : 'justify-between'} text-sm mb-1`}>
-                    <span className="font-medium">{cls.class}</span>
+                    <div>
+                      <span className="font-medium">{subject.subject}</span>
+                      <span className="text-xs text-gray-500 ml-2">({subject.class})</span>
+                    </div>
                     <div className={`flex ${deviceInfo.isMobile ? 'flex-wrap gap-2' : 'gap-3'}`}>
-                      <span className="text-green-600 text-xs">✓ {cls.passing}</span>
-                      <span className="text-red-600 text-xs">✗ {cls.failing}</span>
-                      <span className="font-bold text-xs">Avg: {cls.average}%</span>
-                      <span className="text-gray-400 text-xs">({cls.uploadedResults} results)</span>
+                      <span className="text-green-600 text-xs">✓ {subject.passing}</span>
+                      <span className="text-red-600 text-xs">✗ {subject.failing}</span>
+                      <span className="font-bold text-xs">Avg: {subject.average}%</span>
+                      <span className="text-gray-400 text-xs">({subject.totalResults} results)</span>
                     </div>
                   </div>
                   <div className="w-full bg-gray-200 rounded-full h-2">
                     <div 
                       className={`rounded-full h-2 transition-all ${
-                        cls.average >= 80 ? 'bg-purple-500' :
-                        cls.average >= 60 ? 'bg-green-500' :
-                        cls.average >= 40 ? 'bg-blue-500' : 'bg-red-500'
+                        subject.average >= 80 ? 'bg-purple-500' :
+                        subject.average >= 60 ? 'bg-green-500' :
+                        subject.average >= 40 ? 'bg-blue-500' : 'bg-red-500'
                       }`}
-                      style={{ width: `${Math.min(cls.average, 100)}%` }}
+                      style={{ width: `${Math.min(subject.average, 100)}%` }}
                     />
                   </div>
                   <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500 mt-1`}>
-                    {cls.students} students • {cls.totalStudents || cls.students} total
+                    {subject.students} students • {subject.totalResults} total results
                   </p>
                 </div>
               ))}
@@ -1009,17 +968,20 @@ const TeacherDashboard = () => {
                 {teacherClasses.length > 0 && (
                   <p className="text-gray-400">Classes: {teacherClasses.join(', ')}</p>
                 )}
+                {teacherSubjects.length > 0 && (
+                  <p className="text-gray-400">Subjects: {teacherSubjects.join(', ')}</p>
+                )}
               </div>
             </div>
           ) : (
             <div className="text-center py-6">
               <FiBarChart2 className={`${deviceInfo.isMobile ? 'w-8 h-8' : 'w-10 h-10'} text-gray-300 mx-auto mb-2`} />
-              <p className="text-gray-500 text-sm">No students with results found</p>
-              <p className="text-xs text-gray-400 mt-1">Upload results to see performance data</p>
+              <p className="text-gray-500 text-sm">No subject data available</p>
+              <p className="text-xs text-gray-400 mt-1">Upload results to see subject performance</p>
             </div>
           )}
           <Link to="/teacher/performance" className={`block text-center ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-green-600 hover:text-green-800 mt-4`}>
-            View Detailed Class Performance →
+            View Detailed Performance →
           </Link>
         </div>
 
@@ -1170,6 +1132,10 @@ const TeacherDashboard = () => {
               <span className="text-sm text-purple-700">Classes Taught</span>
               <span className="font-bold text-purple-700 text-lg">{stats.classesTaught}</span>
             </div>
+            <div className="flex justify-between items-center p-2 bg-indigo-50 rounded-lg border border-indigo-100">
+              <span className="text-sm text-indigo-700">Subjects Taught</span>
+              <span className="font-bold text-indigo-700 text-lg">{teacherSubjects.length}</span>
+            </div>
             <div className="flex justify-between items-center p-2 bg-green-50 rounded-lg border border-green-100">
               <span className="text-sm text-green-700">Active Exam Results</span>
               <span className="font-bold text-green-700 text-lg">{stats.competenciesRecorded}</span>
@@ -1180,6 +1146,16 @@ const TeacherDashboard = () => {
                 {teacherClasses.map((cls, i) => (
                   <span key={i} className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
                     {cls}
+                  </span>
+                ))}
+              </div>
+            )}
+            {teacherSubjects.length > 0 && (
+              <div className="flex flex-wrap gap-1 p-2 bg-gray-50 rounded-lg">
+                <span className="text-sm text-gray-600">Subjects:</span>
+                {teacherSubjects.map((subj, i) => (
+                  <span key={i} className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+                    {subj}
                   </span>
                 ))}
               </div>
