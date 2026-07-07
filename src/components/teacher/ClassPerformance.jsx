@@ -158,7 +158,12 @@ const ClassPerformance = () => {
       // Get subjects from results data instead of predefined list
       const classResults = teacherResults.filter(r => {
         const pupilId = r.pupilId?._id || r.pupilId;
-        const pupil = students.find(p => p._id === pupilId);
+        if (!pupilId) return false;
+        const pupilIdStr = String(pupilId);
+        const pupil = students.find(p => {
+          const pId = p._id?._id || p._id || p.id;
+          return String(pId) === pupilIdStr;
+        });
         return pupil?.class === selectedClass || pupil?.grade === selectedClass;
       });
       const subjects = [...new Set(classResults.map(r => r.subject).filter(Boolean))];
@@ -175,7 +180,12 @@ const ClassPerformance = () => {
       const resultStreams = [...new Set(
         classResults.map(r => {
           const pupilId = r.pupilId?._id || r.pupilId;
-          const pupil = students.find(p => p._id === pupilId);
+          if (!pupilId) return null;
+          const pupilIdStr = String(pupilId);
+          const pupil = students.find(p => {
+            const pId = p._id?._id || p._id || p.id;
+            return String(pId) === pupilIdStr;
+          });
           return pupil?.stream;
         }).filter(Boolean)
       )];
@@ -263,10 +273,16 @@ const ClassPerformance = () => {
       const subjects = new Set();
       teacherResultsData.forEach(r => {
         const pupilId = r.pupilId?._id || r.pupilId;
-        const pupil = students.find(p => p._id === pupilId);
-        if (pupil) {
-          if (pupil.class) classes.add(pupil.class);
-          if (pupil.grade) classes.add(pupil.grade);
+        if (pupilId) {
+          const pupilIdStr = String(pupilId);
+          const pupil = students.find(p => {
+            const pId = p._id?._id || p._id || p.id;
+            return String(pId) === pupilIdStr;
+          });
+          if (pupil) {
+            if (pupil.class) classes.add(pupil.class);
+            if (pupil.grade) classes.add(pupil.grade);
+          }
         }
         if (r.subject) subjects.add(r.subject);
       });
@@ -304,8 +320,16 @@ const ClassPerformance = () => {
       const examName = result.examName || 'Assessment';
       const pupilId = result.pupilId?._id || result.pupilId;
       
-      // Get pupil info
-      const pupil = students.find(p => p._id === pupilId);
+      // Get pupil info - FIXED: Handle both string and object IDs
+      let pupil = null;
+      if (pupilId) {
+        const pupilIdStr = String(pupilId);
+        pupil = students.find(p => {
+          const pId = p._id?._id || p._id || p.id;
+          return String(pId) === pupilIdStr;
+        });
+      }
+      
       const className = pupil?.class || pupil?.grade || 'Unknown Class';
       const stream = pupil?.stream || 'Unknown Stream';
       
@@ -475,7 +499,10 @@ const ClassPerformance = () => {
       const studentPerformance = classStudents.map(student => {
         const studentResult = filteredResults.find(r => {
           const pupilId = r.pupilId?._id || r.pupilId;
-          return pupilId === student._id;
+          if (!pupilId) return false;
+          const pupilIdStr = String(pupilId);
+          const pId = student._id?._id || student._id || student.id;
+          return String(pId) === pupilIdStr;
         });
         
         const marks = studentResult?.marks || 0;
@@ -499,13 +526,20 @@ const ClassPerformance = () => {
       filteredResults.forEach(r => {
         if ((r.marks || 0) > highestScore) {
           highestScore = r.marks || 0;
-          const student = classStudents.find(s => s._id === (r.pupilId?._id || r.pupilId));
-          if (student) {
-            topStudentData = {
-              name: student.name,
-              admNo: student.admNo,
-              score: r.marks
-            };
+          const pupilId = r.pupilId?._id || r.pupilId;
+          if (pupilId) {
+            const pupilIdStr = String(pupilId);
+            const student = classStudents.find(s => {
+              const pId = s._id?._id || s._id || s.id;
+              return String(pId) === pupilIdStr;
+            });
+            if (student) {
+              topStudentData = {
+                name: student.name,
+                admNo: student.admNo,
+                score: r.marks
+              };
+            }
           }
         }
       });
