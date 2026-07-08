@@ -13,6 +13,25 @@ import api from '../../services/api';
 import * as XLSX from 'xlsx';
 import { useAuth } from '../../context/AuthContext';
 
+// ===== CLASS ORDER DEFINITION (Lowest to Highest) =====
+const CLASS_ORDER = [
+  'Play Group',
+  'Pre-Primary 1',
+  'Pre-Primary 2',
+  'Grade 1',
+  'Grade 2',
+  'Grade 3',
+  'Grade 4',
+  'Grade 5',
+  'Grade 6',
+  'Grade 7',
+  'Grade 8',
+  'Grade 9',
+  'Grade 10',
+  'Grade 11',
+  'Grade 12'
+];
+
 // ===== AI Device Detection Hook =====
 const useDeviceDetection = () => {
   const [deviceInfo, setDeviceInfo] = useState({
@@ -76,6 +95,31 @@ const useResponsiveClasses = (deviceInfo) => {
   };
 };
 
+// ===== Sorting Function =====
+const getClassOrder = (className) => {
+  const index = CLASS_ORDER.indexOf(className);
+  return index !== -1 ? index : 999;
+};
+
+const sortClassesByOrder = (classes) => {
+  return [...classes].sort((a, b) => {
+    const orderA = getClassOrder(a);
+    const orderB = getClassOrder(b);
+    return orderA - orderB;
+  });
+};
+
+// ===== Check if there is an active exam =====
+const getActiveExam = (examsData) => {
+  const now = new Date();
+  return examsData.find(e => {
+    if (!e.startDateTime || !e.endDateTime) return false;
+    const start = new Date(e.startDateTime);
+    const end = new Date(e.endDateTime);
+    return start <= now && end >= now && e.isActive !== false;
+  }) || null;
+};
+
 const ClassPerformance = () => {
   // AI Device Detection
   const deviceInfo = useDeviceDetection();
@@ -94,6 +138,8 @@ const ClassPerformance = () => {
   const [totalResults, setTotalResults] = useState(0);
   const [teacherClasses, setTeacherClasses] = useState([]);
   const [teacherSubjects, setTeacherSubjects] = useState([]);
+  const [isExamPeriod, setIsExamPeriod] = useState(false);
+  const [activeExam, setActiveExam] = useState(null);
   
   // User role
   const [userRole, setUserRole] = useState(null);
@@ -103,6 +149,7 @@ const ClassPerformance = () => {
   const [availableExamNames, setAvailableExamNames] = useState([]);
   const [availableSubjects, setAvailableSubjects] = useState([]);
   const [availableExamTypes, setAvailableExamTypes] = useState([]);
+  const [availableStreams, setAvailableStreams] = useState([]);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedClass, setSelectedClass] = useState('');
   const [selectedStream, setSelectedStream] = useState('');
@@ -142,29 +189,21 @@ const ClassPerformance = () => {
     return competencyLevels.find(l => score >= l.minScore && score <= l.maxScore);
   };
 
-  // Helper function to find pupil by ID - FIXED to handle all ID formats
+  // Helper function to find pupil by ID
   const findPupilById = (pupilId, learners) => {
     if (!pupilId || !learners || learners.length === 0) return null;
-    
-    // Convert to string for comparison
     const pupilIdStr = String(pupilId);
-    
-    // Try to find by _id (handles both string and object formats)
-    let pupil = learners.find(p => {
+    return learners.find(p => {
       if (!p) return false;
-      // Check if p._id exists and compare
       if (p._id) {
         const pId = typeof p._id === 'object' ? String(p._id) : String(p._id);
         return pId === pupilIdStr;
       }
-      // Check if p.id exists
       if (p.id) {
         return String(p.id) === pupilIdStr;
       }
       return false;
-    });
-    
-    return pupil || null;
+    }) || null;
   };
 
   useEffect(() => {
@@ -177,16 +216,16 @@ const ClassPerformance = () => {
     setUserRole(userData.role);
   };
 
-  // Update available subjects when class changes
+  // Update available subjects and streams when class changes
   useEffect(() => {
     if (selectedClass) {
-      // Get subjects from results data instead of predefined list
       const classResults = teacherResults.filter(r => {
         const pupilId = r.pupilId?._id || r.pupilId;
         if (!pupilId) return false;
         const pupil = findPupilById(pupilId, students);
         return pupil?.class === selectedClass || pupil?.grade === selectedClass;
       });
+      
       const subjects = [...new Set(classResults.map(r => r.subject).filter(Boolean))];
       setAvailableSubjects(subjects);
       
@@ -194,10 +233,8 @@ const ClassPerformance = () => {
         setSelectedSubject('');
       }
       
-      // Update streams
       const classData = schoolInfo.classes?.find(c => c.name === selectedClass);
-      const streams = classData?.streams || [];
-      // Get unique streams from results
+      const schoolStreams = classData?.streams || [];
       const resultStreams = [...new Set(
         classResults.map(r => {
           const pupilId = r.pupilId?._id || r.pupilId;
@@ -206,7 +243,10 @@ const ClassPerformance = () => {
           return pupil?.stream;
         }).filter(Boolean)
       )];
-      const allStreams = [...new Set([...streams, ...resultStreams])];
+      
+      const allStreams = [...new Set([...schoolStreams, ...resultStreams])];
+      setAvailableStreams(allStreams);
+      
       if (allStreams.length === 1) {
         setSelectedStream(allStreams[0]);
       } else {
@@ -214,6 +254,8 @@ const ClassPerformance = () => {
       }
     } else {
       setAvailableSubjects([]);
+      setAvailableStreams([]);
+      setSelectedStream('');
     }
   }, [selectedClass, schoolInfo, students, teacherResults]);
 
@@ -233,7 +275,7 @@ const ClassPerformance = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      // Load school info from database
+      // Load school info
       const schoolResponse = await api.get('/school/settings');
       if (schoolResponse.data.success && schoolResponse.data.data) {
         const school = schoolResponse.data.data;
@@ -241,10 +283,10 @@ const ClassPerformance = () => {
         const activeClasses = (school.classes || [])
           .filter(c => c.isActive !== false)
           .map(c => c.name);
-        setAvailableClasses(activeClasses);
-        console.log('📋 Classes:', activeClasses);
+        const sortedClasses = sortClassesByOrder(activeClasses);
+        setAvailableClasses(sortedClasses);
+        console.log('📋 Sorted Classes:', sortedClasses);
       } else {
-        // Fallback to localStorage
         const storedSchool = localStorage.getItem('schoolInfo');
         if (storedSchool) {
           const school = JSON.parse(storedSchool);
@@ -252,7 +294,7 @@ const ClassPerformance = () => {
           const activeClasses = (school.classes || [])
             .filter(c => c.isActive !== false)
             .map(c => c.name);
-          setAvailableClasses(activeClasses);
+          setAvailableClasses(sortClassesByOrder(activeClasses));
         } else {
           setSchoolInfo({ name: 'School Name', classes: [] });
         }
@@ -268,27 +310,43 @@ const ClassPerformance = () => {
       setResults(allResults);
       console.log(`📊 Loaded ${allResults.length} results`);
       
-      // Filter results for this teacher using recordedBy field
+      const examsRes = await api.get('/exams');
+      let examsData = [];
+      if (examsRes.data.success) {
+        examsData = examsRes.data.data || [];
+        setExams(examsData);
+        
+        const examTypesFromDb = [...new Set(examsData.map(e => e.type).filter(Boolean))];
+        setAvailableExamTypes(examTypesFromDb);
+        console.log('📋 Exam types fetched from database:', examTypesFromDb);
+      }
+      
+      // Check if there's an active exam
+      const currentActiveExam = getActiveExam(examsData);
+      setIsExamPeriod(currentActiveExam !== null);
+      setActiveExam(currentActiveExam);
+      
+      // Get ALL teacher results (not filtered by exam)
       let teacherResultsData = [];
       if (teacherId) {
-        teacherResultsData = allResults.filter(r => r.recordedBy === teacherId);
-        console.log(`📚 Found ${teacherResultsData.length} results recorded by teacher: ${teacherName}`);
+        teacherResultsData = allResults.filter(result => {
+          const recordedBy = result.recordedBy || result.teacherId || result.createdBy;
+          return recordedBy === teacherId;
+        });
       }
       
       // If no results by recordedBy, try by teacher name
       if (teacherResultsData.length === 0 && teacherName) {
-        teacherResultsData = allResults.filter(r => 
-          r.submittedBy === teacherName || 
-          r.updatedBy === teacherName ||
-          r.createdBy === teacherName
-        );
-        console.log(`📚 Found ${teacherResultsData.length} results by teacher name`);
+        teacherResultsData = allResults.filter(result => {
+          const submittedBy = result.submittedBy || result.updatedBy || result.createdBy || '';
+          return submittedBy === teacherName || submittedBy.includes(teacherName);
+        });
       }
       
       setTeacherResults(teacherResultsData);
       setTotalResults(teacherResultsData.length);
       
-      // Extract unique classes and subjects from teacher's results
+      // Extract unique classes and subjects from ALL teacher results
       const classes = new Set();
       const subjects = new Set();
       teacherResultsData.forEach(r => {
@@ -305,19 +363,8 @@ const ClassPerformance = () => {
       setTeacherClasses([...classes]);
       setTeacherSubjects([...subjects]);
       
-      // Calculate subject performance with stream separation
+      // Calculate subject performance with stream separation for ALL results
       calculateSubjectPerformance(teacherResultsData, studentsData);
-      
-      const examsRes = await api.get('/exams');
-      if (examsRes.data.success) {
-        const examsData = examsRes.data.data || [];
-        setExams(examsData);
-        
-        // Extract unique exam types from the exams data
-        const examTypesFromDb = [...new Set(examsData.map(e => e.type).filter(Boolean))];
-        setAvailableExamTypes(examTypesFromDb);
-        console.log('📋 Exam types fetched from database:', examTypesFromDb);
-      }
       
     } catch (error) {
       console.error('Error loading data:', error);
@@ -329,8 +376,6 @@ const ClassPerformance = () => {
 
   const calculateSubjectPerformance = (resultsData, learners) => {
     const performanceBySubject = {};
-    
-    // Use the learners array passed in, or fallback to state
     const studentList = learners || students;
     
     console.log(`📊 Calculating performance with ${studentList.length} students available`);
@@ -341,15 +386,12 @@ const ClassPerformance = () => {
       const examName = result.examName || 'Assessment';
       const pupilId = result.pupilId?._id || result.pupilId;
       
-      // Get pupil info - FIXED to use the helper
       let pupil = null;
       if (pupilId) {
         pupil = findPupilById(pupilId, studentList);
         if (!pupil) {
-          // Try one more time with a different approach
           const pupilIdStr = String(pupilId);
           pupil = studentList.find(p => {
-            // Check if p._id is an object with toString
             if (p._id && typeof p._id === 'object') {
               return String(p._id) === pupilIdStr;
             }
@@ -367,12 +409,6 @@ const ClassPerformance = () => {
       const className = pupil?.class || pupil?.grade || 'Unknown Class';
       const stream = pupil?.stream || 'Unknown Stream';
       
-      // Log if unknown class is found
-      if (className === 'Unknown Class') {
-        console.log(`⚠️ Unknown class for pupilId: ${pupilId}, subject: ${subject}`);
-      }
-      
-      // Create a unique key that includes subject, class, and stream
       const key = `${subject}_${className}_${stream}`;
       
       if (!performanceBySubject[key]) {
@@ -405,7 +441,6 @@ const ClassPerformance = () => {
       }
     });
     
-    // Convert to array and calculate averages
     const performanceData = Object.values(performanceBySubject).map(data => {
       const average = data.count > 0 ? (data.totalMarks / data.count) : 0;
       return {
@@ -422,7 +457,6 @@ const ClassPerformance = () => {
       };
     });
     
-    // Sort by subject name, then class, then stream
     performanceData.sort((a, b) => {
       if (a.subject !== b.subject) return a.subject.localeCompare(b.subject);
       if (a.class !== b.class) return a.class.localeCompare(b.class);
@@ -504,7 +538,7 @@ const ClassPerformance = () => {
     
     try {
       let classStudents = students.filter(s => s.class === selectedClass);
-      if (selectedStream && selectedStream !== 'all') {
+      if (selectedStream && selectedStream !== 'all' && selectedStream !== '') {
         classStudents = classStudents.filter(s => s.stream === selectedStream);
       }
       
@@ -537,11 +571,9 @@ const ClassPerformance = () => {
         return;
       }
       
-      // Calculate stats for the filtered data
       const totalScore = filteredResults.reduce((sum, r) => sum + (r.marks || 0), 0);
       const avgScore = totalScore / filteredResults.length;
       
-      // Prepare student performance data
       const studentPerformance = classStudents.map(student => {
         const studentResult = filteredResults.find(r => {
           const pupilId = r.pupilId?._id || r.pupilId;
@@ -566,7 +598,6 @@ const ClassPerformance = () => {
       setPerformanceData(studentPerformance);
       setClassAverage(avgScore);
       
-      // Find top student
       let topStudentData = null;
       let highestScore = 0;
       filteredResults.forEach(r => {
@@ -642,9 +673,8 @@ const ClassPerformance = () => {
   const [performanceData, setPerformanceData] = useState([]);
   const [classAverage, setClassAverage] = useState(0);
   const [topStudent, setTopStudent] = useState(null);
-  const [availableStreams, setAvailableStreams] = useState([]);
 
-  // Download Excel - Vercel compatible
+  // Download Excel
   const downloadResultsExcel = () => {
     if (performanceData.length === 0) {
       toast.error('No data to download');
@@ -666,11 +696,11 @@ const ClassPerformance = () => {
       [`${schoolInfo.name || 'School Name'}`],
       [`Subject Performance Report - ${selectedSubject}`],
       [],
-      [`Class: ${selectedClass}${selectedStream && selectedStream !== 'all' ? ` - ${selectedStream}` : ''}`],
+      [`Class: ${selectedClass}${selectedStream && selectedStream !== 'all' && selectedStream !== '' ? ` - ${selectedStream}` : ''}`],
       [`Year: ${selectedYear} | Term: ${selectedTerm || 'All Terms'}`],
       [`Exam: ${selectedExamName} (${selectedExamType})`],
       [`Subject: ${selectedSubject}`],
-      [`Stream: ${selectedStream}`],
+      [`Stream: ${selectedStream || 'All Streams'}`],
       [`Generated: ${new Date().toLocaleString()}`],
       [],
       ['Student Name', 'Admission Number', 'Stream', 'Marks (%)', 'Grade', 'Competency Level', 'Remarks'],
@@ -729,10 +759,12 @@ const ClassPerformance = () => {
     );
   }
 
+  const hasTeacherResults = teacherResults.length > 0;
+
   return (
     <Layout title="Subject Performance" subtitle="View and analyze subject-specific performance">
       
-      {/* Header - AI Responsive */}
+      {/* Header */}
       <div className={`bg-gradient-to-r from-green-600 to-blue-600 rounded-xl ${deviceInfo.isMobile ? 'p-3' : 'p-5'} mb-4 text-white`}>
         <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'items-center gap-3'}`}>
           <div className="flex items-center gap-3">
@@ -755,7 +787,30 @@ const ClassPerformance = () => {
         </div>
       </div>
 
-      {/* Teacher Results Summary - Shows all uploaded results */}
+      {/* Exam Period Status Banner */}
+      {isExamPeriod ? (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-4 flex items-center gap-3">
+          <FiCheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
+          <div className="text-sm text-green-700">
+            <span className="font-semibold">Active Exam:</span> {activeExam?.title}
+            <span className="text-xs text-green-500 ml-2">
+              ({activeExam?.startDateTime ? new Date(activeExam.startDateTime).toLocaleDateString() : 'Date TBA'})
+            </span>
+          </div>
+        </div>
+      ) : (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4 flex items-center gap-3">
+          <FiInfo className="w-5 h-5 text-yellow-600 flex-shrink-0" />
+          <div className="text-sm text-yellow-700">
+            <span className="font-semibold">No Active Exam</span>
+            <span className="text-xs text-yellow-500 ml-2">
+              {exams.length > 0 ? `Next: ${exams[0]?.title} starts on ${exams[0]?.startDateTime ? new Date(exams[0].startDateTime).toLocaleDateString() : 'Date TBA'}` : 'No exams scheduled'}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Teacher Results Summary - Shows ALL uploaded results */}
       {teacherResults.length > 0 && (
         <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding} mb-4`}>
           <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'justify-between items-center'}`}>
@@ -769,6 +824,9 @@ const ClassPerformance = () => {
               </h3>
               <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500 mt-1`}>
                 Showing all results you've uploaded across all subjects, classes, and streams
+                {isExamPeriod && activeExam && (
+                  <span className="text-green-600 ml-1">(Active exam: {activeExam.title})</span>
+                )}
               </p>
             </div>
             <div className={`flex ${deviceInfo.isMobile ? 'flex-wrap gap-1' : 'gap-2'}`}>
@@ -787,7 +845,7 @@ const ClassPerformance = () => {
         </div>
       )}
 
-      {/* Subject Performance Cards - Shows each stream separately */}
+      {/* Subject Performance Cards - Shows ALL subjects with stats */}
       {subjectPerformance.length > 0 && (
         <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding} mb-4`}>
           <h3 className={`${responsive.headingSize} font-bold text-gray-800 mb-3 flex items-center gap-2`}>
@@ -850,7 +908,7 @@ const ClassPerformance = () => {
         </div>
       )}
 
-      {/* Filter Section - AI Responsive */}
+      {/* Filter Section */}
       <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding} mb-4`}>
         <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-3 flex items-center gap-2`}>
           <FiFilter className="text-green-600" /> Detailed Performance Filters
@@ -934,6 +992,23 @@ const ClassPerformance = () => {
           </div>
         </div>
         
+        {/* Stream Filter - Only shown when a class is selected and streams are available */}
+        {selectedClass && availableStreams.length > 0 && (
+          <div className="mt-3">
+            <label className={`block text-gray-700 font-medium mb-1 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>Stream</label>
+            <select 
+              value={selectedStream} 
+              onChange={(e) => setSelectedStream(e.target.value)} 
+              className={`input-field w-full ${deviceInfo.isMobile ? 'text-base' : ''}`}
+            >
+              <option value="">All Streams</option>
+              {availableStreams.map(stream => (
+                <option key={stream} value={stream}>{stream}</option>
+              ))}
+            </select>
+          </div>
+        )}
+        
         <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'gap-3'} mt-4`}>
           <button 
             onClick={loadPerformanceData} 
@@ -954,7 +1029,7 @@ const ClassPerformance = () => {
       {/* Detailed Performance Results Section */}
       {showResults && performanceData.length > 0 && (
         <>
-          {/* Stats Cards - AI Responsive */}
+          {/* Stats Cards */}
           <div className={`grid ${responsive.statsGrid} ${responsive.gridGap} mb-4`}>
             <div className={`bg-white rounded-xl shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-4'} text-center`}>
               <FiUsers className={`${deviceInfo.isMobile ? 'w-5 h-5' : 'w-6 h-6'} text-blue-500 mx-auto mb-1`} />
@@ -988,7 +1063,7 @@ const ClassPerformance = () => {
             </p>
           </div>
 
-          {/* Competency Distribution - AI Responsive */}
+          {/* Competency Distribution */}
           <div className={`bg-white rounded-xl shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-4'} mb-4`}>
             <h3 className={`font-bold text-gray-800 ${deviceInfo.isMobile ? 'text-sm' : 'text-lg'} mb-3`}>Competency Distribution - {selectedSubject}</h3>
             <div className="space-y-3">
@@ -1016,7 +1091,7 @@ const ClassPerformance = () => {
             </div>
           </div>
 
-          {/* Student Performance Table - AI Responsive */}
+          {/* Student Performance Table */}
           <div className="bg-white rounded-xl shadow-md overflow-hidden mb-4">
             <div className={`${deviceInfo.isMobile ? 'px-3 py-2' : 'px-6 py-4'} border-b border-gray-200 flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'justify-between items-center'} flex-wrap`}>
               <h3 className={`${deviceInfo.isMobile ? 'text-sm' : 'text-lg'} font-bold text-gray-800`}>Student Performance Details - {selectedSubject}</h3>
@@ -1080,7 +1155,7 @@ const ClassPerformance = () => {
             </div>
           </div>
           
-          {/* Download Buttons - AI Responsive */}
+          {/* Download Buttons */}
           <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'justify-end gap-3'}`}>
             <button 
               onClick={downloadResultsExcel} 
@@ -1113,7 +1188,7 @@ const ClassPerformance = () => {
         </div>
       )}
 
-      {/* Competency Guide - AI Responsive */}
+      {/* Competency Guide */}
       <div className={`mt-4 bg-white rounded-xl shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-4'}`}>
         <h3 className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} font-semibold text-gray-700 mb-2`}>CBE Competency Levels Guide</h3>
         <div className={`grid ${deviceInfo.isMobile ? 'grid-cols-2 gap-1' : 'grid-cols-2 md:grid-cols-5 gap-2'}`}>
