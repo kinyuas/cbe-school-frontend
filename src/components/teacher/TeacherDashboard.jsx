@@ -129,14 +129,14 @@ const calculateTimeRemaining = (endDateTime) => {
 };
 
 // ===== Check if there is an active exam =====
-const hasActiveExam = (examsData) => {
+const getActiveExam = (examsData) => {
   const now = new Date();
-  return examsData.some(e => {
+  return examsData.find(e => {
     if (!e.startDateTime || !e.endDateTime) return false;
     const start = new Date(e.startDateTime);
     const end = new Date(e.endDateTime);
     return start <= now && end >= now && e.isActive !== false;
-  });
+  }) || null;
 };
 
 // ===== Get the next upcoming exam =====
@@ -245,16 +245,12 @@ const TeacherDashboard = () => {
         console.error('❌ Error loading pupils:', err);
       }
       
-      // Fetch results
+      // Fetch results - get ALL results from database
       try {
         const resultsRes = await api.get('/results');
         if (resultsRes.data?.success) {
           allResults = resultsRes.data.data || [];
           console.log(`✅ Loaded ${allResults.length} total results from database`);
-          
-          if (allResults.length > 0) {
-            console.log('📋 Sample result structure:', JSON.stringify(allResults[0], null, 2));
-          }
         }
       } catch (err) {
         console.error('❌ Error loading results:', err);
@@ -287,27 +283,21 @@ const TeacherDashboard = () => {
       // ============================================================
       // CHECK IF THERE IS AN ACTIVE EXAM PERIOD
       // ============================================================
-      const now = new Date();
-      const activeExamFound = hasActiveExam(examsData);
+      const currentActiveExam = getActiveExam(examsData);
       const nextUpcomingExam = getNextUpcomingExam(examsData);
       
-      setIsExamPeriod(activeExamFound);
+      const examIsActive = currentActiveExam !== null;
+      
+      setIsExamPeriod(examIsActive);
+      setActiveExam(currentActiveExam);
       setNextExam(nextUpcomingExam);
       
-      console.log(`📝 Active exam period: ${activeExamFound}`);
+      console.log(`📝 Active exam: ${currentActiveExam?.title || 'None'}`);
       console.log(`📝 Next upcoming exam: ${nextUpcomingExam?.title || 'None'}`);
-      
-      // Find the current active exam
-      const currentExam = examsData.find(e => {
-        if (!e.startDateTime || !e.endDateTime) return false;
-        const start = new Date(e.startDateTime);
-        const end = new Date(e.endDateTime);
-        return start <= now && end >= now && e.isActive !== false;
-      });
-      setActiveExam(currentExam || null);
+      console.log(`📝 Exam period active: ${examIsActive}`);
       
       // ============================================================
-      // FILTER RESULTS - ONLY SHOW IF EXAM PERIOD IS ACTIVE
+      // FILTER RESULTS - ONLY FOR THE CURRENT ACTIVE EXAM
       // ============================================================
       let teacherResultsData = [];
       let uploadedResultsCount = 0;
@@ -315,22 +305,27 @@ const TeacherDashboard = () => {
       let classesTaughtCount = 0;
       let performanceData = [];
       
-      if (activeExamFound && currentExam) {
-        console.log('📚 Exam period is active. Loading results...');
+      if (examIsActive && currentActiveExam) {
+        console.log(`📚 Exam period is active. Filtering results for: ${currentActiveExam.title}`);
         
-        // Filter results by recordedBy and exam
+        // Filter results by recordedBy AND examName/term/year matching the active exam
         if (teacherId) {
           teacherResultsData = allResults.filter(result => {
             const recordedBy = result.recordedBy || result.teacherId || result.createdBy;
             const matchesTeacher = recordedBy === teacherId;
-            const matchesExam = result.examName === currentExam.title || 
-                               result.examType === currentExam.type;
-            const matchesTerm = result.term === currentExam.term;
-            const matchesYear = result.year === currentExam.year || 
-                               result.year === new Date().getFullYear();
-            return matchesTeacher && (matchesExam || (matchesTerm && matchesYear));
+            
+            // Match by examName OR (examType AND term AND year)
+            const matchesExamName = result.examName === currentActiveExam.title;
+            const matchesExamType = result.examType === currentActiveExam.type;
+            const matchesTerm = result.term === currentActiveExam.term;
+            const matchesYear = result.year === currentActiveExam.year;
+            
+            // A result belongs to this exam if it matches examName OR (examType + term + year)
+            const matchesExam = matchesExamName || (matchesExamType && matchesTerm && matchesYear);
+            
+            return matchesTeacher && matchesExam;
           });
-          console.log(`📚 Found ${teacherResultsData.length} results for active exam: ${currentExam.title}`);
+          console.log(`📚 Found ${teacherResultsData.length} results for active exam: ${currentActiveExam.title}`);
         }
         
         // If no results by recordedBy, try by teacher name
@@ -338,12 +333,15 @@ const TeacherDashboard = () => {
           teacherResultsData = allResults.filter(result => {
             const submittedBy = result.submittedBy || result.updatedBy || result.createdBy || '';
             const matchesTeacher = submittedBy === teacherName || submittedBy.includes(teacherName);
-            const matchesExam = result.examName === currentExam.title || 
-                               result.examType === currentExam.type;
-            const matchesTerm = result.term === currentExam.term;
-            const matchesYear = result.year === currentExam.year || 
-                               result.year === new Date().getFullYear();
-            return matchesTeacher && (matchesExam || (matchesTerm && matchesYear));
+            
+            const matchesExamName = result.examName === currentActiveExam.title;
+            const matchesExamType = result.examType === currentActiveExam.type;
+            const matchesTerm = result.term === currentActiveExam.term;
+            const matchesYear = result.year === currentActiveExam.year;
+            
+            const matchesExam = matchesExamName || (matchesExamType && matchesTerm && matchesYear);
+            
+            return matchesTeacher && matchesExam;
           });
           console.log(`📚 Found ${teacherResultsData.length} results by teacher name for active exam`);
         }
@@ -456,8 +454,8 @@ const TeacherDashboard = () => {
         setClassPerformance(performanceData);
         
       } else {
-        // No active exam period - clear all data
-        console.log('📚 No active exam period. Clearing results data...');
+        // NO ACTIVE EXAM - Clear all result data
+        console.log('📚 No active exam period. Clearing all results data...');
         setTeacherResults([]);
         setClassPerformance([]);
         setTeacherClasses([]);
@@ -469,6 +467,7 @@ const TeacherDashboard = () => {
       }
       
       // ---- FILTER ACTIVE AND UPCOMING EXAMS ----
+      const now = new Date();
       const activeAndUpcomingExams = examsData.filter(e => {
         if (e.isActive === false) return false;
         if (!e.startDateTime) return false;
@@ -525,7 +524,7 @@ const TeacherDashboard = () => {
       
       console.log('✅ Dashboard data loaded successfully');
       console.log(`📊 FINAL STATS: Uploaded=${uploadedResultsCount}, Classes=${classesTaughtCount}, Subjects=${teacherSubjects.length}, Competencies=${competenciesCount}`);
-      console.log(`📊 Exam Period Active: ${activeExamFound}`);
+      console.log(`📊 Exam Period Active: ${examIsActive}`);
       
     } catch (error) {
       console.error('❌ Error loading dashboard data:', error);
@@ -637,21 +636,10 @@ const TeacherDashboard = () => {
     };
   }, [checkExamAlerts]);
 
-  // Check for exam period changes every 30 seconds
-  useEffect(() => {
-    const checkExamPeriod = () => {
-      loadDashboardData();
-    };
-
-    const examPeriodInterval = setInterval(checkExamPeriod, 30000);
-    
-    return () => clearInterval(examPeriodInterval);
-  }, [loadDashboardData]);
-
-  // Initial load
+  // Initial load - only once on mount
   useEffect(() => {
     loadDashboardData();
-  }, [loadDashboardData]);
+  }, []);
 
   const handleRefresh = async () => {
     setRefreshing(true);
