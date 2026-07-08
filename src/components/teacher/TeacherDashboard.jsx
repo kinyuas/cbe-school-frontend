@@ -885,7 +885,7 @@ const TeacherDashboard = () => {
             Performance Reports
           </p>
         </Link>
-        <Link to="/teacher/exams" className="bg-orange-100 hover:bg-orange-200 p-3 rounded-lg text-center transition-colors shadow-sm hover:shadow-md">
+        <Link to="/teacher/announcements" className="bg-orange-100 hover:bg-orange-200 p-3 rounded-lg text-center transition-colors shadow-sm hover:shadow-md">
           <FiCalendar className={`${deviceInfo.isMobile ? 'w-4 h-4' : 'w-5 h-5'} text-orange-600 mx-auto mb-1`} />
           <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} font-medium text-orange-700`}>
             View Exams/Events
@@ -1010,7 +1010,7 @@ const TeacherDashboard = () => {
           </Link>
         </div>
 
-        {/* Upcoming Exams */}
+        {/* Upcoming Exams - Now links to /teacher/announcements */}
         <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding}`}>
           <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-4 flex items-center gap-2`}>
             <FiCalendar className="text-orange-600" /> Active & Upcoming Exams
@@ -1081,8 +1081,9 @@ const TeacherDashboard = () => {
               <p className="text-xs text-gray-400 mt-1">All exams are either completed or not scheduled</p>
             </div>
           )}
-          <Link to="/teacher/exams" className={`block text-center ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-orange-600 hover:text-orange-800 mt-4`}>
-            View All Exams →
+          {/* Updated to link to /teacher/announcements */}
+          <Link to="/teacher/announcements" className={`block text-center ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-orange-600 hover:text-orange-800 mt-4`}>
+            View All Exams/Events →
           </Link>
         </div>
       </div>
@@ -1127,7 +1128,7 @@ const TeacherDashboard = () => {
             </div>
           )}
           <Link to="/teacher/announcements" className={`block text-center ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-blue-600 hover:text-blue-800 mt-4`}>
-            View All Events →
+            View All Events/Exams →
           </Link>
         </div>
 
