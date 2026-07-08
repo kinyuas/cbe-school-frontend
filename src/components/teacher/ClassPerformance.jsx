@@ -219,6 +219,7 @@ const ClassPerformance = () => {
   // Update available subjects and streams when class changes
   useEffect(() => {
     if (selectedClass) {
+      // Use ALL results (teacherResults) for filtering options, not just active exam
       const classResults = teacherResults.filter(r => {
         const pupilId = r.pupilId?._id || r.pupilId;
         if (!pupilId) return false;
@@ -305,10 +306,11 @@ const ClassPerformance = () => {
       setStudents(studentsData);
       console.log(`📚 Loaded ${studentsData.length} students`);
       
+      // Store ALL results for filtering (from database)
       const resultsRes = await api.get('/results');
       const allResults = resultsRes.data?.data || [];
       setResults(allResults);
-      console.log(`📊 Loaded ${allResults.length} results`);
+      console.log(`📊 Loaded ${allResults.length} total results from database`);
       
       const examsRes = await api.get('/exams');
       let examsData = [];
@@ -326,45 +328,109 @@ const ClassPerformance = () => {
       setIsExamPeriod(currentActiveExam !== null);
       setActiveExam(currentActiveExam);
       
-      // Get ALL teacher results (not filtered by exam)
-      let teacherResultsData = [];
+      // ============================================================
+      // SUMMARY DATA: ONLY SHOW IF EXAM IS ACTIVE
+      // ============================================================
+      let summaryResults = [];
+      let summaryClasses = [];
+      let summarySubjects = [];
+      let summaryTotalResults = 0;
+      
+      if (currentActiveExam) {
+        console.log(`📚 Active exam found: ${currentActiveExam.title}. Showing summary data.`);
+        
+        // Get teacher results for the active exam only
+        if (teacherId) {
+          summaryResults = allResults.filter(result => {
+            const recordedBy = result.recordedBy || result.teacherId || result.createdBy;
+            const matchesTeacher = recordedBy === teacherId;
+            
+            const matchesExamName = result.examName === currentActiveExam.title;
+            const matchesExamType = result.examType === currentActiveExam.type;
+            const matchesTerm = result.term === currentActiveExam.term;
+            const matchesYear = result.year === currentActiveExam.year;
+            const matchesExam = matchesExamName || (matchesExamType && matchesTerm && matchesYear);
+            
+            return matchesTeacher && matchesExam;
+          });
+        }
+        
+        if (summaryResults.length === 0 && teacherName) {
+          summaryResults = allResults.filter(result => {
+            const submittedBy = result.submittedBy || result.updatedBy || result.createdBy || '';
+            const matchesTeacher = submittedBy === teacherName || submittedBy.includes(teacherName);
+            
+            const matchesExamName = result.examName === currentActiveExam.title;
+            const matchesExamType = result.examType === currentActiveExam.type;
+            const matchesTerm = result.term === currentActiveExam.term;
+            const matchesYear = result.year === currentActiveExam.year;
+            const matchesExam = matchesExamName || (matchesExamType && matchesTerm && matchesYear);
+            
+            return matchesTeacher && matchesExam;
+          });
+        }
+        
+        // Extract classes and subjects from summary results
+        const classes = new Set();
+        const subjects = new Set();
+        summaryResults.forEach(r => {
+          const pupilId = r.pupilId?._id || r.pupilId;
+          if (pupilId) {
+            const pupil = findPupilById(pupilId, studentsData);
+            if (pupil) {
+              if (pupil.class) classes.add(pupil.class);
+              if (pupil.grade) classes.add(pupil.grade);
+            }
+          }
+          if (r.subject) subjects.add(r.subject);
+        });
+        summaryClasses = [...classes];
+        summarySubjects = [...subjects];
+        summaryTotalResults = summaryResults.length;
+        
+        // Calculate subject performance for summary
+        calculateSubjectPerformance(summaryResults, studentsData);
+        
+      } else {
+        // NO ACTIVE EXAM - Clear all summary data
+        console.log('📚 No active exam. Clearing summary data.');
+        summaryResults = [];
+        summaryClasses = [];
+        summarySubjects = [];
+        summaryTotalResults = 0;
+        setSubjectPerformance([]);
+      }
+      
+      // ============================================================
+      // STORE ALL RESULTS FOR FILTERING (Always keep these for filters)
+      // ============================================================
+      let allTeacherResults = [];
       if (teacherId) {
-        teacherResultsData = allResults.filter(result => {
+        allTeacherResults = allResults.filter(result => {
           const recordedBy = result.recordedBy || result.teacherId || result.createdBy;
           return recordedBy === teacherId;
         });
       }
       
-      // If no results by recordedBy, try by teacher name
-      if (teacherResultsData.length === 0 && teacherName) {
-        teacherResultsData = allResults.filter(result => {
+      if (allTeacherResults.length === 0 && teacherName) {
+        allTeacherResults = allResults.filter(result => {
           const submittedBy = result.submittedBy || result.updatedBy || result.createdBy || '';
           return submittedBy === teacherName || submittedBy.includes(teacherName);
         });
       }
       
-      setTeacherResults(teacherResultsData);
-      setTotalResults(teacherResultsData.length);
+      // Store ALL teacher results for filtering
+      setTeacherResults(allTeacherResults);
       
-      // Extract unique classes and subjects from ALL teacher results
-      const classes = new Set();
-      const subjects = new Set();
-      teacherResultsData.forEach(r => {
-        const pupilId = r.pupilId?._id || r.pupilId;
-        if (pupilId) {
-          const pupil = findPupilById(pupilId, studentsData);
-          if (pupil) {
-            if (pupil.class) classes.add(pupil.class);
-            if (pupil.grade) classes.add(pupil.grade);
-          }
-        }
-        if (r.subject) subjects.add(r.subject);
-      });
-      setTeacherClasses([...classes]);
-      setTeacherSubjects([...subjects]);
+      // ============================================================
+      // UPDATE SUMMARY STATE (Only show if exam is active)
+      // ============================================================
+      setTotalResults(summaryTotalResults);
+      setTeacherClasses(summaryClasses);
+      setTeacherSubjects(summarySubjects);
       
-      // Calculate subject performance with stream separation for ALL results
-      calculateSubjectPerformance(teacherResultsData, studentsData);
+      // Update stats for the summary display
+      // Note: These stats are for the summary view, not the filtered view
       
     } catch (error) {
       console.error('Error loading data:', error);
@@ -377,8 +443,6 @@ const ClassPerformance = () => {
   const calculateSubjectPerformance = (resultsData, learners) => {
     const performanceBySubject = {};
     const studentList = learners || students;
-    
-    console.log(`📊 Calculating performance with ${studentList.length} students available`);
     
     resultsData.forEach(result => {
       const subject = result.subject || 'Unknown Subject';
@@ -464,7 +528,6 @@ const ClassPerformance = () => {
     });
     
     setSubjectPerformance(performanceData);
-    console.log('📊 Subject Performance (separated by stream):', performanceData);
   };
 
   const loadHistoricalData = async () => {
@@ -514,6 +577,9 @@ const ClassPerformance = () => {
   };
 
   const loadPerformanceData = async () => {
+    // FILTER FUNCTION - Always works regardless of exam period
+    // This uses the ALL teacher results stored in teacherResults
+    
     if (!selectedClass) {
       toast.error('Please select a class');
       return;
@@ -549,6 +615,7 @@ const ClassPerformance = () => {
         return;
       }
       
+      // Use the API to fetch filtered results (this uses the database, not the stored teacherResults)
       const response = await api.get('/results', {
         params: {
           class: selectedClass,
@@ -759,7 +826,7 @@ const ClassPerformance = () => {
     );
   }
 
-  const hasTeacherResults = teacherResults.length > 0;
+  const hasSummaryResults = totalResults > 0 && isExamPeriod;
 
   return (
     <Layout title="Subject Performance" subtitle="View and analyze subject-specific performance">
@@ -810,108 +877,146 @@ const ClassPerformance = () => {
         </div>
       )}
 
-      {/* Teacher Results Summary - Shows ALL uploaded results */}
-      {teacherResults.length > 0 && (
-        <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding} mb-4`}>
-          <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'justify-between items-center'}`}>
-            <div>
-              <h3 className={`${responsive.headingSize} font-bold text-gray-800 flex items-center gap-2`}>
-                <FiBookOpen className="text-green-600" /> 
-                Your Uploaded Results
-                <span className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} bg-green-100 text-green-700 px-2 py-0.5 rounded-full ml-2`}>
-                  {totalResults} results
+      {/* ============================================================
+          SUMMARY SECTION - Only shows when exam is active
+          ============================================================ */}
+      {isExamPeriod ? (
+        <>
+          {/* Teacher Results Summary */}
+          {hasSummaryResults && (
+            <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding} mb-4`}>
+              <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'justify-between items-center'}`}>
+                <div>
+                  <h3 className={`${responsive.headingSize} font-bold text-gray-800 flex items-center gap-2`}>
+                    <FiBookOpen className="text-green-600" /> 
+                    Your Uploaded Results
+                    <span className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} bg-green-100 text-green-700 px-2 py-0.5 rounded-full ml-2`}>
+                      {totalResults} results
+                    </span>
+                  </h3>
+                  <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500 mt-1`}>
+                    Showing results for <strong>{activeExam?.title}</strong>
+                  </p>
+                </div>
+                <div className={`flex ${deviceInfo.isMobile ? 'flex-wrap gap-1' : 'gap-2'}`}>
+                  {teacherSubjects.length > 0 && (
+                    <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} bg-blue-100 text-blue-700 px-2 py-1 rounded-full`}>
+                      {teacherSubjects.length} Subjects
+                    </span>
+                  )}
+                  {teacherClasses.length > 0 && (
+                    <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} bg-purple-100 text-purple-700 px-2 py-1 rounded-full`}>
+                      {teacherClasses.length} Classes
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Subject Performance Cards - Only shows when exam is active */}
+          {subjectPerformance.length > 0 && (
+            <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding} mb-4`}>
+              <h3 className={`${responsive.headingSize} font-bold text-gray-800 mb-3 flex items-center gap-2`}>
+                <FiBarChart2 className="text-green-600" /> Subject Performance by Stream
+                <span className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full ml-2`}>
+                  {subjectPerformance.length} entries
                 </span>
               </h3>
-              <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500 mt-1`}>
-                Showing all results you've uploaded across all subjects, classes, and streams
-                {isExamPeriod && activeExam && (
-                  <span className="text-green-600 ml-1">(Active exam: {activeExam.title})</span>
-                )}
-              </p>
-            </div>
-            <div className={`flex ${deviceInfo.isMobile ? 'flex-wrap gap-1' : 'gap-2'}`}>
-              {teacherSubjects.length > 0 && (
-                <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} bg-blue-100 text-blue-700 px-2 py-1 rounded-full`}>
-                  {teacherSubjects.length} Subjects
-                </span>
-              )}
-              {teacherClasses.length > 0 && (
-                <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} bg-purple-100 text-purple-700 px-2 py-1 rounded-full`}>
-                  {teacherClasses.length} Classes
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Subject Performance Cards - Shows ALL subjects with stats */}
-      {subjectPerformance.length > 0 && (
-        <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding} mb-4`}>
-          <h3 className={`${responsive.headingSize} font-bold text-gray-800 mb-3 flex items-center gap-2`}>
-            <FiBarChart2 className="text-green-600" /> Subject Performance by Stream
-            <span className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full ml-2`}>
-              {subjectPerformance.length} entries
-            </span>
-          </h3>
-          
-          <div className="space-y-4">
-            {subjectPerformance.map((subject, index) => (
-              <div key={index} className="border-b border-gray-100 pb-3 last:border-0">
-                <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-1' : 'justify-between'} text-sm mb-1`}>
-                  <div>
-                    <span className="font-medium text-gray-800">{subject.subject}</span>
-                    <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500 ml-2`}>
-                      ({subject.class}{subject.stream && subject.stream !== 'Unknown Stream' ? ` - ${subject.stream}` : ''})
-                    </span>
-                    <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-400 ml-2`}>
-                      - {subject.examName}
-                    </span>
+              
+              <div className="space-y-4">
+                {subjectPerformance.map((subject, index) => (
+                  <div key={index} className="border-b border-gray-100 pb-3 last:border-0">
+                    <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-1' : 'justify-between'} text-sm mb-1`}>
+                      <div>
+                        <span className="font-medium text-gray-800">{subject.subject}</span>
+                        <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500 ml-2`}>
+                          ({subject.class}{subject.stream && subject.stream !== 'Unknown Stream' ? ` - ${subject.stream}` : ''})
+                        </span>
+                        <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-400 ml-2`}>
+                          - {subject.examName}
+                        </span>
+                      </div>
+                      <div className={`flex ${deviceInfo.isMobile ? 'flex-wrap gap-2' : 'gap-3'} items-center`}>
+                        <span className="text-green-600 text-xs flex items-center gap-1">
+                          <FiCheckCircle className="w-3 h-3" /> {subject.passing}
+                        </span>
+                        <span className="text-red-600 text-xs flex items-center gap-1">
+                          <FiXCircle className="w-3 h-3" /> {subject.failing}
+                        </span>
+                        <span className="font-bold text-xs text-blue-600">Avg: {subject.average}%</span>
+                        <span className="text-gray-400 text-xs">({subject.totalResults} results)</span>
+                      </div>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div 
+                        className={`rounded-full h-2 transition-all ${
+                          subject.average >= 80 ? 'bg-purple-500' :
+                          subject.average >= 60 ? 'bg-green-500' :
+                          subject.average >= 40 ? 'bg-blue-500' : 'bg-red-500'
+                        }`}
+                        style={{ width: `${Math.min(subject.average, 100)}%` }}
+                      />
+                    </div>
+                    <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500 mt-1`}>
+                      {subject.students} students • {subject.totalResults} total results
+                    </p>
                   </div>
-                  <div className={`flex ${deviceInfo.isMobile ? 'flex-wrap gap-2' : 'gap-3'} items-center`}>
-                    <span className="text-green-600 text-xs flex items-center gap-1">
-                      <FiCheckCircle className="w-3 h-3" /> {subject.passing}
-                    </span>
-                    <span className="text-red-600 text-xs flex items-center gap-1">
-                      <FiXCircle className="w-3 h-3" /> {subject.failing}
-                    </span>
-                    <span className="font-bold text-xs text-blue-600">Avg: {subject.average}%</span>
-                    <span className="text-gray-400 text-xs">({subject.totalResults} results)</span>
-                  </div>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div 
-                    className={`rounded-full h-2 transition-all ${
-                      subject.average >= 80 ? 'bg-purple-500' :
-                      subject.average >= 60 ? 'bg-green-500' :
-                      subject.average >= 40 ? 'bg-blue-500' : 'bg-red-500'
-                    }`}
-                    style={{ width: `${Math.min(subject.average, 100)}%` }}
-                  />
-                </div>
-                <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500 mt-1`}>
-                  {subject.students} students • {subject.totalResults} total results
-                </p>
+                ))}
               </div>
-            ))}
-          </div>
-          
-          <div className={`mt-3 text-xs text-gray-400 border-t pt-2`}>
-            <p>Showing {totalResults} results uploaded by you</p>
-            {teacherClasses.length > 0 && (
-              <p className="text-gray-400">Classes: {teacherClasses.join(', ')}</p>
-            )}
-            {teacherSubjects.length > 0 && (
-              <p className="text-gray-400">Subjects: {teacherSubjects.join(', ')}</p>
-            )}
-          </div>
+              
+              <div className={`mt-3 text-xs text-gray-400 border-t pt-2`}>
+                <p>Showing {totalResults} results for {activeExam?.title}</p>
+                {teacherClasses.length > 0 && (
+                  <p className="text-gray-400">Classes: {teacherClasses.join(', ')}</p>
+                )}
+                {teacherSubjects.length > 0 && (
+                  <p className="text-gray-400">Subjects: {teacherSubjects.join(', ')}</p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {!hasSummaryResults && (
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-8 text-center mb-4">
+              <FiBookOpen className={`${deviceInfo.isMobile ? 'w-10 h-10' : 'w-12 h-12'} text-blue-500 mx-auto mb-3`} />
+              <h3 className={`${deviceInfo.isMobile ? 'text-base' : 'text-lg'} font-semibold text-gray-800 mb-2`}>No Results Uploaded Yet</h3>
+              <p className={`${deviceInfo.isMobile ? 'text-sm' : 'text-base'} text-gray-600`}>
+                You haven't uploaded any results for <strong>{activeExam?.title}</strong> yet.
+              </p>
+              <Link to="/teacher/results" className="mt-4 inline-block bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg">
+                Upload Results →
+              </Link>
+            </div>
+          )}
+        </>
+      ) : (
+        // ============================================================
+        // NO ACTIVE EXAM - Show empty state
+        // ============================================================
+        <div className="bg-gray-50 border border-gray-200 rounded-xl p-8 text-center mb-4">
+          <FiCalendar className={`${deviceInfo.isMobile ? 'w-10 h-10' : 'w-12 h-12'} text-gray-400 mx-auto mb-3`} />
+          <h3 className={`${deviceInfo.isMobile ? 'text-base' : 'text-lg'} font-semibold text-gray-700 mb-2`}>No Active Exam Period</h3>
+          <p className={`${deviceInfo.isMobile ? 'text-sm' : 'text-base'} text-gray-500`}>
+            Results and performance data will appear when an exam is active.
+          </p>
+          {exams.length > 0 && (
+            <p className="text-sm text-blue-500 mt-2">
+              Next exam: <strong>{exams[0]?.title}</strong> starts on {exams[0]?.startDateTime ? new Date(exams[0].startDateTime).toLocaleDateString() : 'Date TBA'}
+            </p>
+          )}
         </div>
       )}
 
-      {/* Filter Section */}
+      {/* ============================================================
+          FILTER SECTION - Always visible
+          ============================================================ */}
       <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding} mb-4`}>
         <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-3 flex items-center gap-2`}>
           <FiFilter className="text-green-600" /> Detailed Performance Filters
+          <span className="text-xs font-normal text-gray-400 ml-2">
+            (View all results including past exams)
+          </span>
         </h2>
         
         <div className={`grid ${responsive.filterGrid} ${responsive.gridGap}`}>
@@ -992,7 +1097,7 @@ const ClassPerformance = () => {
           </div>
         </div>
         
-        {/* Stream Filter - Only shown when a class is selected and streams are available */}
+        {/* Stream Filter */}
         {selectedClass && availableStreams.length > 0 && (
           <div className="mt-3">
             <label className={`block text-gray-700 font-medium mb-1 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>Stream</label>
@@ -1026,7 +1131,9 @@ const ClassPerformance = () => {
         </div>
       </div>
 
-      {/* Detailed Performance Results Section */}
+      {/* ============================================================
+          DETAILED RESULTS SECTION - Always shows when filters are applied
+          ============================================================ */}
       {showResults && performanceData.length > 0 && (
         <>
           {/* Stats Cards */}
@@ -1172,19 +1279,6 @@ const ClassPerformance = () => {
           <FiBarChart2 className={`${deviceInfo.isMobile ? 'w-10 h-10' : 'w-12 h-12'} text-yellow-500 mx-auto mb-3`} />
           <h3 className={`${deviceInfo.isMobile ? 'text-base' : 'text-lg'} font-semibold text-gray-800 mb-2`}>No Performance Data Found</h3>
           <p className={`${deviceInfo.isMobile ? 'text-sm' : 'text-base'} text-gray-600`}>No performance data found for the selected criteria. Please adjust your selections and try again.</p>
-        </div>
-      )}
-
-      {teacherResults.length === 0 && (
-        <div className="bg-blue-50 border border-blue-200 rounded-xl p-8 text-center">
-          <FiBookOpen className={`${deviceInfo.isMobile ? 'w-10 h-10' : 'w-12 h-12'} text-blue-500 mx-auto mb-3`} />
-          <h3 className={`${deviceInfo.isMobile ? 'text-base' : 'text-lg'} font-semibold text-gray-800 mb-2`}>No Results Uploaded Yet</h3>
-          <p className={`${deviceInfo.isMobile ? 'text-sm' : 'text-base'} text-gray-600`}>
-            You haven't uploaded any results yet. Click "Upload Results" in the quick actions to get started.
-          </p>
-          <Link to="/teacher/results" className="mt-4 inline-block bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg">
-            Upload Results →
-          </Link>
         </div>
       )}
 
