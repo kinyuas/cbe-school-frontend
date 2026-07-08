@@ -888,7 +888,7 @@ const TeacherDashboard = () => {
         <Link to="/teacher/exams" className="bg-orange-100 hover:bg-orange-200 p-3 rounded-lg text-center transition-colors shadow-sm hover:shadow-md">
           <FiCalendar className={`${deviceInfo.isMobile ? 'w-4 h-4' : 'w-5 h-5'} text-orange-600 mx-auto mb-1`} />
           <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} font-medium text-orange-700`}>
-            Manage Exams
+            View Exams/Events
           </p>
         </Link>
       </div>
