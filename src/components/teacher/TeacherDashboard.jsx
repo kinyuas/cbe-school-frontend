@@ -128,6 +128,31 @@ const calculateTimeRemaining = (endDateTime) => {
   return { days, hours, minutes, totalSeconds, isExpired: false, isUrgent, displayText };
 };
 
+// ===== Check if there is an active exam =====
+const hasActiveExam = (examsData) => {
+  const now = new Date();
+  return examsData.some(e => {
+    if (!e.startDateTime || !e.endDateTime) return false;
+    const start = new Date(e.startDateTime);
+    const end = new Date(e.endDateTime);
+    return start <= now && end >= now && e.isActive !== false;
+  });
+};
+
+// ===== Get the next upcoming exam =====
+const getNextUpcomingExam = (examsData) => {
+  const now = new Date();
+  const upcoming = examsData
+    .filter(e => {
+      if (!e.startDateTime || e.isActive === false) return false;
+      const start = new Date(e.startDateTime);
+      return start > now;
+    })
+    .sort((a, b) => new Date(a.startDateTime) - new Date(b.startDateTime));
+  
+  return upcoming.length > 0 ? upcoming[0] : null;
+};
+
 const TeacherDashboard = () => {
   // AI Device Detection
   const deviceInfo = useDeviceDetection();
@@ -158,17 +183,15 @@ const TeacherDashboard = () => {
   const [examTimers, setExamTimers] = useState({});
   const [teacherResults, setTeacherResults] = useState([]);
   const [activeExam, setActiveExam] = useState(null);
+  const [nextExam, setNextExam] = useState(null);
   const [teacherClass, setTeacherClass] = useState('');
   const [teacherClasses, setTeacherClasses] = useState([]);
   const [teacherSubjects, setTeacherSubjects] = useState([]);
+  const [isExamPeriod, setIsExamPeriod] = useState(false);
   
   // Exam time alert state
   const [examTimeAlerts, setExamTimeAlerts] = useState([]);
   const [showTimeAlert, setShowTimeAlert] = useState(false);
-  
-  // ===== NEW: Track if data should be displayed =====
-  const [shouldShowData, setShouldShowData] = useState(true);
-  const [dataExpired, setDataExpired] = useState(false);
   
   // Refs for cleanup
   const intervalRef = useRef(null);
@@ -183,74 +206,6 @@ const TeacherDashboard = () => {
       return String(pId) === pupilIdStr;
     });
   };
-
-  // ===== Check if data should be displayed based on next exam start =====
-  const checkDataDisplayStatus = useCallback((examsData, teacherResultsData) => {
-    const now = new Date();
-    
-    // If no teacher results, show data as false
-    if (!teacherResultsData || teacherResultsData.length === 0) {
-      setShouldShowData(false);
-      setDataExpired(false);
-      return;
-    }
-    
-    // Find the next upcoming exam (any exam that hasn't started yet)
-    const upcomingExams = examsData.filter(e => {
-      if (!e.startDateTime || e.isActive === false) return false;
-      const startDate = new Date(e.startDateTime);
-      return startDate > now;
-    }).sort((a, b) => new Date(a.startDateTime) - new Date(b.startDateTime));
-    
-    // Find the next exam that is currently active or has ended
-    const activeOrPastExams = examsData.filter(e => {
-      if (!e.startDateTime || e.isActive === false) return false;
-      const startDate = new Date(e.startDateTime);
-      return startDate <= now;
-    }).sort((a, b) => new Date(a.startDateTime) - new Date(b.startDateTime));
-    
-    // Check if there's an active exam
-    const hasActiveExam = activeOrPastExams.some(e => {
-      if (!e.endDateTime) return false;
-      const endDate = new Date(e.endDateTime);
-      return endDate >= now;
-    });
-    
-    // If there's an active exam, show data
-    if (hasActiveExam) {
-      setShouldShowData(true);
-      setDataExpired(false);
-      return;
-    }
-    
-    // If there are no upcoming exams and no active exam, show data (past data)
-    if (upcomingExams.length === 0 && !hasActiveExam) {
-      setShouldShowData(true);
-      setDataExpired(false);
-      return;
-    }
-    
-    // Get the next upcoming exam
-    const nextExam = upcomingExams[0];
-    const nextStartDate = new Date(nextExam.startDateTime);
-    
-    // Check if there are results for this upcoming exam
-    const hasResultsForNextExam = teacherResultsData.some(r => {
-      const matchesExamName = r.examName === nextExam.title;
-      const matchesTerm = r.term === nextExam.term;
-      const matchesYear = r.year === nextExam.year || r.year === new Date().getFullYear();
-      return matchesExamName && matchesTerm && matchesYear;
-    });
-    
-    // If the exam has started and there are no results for it, hide the data
-    if (now >= nextStartDate && !hasResultsForNextExam) {
-      setShouldShowData(false);
-      setDataExpired(true);
-    } else {
-      setShouldShowData(true);
-      setDataExpired(false);
-    }
-  }, []);
 
   // Load dashboard data
   const loadDashboardData = useCallback(async () => {
@@ -297,7 +252,6 @@ const TeacherDashboard = () => {
           allResults = resultsRes.data.data || [];
           console.log(`✅ Loaded ${allResults.length} total results from database`);
           
-          // Log sample results to see structure
           if (allResults.length > 0) {
             console.log('📋 Sample result structure:', JSON.stringify(allResults[0], null, 2));
           }
@@ -331,93 +285,19 @@ const TeacherDashboard = () => {
       setPupils(learners);
       
       // ============================================================
-      // FILTER RESULTS FOR THIS TEACHER USING recordedBy FIELD
+      // CHECK IF THERE IS AN ACTIVE EXAM PERIOD
       // ============================================================
-      let teacherResultsData = [];
-      
-      console.log('🔍 Filtering results by recordedBy:', teacherId);
-      
-      // Filter results where recordedBy matches the teacher's ID
-      if (teacherId) {
-        teacherResultsData = allResults.filter(result => {
-          const recordedBy = result.recordedBy || result.teacherId || result.createdBy;
-          return recordedBy === teacherId;
-        });
-        console.log(`📚 Found ${teacherResultsData.length} results recorded by teacher ID: ${teacherId}`);
-      }
-      
-      // If no results found by recordedBy, try by teacher name
-      if (teacherResultsData.length === 0 && teacherName) {
-        console.log('🔄 Trying to filter by teacher name:', teacherName);
-        teacherResultsData = allResults.filter(result => {
-          const recordedByName = result.recordedByName || result.teacherName || result.submittedBy || '';
-          return recordedByName === teacherName || recordedByName.includes(teacherName);
-        });
-        console.log(`📚 Found ${teacherResultsData.length} results by teacher name`);
-      }
-      
-      // If still no results, try by createdBy or updatedBy
-      if (teacherResultsData.length === 0 && teacherId) {
-        console.log('🔄 Trying createdBy/updatedBy filter');
-        teacherResultsData = allResults.filter(result => {
-          return result.createdBy === teacherId || 
-                 result.updatedBy === teacherId ||
-                 result.submittedBy === teacherName;
-        });
-        console.log(`📚 Found ${teacherResultsData.length} results by createdBy/updatedBy`);
-      }
-      
-      // If still no results, show all results for debugging
-      if (teacherResultsData.length === 0 && allResults.length > 0) {
-        console.log('⚠️ No results matched. Showing all results for debugging:');
-        allResults.forEach((r, i) => {
-          console.log(`  Result ${i+1}: recordedBy=${r.recordedBy}, subject=${r.subject}, examName=${r.examName}`);
-        });
-      }
-      
-      console.log(`📚 FINAL: Found ${teacherResultsData.length} results for this teacher`);
-      setTeacherResults(teacherResultsData);
-      
-      // ============================================================
-      // CALCULATE STATS
-      // ============================================================
-      
-      // 1. UPLOADED RESULTS - Total number of result entries
-      const uploadedResultsCount = teacherResultsData.length;
-      
-      // 2. CLASSES TAUGHT - Unique classes from results
-      const uniqueClasses = new Set();
-      
-      teacherResultsData.forEach(r => {
-        const pupilId = r.pupilId?._id || r.pupilId;
-        if (pupilId) {
-          const pupil = findPupilById(pupilId, learners);
-          if (pupil) {
-            const className = pupil.class || pupil.grade || pupil.className;
-            if (className) {
-              uniqueClasses.add(className);
-            }
-          }
-        }
-      });
-      
-      const classesTaughtCount = uniqueClasses.size;
-      setTeacherClasses([...uniqueClasses]);
-      console.log(`📚 Classes taught: ${classesTaughtCount} - ${[...uniqueClasses].join(', ')}`);
-      
-      // 3. SUBJECTS TAUGHT - Unique subjects from results
-      const uniqueSubjects = new Set();
-      teacherResultsData.forEach(r => {
-        const subject = r.subject || r.subjectName || r.learningArea;
-        if (subject) {
-          uniqueSubjects.add(subject);
-        }
-      });
-      setTeacherSubjects([...uniqueSubjects]);
-      console.log(`📚 Subjects taught: ${[...uniqueSubjects].join(', ')}`);
-      
-      // Find active exam
       const now = new Date();
+      const activeExamFound = hasActiveExam(examsData);
+      const nextUpcomingExam = getNextUpcomingExam(examsData);
+      
+      setIsExamPeriod(activeExamFound);
+      setNextExam(nextUpcomingExam);
+      
+      console.log(`📝 Active exam period: ${activeExamFound}`);
+      console.log(`📝 Next upcoming exam: ${nextUpcomingExam?.title || 'None'}`);
+      
+      // Find the current active exam
       const currentExam = examsData.find(e => {
         if (!e.startDateTime || !e.endDateTime) return false;
         const start = new Date(e.startDateTime);
@@ -425,101 +305,168 @@ const TeacherDashboard = () => {
         return start <= now && end >= now && e.isActive !== false;
       });
       setActiveExam(currentExam || null);
-      console.log(`📝 Active exam: ${currentExam?.title || 'None'}`);
       
-      // 4. COMPETENCIES RECORDED - Results for active exam
+      // ============================================================
+      // FILTER RESULTS - ONLY SHOW IF EXAM PERIOD IS ACTIVE
+      // ============================================================
+      let teacherResultsData = [];
+      let uploadedResultsCount = 0;
       let competenciesCount = 0;
-      if (currentExam && teacherResultsData.length > 0) {
-        const examResults = teacherResultsData.filter(r => {
-          const matchesExamName = r.examName === currentExam.title;
-          const matchesTerm = r.term === currentExam.term;
-          const matchesYear = r.year === currentExam.year || r.year === new Date().getFullYear();
-          const matchesExamType = r.examType === currentExam.type;
-          
-          return (matchesExamName || matchesExamType) && matchesTerm && matchesYear;
-        });
-        competenciesCount = examResults.length;
-        console.log(`📊 Competencies recorded for active exam: ${competenciesCount}`);
-      }
+      let classesTaughtCount = 0;
+      let performanceData = [];
       
-      // ============================================================
-      // CLASS PERFORMANCE BY SUBJECT - WITH STREAM
-      // ============================================================
-      const performanceBySubject = {};
-      
-      // Group results by subject
-      teacherResultsData.forEach(result => {
-        const subject = result.subject || result.subjectName || result.learningArea || 'Unknown Subject';
-        const marks = result.marks || result.score || result.marksObtained || 0;
-        const examName = result.examName || 'Assessment';
-        const pupilId = result.pupilId?._id || result.pupilId;
+      if (activeExamFound && currentExam) {
+        console.log('📚 Exam period is active. Loading results...');
         
-        // Get class and stream from pupil
-        let className = 'Unknown Class';
-        let stream = 'Unknown Stream';
-        if (pupilId) {
-          const pupil = findPupilById(pupilId, learners);
-          if (pupil) {
-            className = pupil.class || pupil.grade || 'Unknown Class';
-            stream = pupil.stream || 'Unknown Stream';
+        // Filter results by recordedBy and exam
+        if (teacherId) {
+          teacherResultsData = allResults.filter(result => {
+            const recordedBy = result.recordedBy || result.teacherId || result.createdBy;
+            const matchesTeacher = recordedBy === teacherId;
+            const matchesExam = result.examName === currentExam.title || 
+                               result.examType === currentExam.type;
+            const matchesTerm = result.term === currentExam.term;
+            const matchesYear = result.year === currentExam.year || 
+                               result.year === new Date().getFullYear();
+            return matchesTeacher && (matchesExam || (matchesTerm && matchesYear));
+          });
+          console.log(`📚 Found ${teacherResultsData.length} results for active exam: ${currentExam.title}`);
+        }
+        
+        // If no results by recordedBy, try by teacher name
+        if (teacherResultsData.length === 0 && teacherName) {
+          teacherResultsData = allResults.filter(result => {
+            const submittedBy = result.submittedBy || result.updatedBy || result.createdBy || '';
+            const matchesTeacher = submittedBy === teacherName || submittedBy.includes(teacherName);
+            const matchesExam = result.examName === currentExam.title || 
+                               result.examType === currentExam.type;
+            const matchesTerm = result.term === currentExam.term;
+            const matchesYear = result.year === currentExam.year || 
+                               result.year === new Date().getFullYear();
+            return matchesTeacher && (matchesExam || (matchesTerm && matchesYear));
+          });
+          console.log(`📚 Found ${teacherResultsData.length} results by teacher name for active exam`);
+        }
+        
+        setTeacherResults(teacherResultsData);
+        
+        // 1. UPLOADED RESULTS - Total number of result entries
+        uploadedResultsCount = teacherResultsData.length;
+        
+        // 2. CLASSES TAUGHT - Unique classes from results
+        const uniqueClasses = new Set();
+        teacherResultsData.forEach(r => {
+          const pupilId = r.pupilId?._id || r.pupilId;
+          if (pupilId) {
+            const pupil = findPupilById(pupilId, learners);
+            if (pupil) {
+              const className = pupil.class || pupil.grade || pupil.className;
+              if (className) {
+                uniqueClasses.add(className);
+              }
+            }
           }
-        }
+        });
+        classesTaughtCount = uniqueClasses.size;
+        setTeacherClasses([...uniqueClasses]);
+        console.log(`📚 Classes taught: ${classesTaughtCount} - ${[...uniqueClasses].join(', ')}`);
         
-        if (!performanceBySubject[subject]) {
-          performanceBySubject[subject] = {
-            subject: subject,
-            class: className,
-            stream: stream,
-            examName: examName,
-            totalMarks: 0,
-            count: 0,
-            scores: [],
-            students: new Set(),
-            passing: 0,
-            failing: 0
+        // 3. SUBJECTS TAUGHT - Unique subjects from results
+        const uniqueSubjects = new Set();
+        teacherResultsData.forEach(r => {
+          const subject = r.subject || r.subjectName || r.learningArea;
+          if (subject) {
+            uniqueSubjects.add(subject);
+          }
+        });
+        setTeacherSubjects([...uniqueSubjects]);
+        
+        // 4. COMPETENCIES RECORDED - Results for active exam
+        competenciesCount = teacherResultsData.length;
+        
+        // ============================================================
+        // CLASS PERFORMANCE BY SUBJECT - WITH STREAM
+        // ============================================================
+        const performanceBySubject = {};
+        
+        teacherResultsData.forEach(result => {
+          const subject = result.subject || result.subjectName || result.learningArea || 'Unknown Subject';
+          const marks = result.marks || result.score || result.marksObtained || 0;
+          const examName = result.examName || 'Assessment';
+          const pupilId = result.pupilId?._id || result.pupilId;
+          
+          let className = 'Unknown Class';
+          let stream = 'Unknown Stream';
+          if (pupilId) {
+            const pupil = findPupilById(pupilId, learners);
+            if (pupil) {
+              className = pupil.class || pupil.grade || 'Unknown Class';
+              stream = pupil.stream || 'Unknown Stream';
+            }
+          }
+          
+          if (!performanceBySubject[subject]) {
+            performanceBySubject[subject] = {
+              subject: subject,
+              class: className,
+              stream: stream,
+              examName: examName,
+              totalMarks: 0,
+              count: 0,
+              scores: [],
+              students: new Set(),
+              passing: 0,
+              failing: 0
+            };
+          }
+          
+          performanceBySubject[subject].totalMarks += marks;
+          performanceBySubject[subject].count++;
+          performanceBySubject[subject].scores.push(marks);
+          
+          if (marks >= 60) {
+            performanceBySubject[subject].passing++;
+          } else {
+            performanceBySubject[subject].failing++;
+          }
+          
+          if (pupilId) {
+            performanceBySubject[subject].students.add(pupilId);
+          }
+        });
+        
+        performanceData = Object.values(performanceBySubject).map(data => {
+          const average = data.count > 0 ? (data.totalMarks / data.count) : 0;
+          return {
+            subject: data.subject,
+            class: data.class,
+            stream: data.stream,
+            examName: data.examName,
+            average: average.toFixed(1),
+            students: data.students.size,
+            totalResults: data.count,
+            passing: data.passing,
+            failing: data.failing,
+            scores: data.scores
           };
-        }
+        });
         
-        performanceBySubject[subject].totalMarks += marks;
-        performanceBySubject[subject].count++;
-        performanceBySubject[subject].scores.push(marks);
+        performanceData.sort((a, b) => a.subject.localeCompare(b.subject));
+        console.log(`📊 Performance data with stream:`, performanceData);
+        setClassPerformance(performanceData);
         
-        // Track passing/failing
-        if (marks >= 60) {
-          performanceBySubject[subject].passing++;
-        } else {
-          performanceBySubject[subject].failing++;
-        }
-        
-        // Track unique students
-        if (pupilId) {
-          performanceBySubject[subject].students.add(pupilId);
-        }
-      });
-      
-      // Calculate averages
-      const performanceData = Object.values(performanceBySubject).map(data => {
-        const average = data.count > 0 ? (data.totalMarks / data.count) : 0;
-        
-        return {
-          subject: data.subject,
-          class: data.class,
-          stream: data.stream,
-          examName: data.examName,
-          average: average.toFixed(1),
-          students: data.students.size,
-          totalResults: data.count,
-          passing: data.passing,
-          failing: data.failing,
-          scores: data.scores
-        };
-      });
-      
-      // Sort by subject name
-      performanceData.sort((a, b) => a.subject.localeCompare(b.subject));
-      
-      console.log(`📊 Performance data with stream:`, performanceData);
-      setClassPerformance(performanceData);
+      } else {
+        // No active exam period - clear all data
+        console.log('📚 No active exam period. Clearing results data...');
+        setTeacherResults([]);
+        setClassPerformance([]);
+        setTeacherClasses([]);
+        setTeacherSubjects([]);
+        uploadedResultsCount = 0;
+        classesTaughtCount = 0;
+        competenciesCount = 0;
+        performanceData = [];
+      }
       
       // ---- FILTER ACTIVE AND UPCOMING EXAMS ----
       const activeAndUpcomingExams = examsData.filter(e => {
@@ -550,9 +497,6 @@ const TeacherDashboard = () => {
         return dateA - dateB;
       });
       
-      // ---- CHECK DATA DISPLAY STATUS ----
-      checkDataDisplayStatus(examsData, teacherResultsData);
-      
       // ---- UPDATE STATS ----
       setStats({
         totalLearners: learners.length,
@@ -580,8 +524,8 @@ const TeacherDashboard = () => {
       checkExamAlerts(sortedExams);
       
       console.log('✅ Dashboard data loaded successfully');
-      console.log(`📊 FINAL STATS: Uploaded=${uploadedResultsCount}, Classes=${classesTaughtCount}, Subjects=${uniqueSubjects.size}, Competencies=${competenciesCount}`);
-      console.log(`📊 Display data: ${shouldShowData ? 'YES' : 'NO'}, Data expired: ${dataExpired ? 'YES' : 'NO'}`);
+      console.log(`📊 FINAL STATS: Uploaded=${uploadedResultsCount}, Classes=${classesTaughtCount}, Subjects=${teacherSubjects.length}, Competencies=${competenciesCount}`);
+      console.log(`📊 Exam Period Active: ${activeExamFound}`);
       
     } catch (error) {
       console.error('❌ Error loading dashboard data:', error);
@@ -590,7 +534,7 @@ const TeacherDashboard = () => {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user, teacherId, teacherName, checkDataDisplayStatus]);
+  }, [user, teacherId, teacherName]);
 
   // Check exam alerts
   const checkExamAlerts = useCallback((examsData) => {
@@ -693,6 +637,17 @@ const TeacherDashboard = () => {
     };
   }, [checkExamAlerts]);
 
+  // Check for exam period changes every 30 seconds
+  useEffect(() => {
+    const checkExamPeriod = () => {
+      loadDashboardData();
+    };
+
+    const examPeriodInterval = setInterval(checkExamPeriod, 30000);
+    
+    return () => clearInterval(examPeriodInterval);
+  }, [loadDashboardData]);
+
   // Initial load
   useEffect(() => {
     loadDashboardData();
@@ -750,7 +705,7 @@ const TeacherDashboard = () => {
       value: stats.uploadedResults, 
       icon: FiBookOpen, 
       color: 'from-green-500 to-green-600',
-      subtitle: `${stats.competenciesRecorded} for active exam`
+      subtitle: isExamPeriod ? `${stats.competenciesRecorded} for active exam` : 'No active exam'
     },
     { 
       title: 'Classes Taught', 
@@ -791,33 +746,14 @@ const TeacherDashboard = () => {
   else greeting = "Good Evening";
 
   const hasTeacherResults = teacherResults.length > 0;
-  const showData = shouldShowData && hasTeacherResults;
 
   return (
     <Layout 
       title={`${greeting}, ${user?.name || 'Teacher'}`} 
       subtitle={`CBE Teacher - ${schoolInfo.name || user?.school || 'Competency Based Education'}`}
     >
-      {/* Data Expired Banner - Show when data is hidden */}
-      {dataExpired && !shouldShowData && (
-        <div className="bg-yellow-50 border-l-4 border-yellow-400 rounded-lg p-4 mb-4">
-          <div className="flex items-start gap-3">
-            <FiAlertTriangle className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
-            <div>
-              <h3 className="text-sm font-semibold text-yellow-800">New Exam Period Started</h3>
-              <p className="text-sm text-yellow-700">
-                A new exam has started. Please upload results for the new exam to display performance data.
-              </p>
-              <Link to="/teacher/results" className="mt-2 inline-block text-sm bg-yellow-600 hover:bg-yellow-700 text-white px-4 py-1.5 rounded-lg transition-colors">
-                Upload Results Now →
-              </Link>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Active Exam Status Banner */}
-      {activeExam && showData && (
+      {activeExam && isExamPeriod ? (
         <div className="bg-gradient-to-r from-green-600 to-green-700 rounded-xl p-3 mb-4 text-white shadow-md">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
@@ -836,6 +772,53 @@ const TeacherDashboard = () => {
                 </span>
               )}
             </div>
+          </div>
+        </div>
+      ) : nextExam ? (
+        <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl p-3 mb-4 text-white shadow-md">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <FiClock className="w-5 h-5" />
+              <span className="font-semibold text-sm">Next Exam:</span>
+              <span className="text-sm font-medium">{nextExam.title}</span>
+              <span className="text-xs opacity-80">({nextExam.type})</span>
+            </div>
+            <div className="flex items-center gap-3 text-xs">
+              <span className="bg-white/20 px-2 py-0.5 rounded-full">
+                📅 Starts: {nextExam.startDateTime ? new Date(nextExam.startDateTime).toLocaleDateString() : 'Date TBA'}
+              </span>
+              {nextExam.startDateTime && (
+                <span className="bg-white/20 px-2 py-0.5 rounded-full">
+                  ⏰ {new Date(nextExam.startDateTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="bg-gradient-to-r from-gray-600 to-gray-700 rounded-xl p-3 mb-4 text-white shadow-md">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <FiCalendar className="w-5 h-5" />
+              <span className="font-semibold text-sm">No Exam Scheduled</span>
+              <span className="text-xs opacity-80">Check back later</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* No Exam Period Message */}
+      {!isExamPeriod && teacherResults.length === 0 && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4 flex items-start gap-3">
+          <FiInfo className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
+          <div className="text-sm text-yellow-700">
+            <p className="font-semibold">No Active Exam Period</p>
+            <p>Results and performance data will appear when an exam is active.</p>
+            {nextExam && (
+              <p className="mt-1 text-xs">
+                Next exam starts: <strong>{nextExam.title}</strong> on {new Date(nextExam.startDateTime).toLocaleDateString()} at {new Date(nextExam.startDateTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -900,17 +883,6 @@ const TeacherDashboard = () => {
                   <p className={`text-sm ${isCritical ? 'text-red-700' : isHigh ? 'text-orange-700' : 'text-yellow-700'}`}>
                     <strong>{alert.exam.title}</strong> - {timeDisplay}
                   </p>
-                  {isCritical && (
-                    <p className="text-xs text-red-600 font-semibold mt-1 flex items-center gap-1">
-                      <FiAlertTriangle className="w-3 h-3" />
-                      Less than 2 hours remaining! Submit results immediately.
-                    </p>
-                  )}
-                  {isHigh && alert.type === 'active' && (
-                    <p className="text-xs text-orange-600 font-semibold mt-1">
-                      ⚠️ Less than 6 hours remaining. Please submit results soon.
-                    </p>
-                  )}
                 </div>
               </div>
             );
@@ -937,28 +909,23 @@ const TeacherDashboard = () => {
                 <FiTarget className="w-3 h-3" /> CBE Certified
               </span>
               <span className="flex items-center gap-1">
-                <FiBookOpen className="w-3 h-3" /> {showData ? stats.classesTaught : 0} Classes
+                <FiBookOpen className="w-3 h-3" /> {stats.classesTaught} Classes
               </span>
-              {activeExam && showData && (
+              {isExamPeriod && activeExam && (
                 <span className="flex items-center gap-1 bg-white/20 px-2 py-0.5 rounded-full">
                   <FiCheckCircle className="w-3 h-3" /> Exam Active
                 </span>
               )}
-              {dataExpired && !showData && (
-                <span className="flex items-center gap-1 bg-yellow-500/30 px-2 py-0.5 rounded-full">
-                  <FiAlertTriangle className="w-3 h-3" /> New Exam Started
-                </span>
-              )}
             </div>
           </div>
-          {!deviceInfo.isMobile && activeExam && showData && (
+          {!deviceInfo.isMobile && isExamPeriod && activeExam && (
             <div className="text-right bg-white/20 px-4 py-2 rounded-lg">
               <p className="text-sm font-semibold">{activeExam.title}</p>
               <p className="text-xs opacity-80">Active Assessment</p>
             </div>
           )}
         </div>
-        {deviceInfo.isMobile && activeExam && showData && (
+        {deviceInfo.isMobile && isExamPeriod && activeExam && (
           <div className="mt-3 pt-3 border-t border-white/20 flex justify-between">
             <div>
               <p className="text-xs opacity-80">Active Exam</p>
@@ -1009,355 +976,349 @@ const TeacherDashboard = () => {
         <FiInfo className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
         <div className="text-xs text-blue-700">
           <span className="font-semibold">📊 Results Summary:</span> 
-          {dataExpired && !showData ? (
-            <> A new exam has started. Please upload results to see performance data.</>
-          ) : teacherResults.length > 0 && showData ? (
+          {isExamPeriod && teacherResults.length > 0 ? (
             <>
-              You've uploaded <strong>{stats.uploadedResults}</strong> total results for <strong>{teacherSubjects.length}</strong> subject(s) across <strong>{stats.classesTaught}</strong> class(es).
-              {activeExam && (
-                <> <strong>{stats.competenciesRecorded}</strong> results for the active exam (<strong>{activeExam.title}</strong>).</>
-              )}
+              You've uploaded <strong>{stats.uploadedResults}</strong> total results for <strong>{teacherSubjects.length}</strong> subject(s) across <strong>{stats.classesTaught}</strong> class(es) for <strong>{activeExam?.title}</strong>.
             </>
+          ) : isExamPeriod && teacherResults.length === 0 ? (
+            <> No results uploaded yet for <strong>{activeExam?.title}</strong>. Click "Upload Results" to get started.</>
+          ) : nextExam ? (
+            <> No active exam. Next exam: <strong>{nextExam.title}</strong> starts on {new Date(nextExam.startDateTime).toLocaleDateString()}.</>
           ) : (
-            <> No results uploaded yet. Click "Upload Results" to get started.</>
+            <> No exams scheduled. Check back later.</>
           )}
         </div>
       </div>
 
-      {/* Quick Stats Cards - Only show when data should be displayed */}
-      {showData ? (
-        <>
-          <div className={`grid ${responsive.statsGrid} ${responsive.gridGap} mb-6`}>
-            {statCards.map((stat, index) => (
-              <div key={index} className={`bg-white rounded-xl shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-5'} hover:shadow-lg transition-shadow`}>
-                <div className={`flex ${deviceInfo.isMobile ? 'items-center gap-3' : 'items-center justify-between'}`}>
-                  <div>
-                    <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-sm'} text-gray-500`}>{stat.title}</p>
-                    <p className={`${deviceInfo.isMobile ? 'text-xl' : 'text-3xl'} font-bold text-gray-800 mt-0.5`}>{stat.value}</p>
-                    {stat.subtitle && (
-                      <p className={`${deviceInfo.isMobile ? 'text-[8px]' : 'text-[10px]'} text-gray-400 mt-0.5`}>{stat.subtitle}</p>
-                    )}
-                  </div>
-                  <div className={`bg-gradient-to-r ${stat.color} ${deviceInfo.isMobile ? 'p-2' : 'p-3'} rounded-full shadow-lg`}>
-                    <stat.icon className={`${deviceInfo.isMobile ? 'w-4 h-4' : 'w-6 h-6'} text-white`} />
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className={`grid ${deviceInfo.isMobile ? 'grid-cols-1' : 'lg:grid-cols-2'} gap-6 mb-6`}>
-            
-            {/* Subject Performance Section - WITH STREAM DISPLAY */}
-            <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding}`}>
-              <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-4 flex items-center gap-2`}>
-                <FiBarChart2 className="text-green-600" /> Subject Performance
-                {hasTeacherResults && (
-                  <span className="text-xs font-normal text-gray-500 ml-2">
-                    ({teacherResults.length} results)
-                  </span>
+      {/* Quick Stats Cards */}
+      <div className={`grid ${responsive.statsGrid} ${responsive.gridGap} mb-6`}>
+        {statCards.map((stat, index) => (
+          <div key={index} className={`bg-white rounded-xl shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-5'} hover:shadow-lg transition-shadow`}>
+            <div className={`flex ${deviceInfo.isMobile ? 'items-center gap-3' : 'items-center justify-between'}`}>
+              <div>
+                <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-sm'} text-gray-500`}>{stat.title}</p>
+                <p className={`${deviceInfo.isMobile ? 'text-xl' : 'text-3xl'} font-bold text-gray-800 mt-0.5`}>{stat.value}</p>
+                {stat.subtitle && (
+                  <p className={`${deviceInfo.isMobile ? 'text-[8px]' : 'text-[10px]'} text-gray-400 mt-0.5`}>{stat.subtitle}</p>
                 )}
-              </h2>
-              
-              {!hasTeacherResults ? (
-                <div className="text-center py-6">
-                  <FiBarChart2 className={`${deviceInfo.isMobile ? 'w-8 h-8' : 'w-10 h-10'} text-gray-300 mx-auto mb-2`} />
-                  <p className="text-gray-500 text-sm">No results uploaded yet</p>
-                  <p className="text-xs text-gray-400 mt-1">Upload results to see subject performance</p>
-                  <Link to="/teacher/results" className="mt-3 inline-block text-sm text-green-600 hover:text-green-800">
-                    Upload Results →
-                  </Link>
-                </div>
-              ) : classPerformance.length > 0 ? (
-                <div className="space-y-4">
-                  {classPerformance.map((subject, index) => (
-                    <div key={index} className="border-b border-gray-100 pb-3 last:border-0">
-                      <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-1' : 'justify-between'} text-sm mb-1`}>
-                        <div>
-                          <span className="font-medium">{subject.subject}</span>
-                          <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500 ml-2`}>
-                            ({subject.class}{subject.stream && subject.stream !== 'Unknown Stream' ? ` - ${subject.stream}` : ''})
-                          </span>
-                          <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-400 ml-2`}>
-                            - {subject.examName}
-                          </span>
-                        </div>
-                        <div className={`flex ${deviceInfo.isMobile ? 'flex-wrap gap-2' : 'gap-3'}`}>
-                          <span className="text-green-600 text-xs">✓ {subject.passing}</span>
-                          <span className="text-red-600 text-xs">✗ {subject.failing}</span>
-                          <span className="font-bold text-xs">Avg: {subject.average}%</span>
-                          <span className="text-gray-400 text-xs">({subject.totalResults} results)</span>
-                        </div>
-                      </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2">
-                        <div 
-                          className={`rounded-full h-2 transition-all ${
-                            subject.average >= 80 ? 'bg-purple-500' :
-                            subject.average >= 60 ? 'bg-green-500' :
-                            subject.average >= 40 ? 'bg-blue-500' : 'bg-red-500'
-                          }`}
-                          style={{ width: `${Math.min(subject.average, 100)}%` }}
-                        />
-                      </div>
-                      <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500 mt-1`}>
-                        {subject.students} students • {subject.totalResults} total results
-                      </p>
-                    </div>
-                  ))}
-                  <div className="mt-3 text-xs text-gray-400 border-t pt-2">
-                    <p>Showing {teacherResults.length} results uploaded by you</p>
-                    {teacherClasses.length > 0 && (
-                      <p className="text-gray-400">Classes: {teacherClasses.join(', ')}</p>
-                    )}
-                    {teacherSubjects.length > 0 && (
-                      <p className="text-gray-400">Subjects: {teacherSubjects.join(', ')}</p>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center py-6">
-                  <FiBarChart2 className={`${deviceInfo.isMobile ? 'w-8 h-8' : 'w-10 h-10'} text-gray-300 mx-auto mb-2`} />
-                  <p className="text-gray-500 text-sm">No subject data available</p>
-                </div>
-              )}
-              <Link to="/teacher/performance" className={`block text-center ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-green-600 hover:text-green-800 mt-4`}>
-                View Detailed Performance →
-              </Link>
-            </div>
-
-            {/* Upcoming Exams - Now links to /teacher/announcements */}
-            <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding}`}>
-              <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-4 flex items-center gap-2`}>
-                <FiCalendar className="text-orange-600" /> Active & Upcoming Exams
-              </h2>
-              {exams.length > 0 ? (
-                <div className="space-y-3">
-                  {exams.map((exam, index) => {
-                    const now = new Date();
-                    const startDateTime = exam.startDateTime ? new Date(exam.startDateTime) : null;
-                    const endDateTime = exam.endDateTime ? new Date(exam.endDateTime) : null;
-                    const isActive = startDateTime && endDateTime && startDateTime <= now && endDateTime >= now;
-                    const isUpcoming = startDateTime && startDateTime > now;
-                    const timeRemaining = exam.endDateTime ? getTimeRemainingDisplay(exam._id) : null;
-                    const timer = examTimers[exam._id];
-                    
-                    return (
-                      <div key={index} className={`border-l-4 ${
-                        isActive ? 'border-red-500' : 
-                        isUpcoming ? 'border-orange-500' : 
-                        'border-gray-300'
-                      } pl-3 py-2`}>
-                        <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-1' : 'justify-between items-start'}`}>
-                          <h3 className={`${deviceInfo.isMobile ? 'text-sm' : 'text-base'} font-semibold text-gray-800`}>
-                            {exam.title}
-                            {isActive && (
-                              <span className="ml-2 text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full animate-pulse">🔴 LIVE</span>
-                            )}
-                            {isUpcoming && (
-                              <span className="ml-2 text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">UPCOMING</span>
-                            )}
-                          </h3>
-                        </div>
-                        <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-600`}>
-                          {exam.type || 'Competency Assessment'} • {exam.term || 'Current Term'}
-                        </p>
-                        <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-1' : 'items-center gap-3'} mt-1`}>
-                          <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500`}>
-                            📅 {startDateTime ? startDateTime.toLocaleDateString() : 'Date TBA'}
-                          </p>
-                          {endDateTime && (
-                            <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500`}>
-                              Ends: {endDateTime.toLocaleDateString()} at {endDateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </p>
-                          )}
-                        </div>
-                        
-                        {timeRemaining && timer && !timer.isExpired && (
-                          <div className={`mt-2 flex items-center gap-2 ${timeRemaining.color} ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>
-                            <FiClock className={deviceInfo.isMobile ? 'w-3 h-3' : 'w-4 h-4'} />
-                            <span className="font-semibold">
-                              ⏰ {timeRemaining.text}
-                            </span>
-                            {isActive && timer.days === 0 && timer.hours < 2 && timer.hours > 0 && (
-                              <span className="ml-2 px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-bold animate-pulse">
-                                CRITICAL
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="text-center py-6">
-                  <FiCalendar className={`${deviceInfo.isMobile ? 'w-8 h-8' : 'w-10 h-10'} text-gray-300 mx-auto mb-2`} />
-                  <p className="text-gray-500 text-sm">No active or upcoming exams</p>
-                  <p className="text-xs text-gray-400 mt-1">All exams are either completed or not scheduled</p>
-                </div>
-              )}
-              <Link to="/teacher/announcements" className={`block text-center ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-orange-600 hover:text-orange-800 mt-4`}>
-                View All Exams/Events →
-              </Link>
+              </div>
+              <div className={`bg-gradient-to-r ${stat.color} ${deviceInfo.isMobile ? 'p-2' : 'p-3'} rounded-full shadow-lg`}>
+                <stat.icon className={`${deviceInfo.isMobile ? 'w-4 h-4' : 'w-6 h-6'} text-white`} />
+              </div>
             </div>
           </div>
+        ))}
+      </div>
 
-          <div className={`grid ${deviceInfo.isMobile ? 'grid-cols-1' : 'lg:grid-cols-2'} gap-6 mb-6`}>
-            
-            {/* School Announcements */}
-            <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding}`}>
-              <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-4 flex items-center gap-2`}>
-                <FiTrendingUp className="text-blue-600" /> Active & Upcoming Events
-              </h2>
-              {announcements.length > 0 ? (
-                <div className="space-y-3">
-                  {announcements.map((announcement, index) => {
-                    const isPast = announcement.date ? new Date(announcement.date) < new Date() : false;
-                    return (
-                      <div key={index} className={`border-b border-gray-100 pb-3 last:border-0 ${isPast ? 'opacity-60' : ''}`}>
-                        <div className="flex items-start justify-between">
-                          <h3 className={`${deviceInfo.isMobile ? 'text-sm' : 'text-base'} font-semibold text-gray-800`}>
-                            {announcement.title}
-                          </h3>
-                          {!isPast && (
-                            <span className="text-[8px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full flex-shrink-0 ml-2">
-                              UPCOMING
-                            </span>
-                          )}
-                        </div>
-                        <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500 mt-1`}>
-                          📅 {announcement.date ? new Date(announcement.date).toLocaleDateString() : new Date(announcement.createdAt).toLocaleDateString()}
-                        </p>
-                        <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-gray-600 mt-1 line-clamp-2`}>
-                          {announcement.description}
-                        </p>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="text-center py-6">
-                  <FiTrendingUp className={`${deviceInfo.isMobile ? 'w-8 h-8' : 'w-10 h-10'} text-gray-300 mx-auto mb-2`} />
-                  <p className="text-gray-500 text-sm">No active or upcoming events</p>
-                </div>
+      <div className={`grid ${deviceInfo.isMobile ? 'grid-cols-1' : 'lg:grid-cols-2'} gap-6 mb-6`}>
+        
+        {/* Subject Performance Section - WITH STREAM DISPLAY */}
+        <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding}`}>
+          <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-4 flex items-center gap-2`}>
+            <FiBarChart2 className="text-green-600" /> Subject Performance
+            {isExamPeriod && hasTeacherResults && (
+              <span className="text-xs font-normal text-gray-500 ml-2">
+                ({teacherResults.length} results)
+              </span>
+            )}
+            {!isExamPeriod && (
+              <span className="text-xs font-normal text-gray-400 ml-2">
+                (No active exam)
+              </span>
+            )}
+          </h2>
+          
+          {!isExamPeriod ? (
+            <div className="text-center py-6">
+              <FiCalendar className={`${deviceInfo.isMobile ? 'w-8 h-8' : 'w-10 h-10'} text-gray-300 mx-auto mb-2`} />
+              <p className="text-gray-500 text-sm">No active exam period</p>
+              <p className="text-xs text-gray-400 mt-1">Results will appear when an exam is active</p>
+              {nextExam && (
+                <p className="text-xs text-blue-500 mt-2">
+                  Next: {nextExam.title} starts {new Date(nextExam.startDateTime).toLocaleDateString()}
+                </p>
               )}
-              <Link to="/teacher/announcements" className={`block text-center ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-blue-600 hover:text-blue-800 mt-4`}>
-                View All Events/Exams →
+            </div>
+          ) : !hasTeacherResults ? (
+            <div className="text-center py-6">
+              <FiBarChart2 className={`${deviceInfo.isMobile ? 'w-8 h-8' : 'w-10 h-10'} text-gray-300 mx-auto mb-2`} />
+              <p className="text-gray-500 text-sm">No results uploaded yet</p>
+              <p className="text-xs text-gray-400 mt-1">Upload results for {activeExam?.title} to see subject performance</p>
+              <Link to="/teacher/results" className="mt-3 inline-block text-sm text-green-600 hover:text-green-800">
+                Upload Results →
               </Link>
             </div>
-
-            {/* Teacher Summary */}
-            <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding}`}>
-              <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-4 flex items-center gap-2`}>
-                <FiUserCheck className="text-green-600" /> Teacher Summary
-              </h2>
-              <div className="space-y-3">
-                <div className="flex justify-between items-center p-2 bg-gray-50 rounded-lg">
-                  <span className="text-sm text-gray-600">Teacher ID</span>
-                  <span className="font-semibold text-gray-800">{teacherId || 'Not Found'}</span>
-                </div>
-                <div className="flex justify-between items-center p-2 bg-gray-50 rounded-lg">
-                  <span className="text-sm text-gray-600">Active Exam</span>
-                  <span className="font-semibold text-green-600">{activeExam ? activeExam.title : 'No Active Exam'}</span>
-                </div>
-                <div className="flex justify-between items-center p-2 bg-gray-50 rounded-lg">
-                  <span className="text-sm text-gray-600">Total Students</span>
-                  <span className="font-semibold text-gray-800">{stats.totalLearners}</span>
-                </div>
-                <div className="flex justify-between items-center p-2 bg-blue-50 rounded-lg border border-blue-100">
-                  <span className="text-sm text-blue-700">Uploaded Results</span>
-                  <span className="font-bold text-blue-700 text-lg">{stats.uploadedResults}</span>
-                </div>
-                <div className="flex justify-between items-center p-2 bg-purple-50 rounded-lg border border-purple-100">
-                  <span className="text-sm text-purple-700">Classes Taught</span>
-                  <span className="font-bold text-purple-700 text-lg">{stats.classesTaught}</span>
-                </div>
-                <div className="flex justify-between items-center p-2 bg-indigo-50 rounded-lg border border-indigo-100">
-                  <span className="text-sm text-indigo-700">Subjects Taught</span>
-                  <span className="font-bold text-indigo-700 text-lg">{teacherSubjects.length}</span>
-                </div>
-                <div className="flex justify-between items-center p-2 bg-green-50 rounded-lg border border-green-100">
-                  <span className="text-sm text-green-700">Active Exam Results</span>
-                  <span className="font-bold text-green-700 text-lg">{stats.competenciesRecorded}</span>
-                </div>
-                {teacherClasses.length > 0 && (
-                  <div className="flex flex-wrap gap-1 p-2 bg-gray-50 rounded-lg">
-                    <span className="text-sm text-gray-600">Classes:</span>
-                    {teacherClasses.map((cls, i) => (
-                      <span key={i} className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
-                        {cls}
+          ) : classPerformance.length > 0 ? (
+            <div className="space-y-4">
+              {classPerformance.map((subject, index) => (
+                <div key={index} className="border-b border-gray-100 pb-3 last:border-0">
+                  <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-1' : 'justify-between'} text-sm mb-1`}>
+                    <div>
+                      <span className="font-medium">{subject.subject}</span>
+                      <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500 ml-2`}>
+                        ({subject.class}{subject.stream && subject.stream !== 'Unknown Stream' ? ` - ${subject.stream}` : ''})
                       </span>
-                    ))}
+                      <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-400 ml-2`}>
+                        - {subject.examName}
+                      </span>
+                    </div>
+                    <div className={`flex ${deviceInfo.isMobile ? 'flex-wrap gap-2' : 'gap-3'}`}>
+                      <span className="text-green-600 text-xs">✓ {subject.passing}</span>
+                      <span className="text-red-600 text-xs">✗ {subject.failing}</span>
+                      <span className="font-bold text-xs">Avg: {subject.average}%</span>
+                      <span className="text-gray-400 text-xs">({subject.totalResults} results)</span>
+                    </div>
                   </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div 
+                      className={`rounded-full h-2 transition-all ${
+                        subject.average >= 80 ? 'bg-purple-500' :
+                        subject.average >= 60 ? 'bg-green-500' :
+                        subject.average >= 40 ? 'bg-blue-500' : 'bg-red-500'
+                      }`}
+                      style={{ width: `${Math.min(subject.average, 100)}%` }}
+                    />
+                  </div>
+                  <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500 mt-1`}>
+                    {subject.students} students • {subject.totalResults} total results
+                  </p>
+                </div>
+              ))}
+              <div className="mt-3 text-xs text-gray-400 border-t pt-2">
+                <p>Showing {teacherResults.length} results for {activeExam?.title}</p>
+                {teacherClasses.length > 0 && (
+                  <p className="text-gray-400">Classes: {teacherClasses.join(', ')}</p>
                 )}
                 {teacherSubjects.length > 0 && (
-                  <div className="flex flex-wrap gap-1 p-2 bg-gray-50 rounded-lg">
-                    <span className="text-sm text-gray-600">Subjects:</span>
-                    {teacherSubjects.map((subj, i) => (
-                      <span key={i} className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
-                        {subj}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                {activeExam && stats.competenciesRecorded === 0 && teacherResults.length > 0 && (
-                  <div className="bg-yellow-50 p-2 rounded-lg border border-yellow-200 text-center">
-                    <p className="text-xs text-yellow-700">
-                      <FiClock className="inline mr-1 w-3 h-3" />
-                      You have {teacherResults.length} total results but none for {activeExam.title}. 
-                      Upload results for this exam to track competencies.
-                    </p>
-                  </div>
-                )}
-                {activeExam && stats.competenciesRecorded > 0 && (
-                  <div className="bg-green-50 p-2 rounded-lg border border-green-200 text-center">
-                    <p className="text-xs text-green-700">
-                      ✅ {stats.competenciesRecorded} results recorded for {activeExam.title}. Keep going!
-                    </p>
-                  </div>
-                )}
-                {teacherResults.length === 0 && (
-                  <div className="bg-gray-50 p-2 rounded-lg border border-gray-200 text-center">
-                    <p className="text-xs text-gray-600">
-                      No results found. Click "Upload Results" to get started.
-                    </p>
-                  </div>
+                  <p className="text-gray-400">Subjects: {teacherSubjects.join(', ')}</p>
                 )}
               </div>
             </div>
-          </div>
-        </>
-      ) : (
-        // ===== DATA HIDDEN - Show message to upload results =====
-        <div className="bg-white rounded-xl shadow-md p-8 text-center">
-          <div className="flex flex-col items-center">
-            <div className="bg-yellow-100 p-4 rounded-full mb-4">
-              <FiClock className={`${deviceInfo.isMobile ? 'w-12 h-12' : 'w-16 h-16'} text-yellow-600`} />
+          ) : (
+            <div className="text-center py-6">
+              <FiBarChart2 className={`${deviceInfo.isMobile ? 'w-8 h-8' : 'w-10 h-10'} text-gray-300 mx-auto mb-2`} />
+              <p className="text-gray-500 text-sm">No subject data available</p>
             </div>
-            <h3 className={`${deviceInfo.isMobile ? 'text-lg' : 'text-2xl'} font-bold text-gray-800 mb-2`}>
-              {teacherResults.length === 0 ? 'No Results Uploaded Yet' : 'New Exam Period Started'}
-            </h3>
-            <p className={`${deviceInfo.isMobile ? 'text-sm' : 'text-base'} text-gray-600 max-w-lg mx-auto`}>
-              {teacherResults.length === 0 
-                ? 'Upload your first results to see performance data.'
-                : 'A new exam has started. Please upload results to view performance data.'}
-            </p>
-            <div className="mt-6 flex flex-wrap gap-4 justify-center">
-              <Link to="/teacher/results" className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg flex items-center gap-2 transition-colors">
-                <FiPlus className="w-5 h-5" /> Upload Results
-              </Link>
-              <Link to="/teacher/announcements" className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg flex items-center gap-2 transition-colors">
-                <FiCalendar className="w-5 h-5" /> View Exams
-              </Link>
+          )}
+          <Link to="/teacher/performance" className={`block text-center ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-green-600 hover:text-green-800 mt-4`}>
+            View Detailed Performance →
+          </Link>
+        </div>
+
+        {/* Upcoming Exams */}
+        <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding}`}>
+          <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-4 flex items-center gap-2`}>
+            <FiCalendar className="text-orange-600" /> Active & Upcoming Exams
+          </h2>
+          {exams.length > 0 ? (
+            <div className="space-y-3">
+              {exams.map((exam, index) => {
+                const now = new Date();
+                const startDateTime = exam.startDateTime ? new Date(exam.startDateTime) : null;
+                const endDateTime = exam.endDateTime ? new Date(exam.endDateTime) : null;
+                const isActive = startDateTime && endDateTime && startDateTime <= now && endDateTime >= now;
+                const isUpcoming = startDateTime && startDateTime > now;
+                const timeRemaining = exam.endDateTime ? getTimeRemainingDisplay(exam._id) : null;
+                const timer = examTimers[exam._id];
+                
+                return (
+                  <div key={index} className={`border-l-4 ${
+                    isActive ? 'border-red-500' : 
+                    isUpcoming ? 'border-orange-500' : 
+                    'border-gray-300'
+                  } pl-3 py-2`}>
+                    <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-1' : 'justify-between items-start'}`}>
+                      <h3 className={`${deviceInfo.isMobile ? 'text-sm' : 'text-base'} font-semibold text-gray-800`}>
+                        {exam.title}
+                        {isActive && (
+                          <span className="ml-2 text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full animate-pulse">🔴 LIVE</span>
+                        )}
+                        {isUpcoming && (
+                          <span className="ml-2 text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">UPCOMING</span>
+                        )}
+                      </h3>
+                    </div>
+                    <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-600`}>
+                      {exam.type || 'Competency Assessment'} • {exam.term || 'Current Term'}
+                    </p>
+                    <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-1' : 'items-center gap-3'} mt-1`}>
+                      <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500`}>
+                        📅 {startDateTime ? startDateTime.toLocaleDateString() : 'Date TBA'}
+                      </p>
+                      {endDateTime && (
+                        <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500`}>
+                          Ends: {endDateTime.toLocaleDateString()} at {endDateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      )}
+                    </div>
+                    
+                    {timeRemaining && timer && !timer.isExpired && (
+                      <div className={`mt-2 flex items-center gap-2 ${timeRemaining.color} ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>
+                        <FiClock className={deviceInfo.isMobile ? 'w-3 h-3' : 'w-4 h-4'} />
+                        <span className="font-semibold">
+                          ⏰ {timeRemaining.text}
+                        </span>
+                        {isActive && timer.days === 0 && timer.hours < 2 && timer.hours > 0 && (
+                          <span className="ml-2 px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-bold animate-pulse">
+                            CRITICAL
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-            <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-gray-400 mt-4`}>
-              {teacherResults.length === 0 
-                ? 'Once you upload results, performance data will be displayed here.'
-                : 'Once you upload results for the new exam, performance data will be displayed here.'}
-            </p>
+          ) : (
+            <div className="text-center py-6">
+              <FiCalendar className={`${deviceInfo.isMobile ? 'w-8 h-8' : 'w-10 h-10'} text-gray-300 mx-auto mb-2`} />
+              <p className="text-gray-500 text-sm">No active or upcoming exams</p>
+              <p className="text-xs text-gray-400 mt-1">All exams are either completed or not scheduled</p>
+            </div>
+          )}
+          <Link to="/teacher/announcements" className={`block text-center ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-orange-600 hover:text-orange-800 mt-4`}>
+            View All Exams/Events →
+          </Link>
+        </div>
+      </div>
+
+      <div className={`grid ${deviceInfo.isMobile ? 'grid-cols-1' : 'lg:grid-cols-2'} gap-6 mb-6`}>
+        
+        {/* School Announcements */}
+        <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding}`}>
+          <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-4 flex items-center gap-2`}>
+            <FiTrendingUp className="text-blue-600" /> Active & Upcoming Events
+          </h2>
+          {announcements.length > 0 ? (
+            <div className="space-y-3">
+              {announcements.map((announcement, index) => {
+                const isPast = announcement.date ? new Date(announcement.date) < new Date() : false;
+                return (
+                  <div key={index} className={`border-b border-gray-100 pb-3 last:border-0 ${isPast ? 'opacity-60' : ''}`}>
+                    <div className="flex items-start justify-between">
+                      <h3 className={`${deviceInfo.isMobile ? 'text-sm' : 'text-base'} font-semibold text-gray-800`}>
+                        {announcement.title}
+                      </h3>
+                      {!isPast && (
+                        <span className="text-[8px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full flex-shrink-0 ml-2">
+                          UPCOMING
+                        </span>
+                      )}
+                    </div>
+                    <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500 mt-1`}>
+                      📅 {announcement.date ? new Date(announcement.date).toLocaleDateString() : new Date(announcement.createdAt).toLocaleDateString()}
+                    </p>
+                    <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-gray-600 mt-1 line-clamp-2`}>
+                      {announcement.description}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="text-center py-6">
+              <FiTrendingUp className={`${deviceInfo.isMobile ? 'w-8 h-8' : 'w-10 h-10'} text-gray-300 mx-auto mb-2`} />
+              <p className="text-gray-500 text-sm">No active or upcoming events</p>
+            </div>
+          )}
+          <Link to="/teacher/announcements" className={`block text-center ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-blue-600 hover:text-blue-800 mt-4`}>
+            View All Events/Exams →
+          </Link>
+        </div>
+
+        {/* Teacher Summary */}
+        <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding}`}>
+          <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-4 flex items-center gap-2`}>
+            <FiUserCheck className="text-green-600" /> Teacher Summary
+          </h2>
+          <div className="space-y-3">
+            <div className="flex justify-between items-center p-2 bg-gray-50 rounded-lg">
+              <span className="text-sm text-gray-600">Teacher ID</span>
+              <span className="font-semibold text-gray-800">{teacherId || 'Not Found'}</span>
+            </div>
+            <div className="flex justify-between items-center p-2 bg-gray-50 rounded-lg">
+              <span className="text-sm text-gray-600">Active Exam</span>
+              <span className="font-semibold text-green-600">{activeExam ? activeExam.title : (nextExam ? `Next: ${nextExam.title}` : 'No Exam')}</span>
+            </div>
+            <div className="flex justify-between items-center p-2 bg-gray-50 rounded-lg">
+              <span className="text-sm text-gray-600">Exam Period</span>
+              <span className={`font-semibold ${isExamPeriod ? 'text-green-600' : 'text-yellow-600'}`}>
+                {isExamPeriod ? '🟢 Active' : '🔴 Inactive'}
+              </span>
+            </div>
+            <div className="flex justify-between items-center p-2 bg-gray-50 rounded-lg">
+              <span className="text-sm text-gray-600">Total Students</span>
+              <span className="font-semibold text-gray-800">{stats.totalLearners}</span>
+            </div>
+            <div className="flex justify-between items-center p-2 bg-blue-50 rounded-lg border border-blue-100">
+              <span className="text-sm text-blue-700">Uploaded Results</span>
+              <span className="font-bold text-blue-700 text-lg">{stats.uploadedResults}</span>
+            </div>
+            <div className="flex justify-between items-center p-2 bg-purple-50 rounded-lg border border-purple-100">
+              <span className="text-sm text-purple-700">Classes Taught</span>
+              <span className="font-bold text-purple-700 text-lg">{stats.classesTaught}</span>
+            </div>
+            <div className="flex justify-between items-center p-2 bg-indigo-50 rounded-lg border border-indigo-100">
+              <span className="text-sm text-indigo-700">Subjects Taught</span>
+              <span className="font-bold text-indigo-700 text-lg">{teacherSubjects.length}</span>
+            </div>
+            <div className="flex justify-between items-center p-2 bg-green-50 rounded-lg border border-green-100">
+              <span className="text-sm text-green-700">Active Exam Results</span>
+              <span className="font-bold text-green-700 text-lg">{stats.competenciesRecorded}</span>
+            </div>
+            {teacherClasses.length > 0 && isExamPeriod && (
+              <div className="flex flex-wrap gap-1 p-2 bg-gray-50 rounded-lg">
+                <span className="text-sm text-gray-600">Classes:</span>
+                {teacherClasses.map((cls, i) => (
+                  <span key={i} className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+                    {cls}
+                  </span>
+                ))}
+              </div>
+            )}
+            {teacherSubjects.length > 0 && isExamPeriod && (
+              <div className="flex flex-wrap gap-1 p-2 bg-gray-50 rounded-lg">
+                <span className="text-sm text-gray-600">Subjects:</span>
+                {teacherSubjects.map((subj, i) => (
+                  <span key={i} className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+                    {subj}
+                  </span>
+                ))}
+              </div>
+            )}
+            {isExamPeriod && stats.competenciesRecorded === 0 && teacherResults.length > 0 && (
+              <div className="bg-yellow-50 p-2 rounded-lg border border-yellow-200 text-center">
+                <p className="text-xs text-yellow-700">
+                  <FiClock className="inline mr-1 w-3 h-3" />
+                  You have {teacherResults.length} total results but none for {activeExam?.title}. 
+                  Upload results for this exam to track competencies.
+                </p>
+              </div>
+            )}
+            {isExamPeriod && stats.competenciesRecorded > 0 && (
+              <div className="bg-green-50 p-2 rounded-lg border border-green-200 text-center">
+                <p className="text-xs text-green-700">
+                  ✅ {stats.competenciesRecorded} results recorded for {activeExam?.title}. Keep going!
+                </p>
+              </div>
+            )}
+            {!isExamPeriod && (
+              <div className="bg-gray-50 p-2 rounded-lg border border-gray-200 text-center">
+                <p className="text-xs text-gray-600">
+                  {nextExam ? `⏳ Waiting for ${nextExam.title} to start` : 'No exam scheduled'}
+                </p>
+              </div>
+            )}
+            {isExamPeriod && teacherResults.length === 0 && (
+              <div className="bg-gray-50 p-2 rounded-lg border border-gray-200 text-center">
+                <p className="text-xs text-gray-600">
+                  No results found for {activeExam?.title}. Click "Upload Results" to get started.
+                </p>
+              </div>
+            )}
           </div>
         </div>
-      )}
+      </div>
 
       <style jsx>{`
         @media (max-width: 768px) {
