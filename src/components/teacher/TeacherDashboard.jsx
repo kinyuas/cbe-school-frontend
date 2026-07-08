@@ -19,8 +19,7 @@ import {
   FiAlertTriangle,
   FiUserCheck,
   FiInfo,
-  FiPlus,
-  FiXCircle
+  FiPlus
 } from 'react-icons/fi';
 import { useAuth } from '../../context/AuthContext';
 import { Link } from 'react-router-dom';
@@ -169,7 +168,6 @@ const TeacherDashboard = () => {
   
   // ===== NEW: Track if data should be displayed =====
   const [shouldShowData, setShouldShowData] = useState(true);
-  const [nextExamStart, setNextExamStart] = useState(null);
   const [dataExpired, setDataExpired] = useState(false);
   
   // Refs for cleanup
@@ -187,8 +185,15 @@ const TeacherDashboard = () => {
   };
 
   // ===== Check if data should be displayed based on next exam start =====
-  const checkDataDisplayStatus = useCallback((examsData) => {
+  const checkDataDisplayStatus = useCallback((examsData, teacherResultsData) => {
     const now = new Date();
+    
+    // If no teacher results, show data as false
+    if (!teacherResultsData || teacherResultsData.length === 0) {
+      setShouldShowData(false);
+      setDataExpired(false);
+      return;
+    }
     
     // Find the next upcoming exam (any exam that hasn't started yet)
     const upcomingExams = examsData.filter(e => {
@@ -211,23 +216,26 @@ const TeacherDashboard = () => {
       return endDate >= now;
     });
     
-    // If there's an active exam or no upcoming exam, show data
-    if (hasActiveExam || upcomingExams.length === 0) {
+    // If there's an active exam, show data
+    if (hasActiveExam) {
       setShouldShowData(true);
       setDataExpired(false);
-      setNextExamStart(null);
+      return;
+    }
+    
+    // If there are no upcoming exams and no active exam, show data (past data)
+    if (upcomingExams.length === 0 && !hasActiveExam) {
+      setShouldShowData(true);
+      setDataExpired(false);
       return;
     }
     
     // Get the next upcoming exam
     const nextExam = upcomingExams[0];
     const nextStartDate = new Date(nextExam.startDateTime);
-    setNextExamStart(nextStartDate);
     
-    // Check if we're past the next exam start time
-    // If the data should be hidden (teacher hasn't uploaded results for the new exam yet)
-    // We need to check if there are any results for this upcoming exam
-    const hasResultsForNextExam = teacherResults.some(r => {
+    // Check if there are results for this upcoming exam
+    const hasResultsForNextExam = teacherResultsData.some(r => {
       const matchesExamName = r.examName === nextExam.title;
       const matchesTerm = r.term === nextExam.term;
       const matchesYear = r.year === nextExam.year || r.year === new Date().getFullYear();
@@ -242,7 +250,7 @@ const TeacherDashboard = () => {
       setShouldShowData(true);
       setDataExpired(false);
     }
-  }, [teacherResults]);
+  }, []);
 
   // Load dashboard data
   const loadDashboardData = useCallback(async () => {
@@ -543,7 +551,7 @@ const TeacherDashboard = () => {
       });
       
       // ---- CHECK DATA DISPLAY STATUS ----
-      checkDataDisplayStatus(examsData);
+      checkDataDisplayStatus(examsData, teacherResultsData);
       
       // ---- UPDATE STATS ----
       setStats({
@@ -642,40 +650,6 @@ const TeacherDashboard = () => {
     setExamTimeAlerts(alerts);
     setShowTimeAlert(alerts.length > 0);
   }, [exams]);
-
-  // ===== Check data display status periodically =====
-  useEffect(() => {
-    const checkDisplayStatus = () => {
-      if (nextExamStart) {
-        const now = new Date();
-        const timeDiff = nextExamStart - now;
-        
-        // If next exam has started and no results uploaded, hide data
-        if (timeDiff <= 0 && shouldShowData) {
-          // Check if teacher has uploaded results for the next exam
-          const hasResultsForNextExam = teacherResults.some(r => {
-            const exam = exams.find(e => new Date(e.startDateTime) >= nextExamStart);
-            if (!exam) return false;
-            const matchesExamName = r.examName === exam.title;
-            const matchesTerm = r.term === exam.term;
-            const matchesYear = r.year === exam.year || r.year === new Date().getFullYear();
-            return matchesExamName && matchesTerm && matchesYear;
-          });
-          
-          if (!hasResultsForNextExam) {
-            setShouldShowData(false);
-            setDataExpired(true);
-            // Reload data to update the UI
-            loadDashboardData();
-          }
-        }
-      }
-    };
-    
-    const displayInterval = setInterval(checkDisplayStatus, 60000); // Check every minute
-    
-    return () => clearInterval(displayInterval);
-  }, [nextExamStart, shouldShowData, teacherResults, exams, loadDashboardData]);
 
   // Update timers every minute
   useEffect(() => {
@@ -843,7 +817,7 @@ const TeacherDashboard = () => {
       )}
 
       {/* Active Exam Status Banner */}
-      {activeExam && shouldShowData && (
+      {activeExam && showData && (
         <div className="bg-gradient-to-r from-green-600 to-green-700 rounded-xl p-3 mb-4 text-white shadow-md">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
@@ -1361,10 +1335,12 @@ const TeacherDashboard = () => {
               <FiClock className={`${deviceInfo.isMobile ? 'w-12 h-12' : 'w-16 h-16'} text-yellow-600`} />
             </div>
             <h3 className={`${deviceInfo.isMobile ? 'text-lg' : 'text-2xl'} font-bold text-gray-800 mb-2`}>
-              New Exam Period Started
+              {teacherResults.length === 0 ? 'No Results Uploaded Yet' : 'New Exam Period Started'}
             </h3>
             <p className={`${deviceInfo.isMobile ? 'text-sm' : 'text-base'} text-gray-600 max-w-lg mx-auto`}>
-              A new exam has started. Please upload results to view performance data.
+              {teacherResults.length === 0 
+                ? 'Upload your first results to see performance data.'
+                : 'A new exam has started. Please upload results to view performance data.'}
             </p>
             <div className="mt-6 flex flex-wrap gap-4 justify-center">
               <Link to="/teacher/results" className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg flex items-center gap-2 transition-colors">
@@ -1375,7 +1351,9 @@ const TeacherDashboard = () => {
               </Link>
             </div>
             <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-gray-400 mt-4`}>
-              Once you upload results, performance data will be displayed here.
+              {teacherResults.length === 0 
+                ? 'Once you upload results, performance data will be displayed here.'
+                : 'Once you upload results for the new exam, performance data will be displayed here.'}
             </p>
           </div>
         </div>
