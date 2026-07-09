@@ -316,7 +316,7 @@ const AdminDashboard = () => {
               Competency Based Education (CBE) Dashboard
             </h2>
             <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-sm'} opacity-90`}>
-              Track student progress, manage teachers, and view competencies all in one place
+            
             </p>
           </div>
           <div className={`flex items-center gap-2 ${deviceInfo.isMobile ? 'mt-1' : ''}`}>
