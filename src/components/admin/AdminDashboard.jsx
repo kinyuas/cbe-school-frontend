@@ -318,8 +318,8 @@ const AdminDashboard = () => {
             <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-sm'} opacity-90`}>
               Track student progress, manage teachers, and view competencies all in one place
             </p>
-          </div>y
-          
+          </div>
+
           <div className={`flex items-center gap-2 ${deviceInfo.isMobile ? 'mt-1' : ''}`}>
             <FiTarget className={`${deviceInfo.isMobile ? 'w-6 h-6' : 'w-10 h-10'} opacity-80`} />
             <span className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} font-semibold bg-white/20 px-3 py-1 rounded-full`}>
