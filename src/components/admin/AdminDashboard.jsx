@@ -345,7 +345,7 @@ const AdminDashboard = () => {
             <FiPlus className="w-4 h-4" /> Add Teacher
           </button>
           <Link to="/admin/exams" className={`bg-indigo-600 text-white rounded-lg text-center hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2 ${deviceInfo.isMobile ? 'px-2 py-2 text-xs' : 'px-4 py-3 text-sm'}`}>
-            <FiFileText className="w-4 h-4" /> Assessment
+            <FiFileText className="w-4 h-4" /> Schedule Exam
           </Link>
           <Link to="/admin/modify-results" className={`bg-orange-600 text-white rounded-lg text-center hover:bg-orange-700 transition-colors flex items-center justify-center gap-2 ${deviceInfo.isMobile ? 'px-2 py-2 text-xs' : 'px-4 py-3 text-sm'}`}>
             <FiEdit3 className="w-4 h-4" /> Results
@@ -492,7 +492,7 @@ const AdminDashboard = () => {
                 <div key={exam._id || index} className="border-l-4 border-indigo-500 pl-3 py-2 hover:bg-gray-50 transition-colors">
                   <h3 className={`${deviceInfo.isMobile ? 'text-sm' : 'text-base'} font-semibold text-gray-800`}>{exam.title}</h3>
                   <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500`}>
-                    {exam.type || 'Assessment'} • {exam.term || 'Current Term'}
+                    {exam.type || 'Exam'} • {exam.term || 'Current Term'}
                   </p>
                   <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-1' : 'items-center gap-3'} mt-1 text-xs text-gray-500`}>
                     <span className="flex items-center gap-1">

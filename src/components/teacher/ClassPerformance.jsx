@@ -5,7 +5,7 @@ import {
   FiFilter, FiDownload, FiBarChart2, FiCalendar, FiBookOpen, 
   FiFileText, FiUsers, FiAward, FiTrendingUp, FiTrendingDown, 
   FiMinus, FiAlertCircle, FiMonitor, FiSmartphone, FiTablet,
-  FiRefreshCw, FiCheckCircle, FiXCircle
+  FiRefreshCw, FiCheckCircle, FiXCircle, FiInfo
 } from 'react-icons/fi';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
 import toast from 'react-hot-toast';
@@ -109,15 +109,70 @@ const sortClassesByOrder = (classes) => {
   });
 };
 
-// ===== Check if there is an active exam =====
-const getActiveExam = (examsData) => {
+// ===== Get the next upcoming exam =====
+const getNextUpcomingExam = (examsData) => {
   const now = new Date();
-  return examsData.find(e => {
-    if (!e.startDateTime || !e.endDateTime) return false;
-    const start = new Date(e.startDateTime);
-    const end = new Date(e.endDateTime);
-    return start <= now && end >= now && e.isActive !== false;
-  }) || null;
+  const upcoming = examsData
+    .filter(e => {
+      if (!e.startDateTime || e.isActive === false) return false;
+      const start = new Date(e.startDateTime);
+      return start > now;
+    })
+    .sort((a, b) => new Date(a.startDateTime) - new Date(b.startDateTime));
+  
+  return upcoming.length > 0 ? upcoming[0] : null;
+};
+
+// ===== Check if data should be displayed =====
+// Data is displayed if:
+// 1. There is NO upcoming exam (no next exam scheduled), OR
+// 2. The current time is BEFORE the next exam's start date/time
+const shouldDisplayData = (examsData) => {
+  const now = new Date();
+  const nextExam = getNextUpcomingExam(examsData);
+  
+  // If there's no upcoming exam, display data
+  if (!nextExam) return true;
+  
+  // If there is a next exam, display data until its start date/time
+  const nextExamStart = new Date(nextExam.startDateTime);
+  return now < nextExamStart;
+};
+
+// ===== Get the most recent completed exam with results =====
+const getMostRecentExamWithResults = (examsData, resultsData, teacherId) => {
+  const now = new Date();
+  
+  // Get all exams that have ended (completed)
+  const completedExams = examsData
+    .filter(e => {
+      if (!e.endDateTime || e.isActive === false) return false;
+      const end = new Date(e.endDateTime);
+      return end < now;
+    })
+    .sort((a, b) => new Date(b.endDateTime) - new Date(a.endDateTime));
+  
+  // Find the first completed exam that has results from this teacher
+  for (const exam of completedExams) {
+    const hasResults = resultsData.some(r => {
+      const recordedBy = r.recordedBy || r.teacherId || r.createdBy;
+      const matchesTeacher = recordedBy === teacherId;
+      
+      const matchesExamName = r.examName === exam.title;
+      const matchesExamType = r.examType === exam.type;
+      const matchesTerm = r.term === exam.term;
+      const matchesYear = r.year === exam.year;
+      const matchesExam = matchesExamName || (matchesExamType && matchesTerm && matchesYear);
+      
+      return matchesTeacher && matchesExam;
+    });
+    
+    if (hasResults) {
+      return exam;
+    }
+  }
+  
+  return null;
 };
 
 const ClassPerformance = () => {
@@ -138,8 +193,8 @@ const ClassPerformance = () => {
   const [totalResults, setTotalResults] = useState(0);
   const [teacherClasses, setTeacherClasses] = useState([]);
   const [teacherSubjects, setTeacherSubjects] = useState([]);
-  const [isExamPeriod, setIsExamPeriod] = useState(false);
-  const [activeExam, setActiveExam] = useState(null);
+  const [displayExam, setDisplayExam] = useState(null);
+  const [shouldShowData, setShouldShowData] = useState(true);
   
   // User role
   const [userRole, setUserRole] = useState(null);
@@ -219,7 +274,6 @@ const ClassPerformance = () => {
   // Update available subjects and streams when class changes
   useEffect(() => {
     if (selectedClass) {
-      // Use ALL results (teacherResults) for filtering options, not just active exam
       const classResults = teacherResults.filter(r => {
         const pupilId = r.pupilId?._id || r.pupilId;
         if (!pupilId) return false;
@@ -306,7 +360,6 @@ const ClassPerformance = () => {
       setStudents(studentsData);
       console.log(`📚 Loaded ${studentsData.length} students`);
       
-      // Store ALL results for filtering (from database)
       const resultsRes = await api.get('/results');
       const allResults = resultsRes.data?.data || [];
       setResults(allResults);
@@ -323,32 +376,67 @@ const ClassPerformance = () => {
         console.log('📋 Exam types fetched from database:', examTypesFromDb);
       }
       
-      // Check if there's an active exam
-      const currentActiveExam = getActiveExam(examsData);
-      setIsExamPeriod(currentActiveExam !== null);
-      setActiveExam(currentActiveExam);
+      // ============================================================
+      // CHECK IF DATA SHOULD BE DISPLAYED
+      // Data displays until the next exam starts
+      // ============================================================
+      const showData = shouldDisplayData(examsData);
+      setShouldShowData(showData);
+      
+      console.log(`📝 Show data: ${showData}`);
       
       // ============================================================
-      // SUMMARY DATA: ONLY SHOW IF EXAM IS ACTIVE
+      // FIND THE EXAM TO DISPLAY (Most recent completed exam with results)
+      // ============================================================
+      let examToDisplay = null;
+      
+      if (showData) {
+        // Get all teacher results
+        let allTeacherResults = [];
+        if (teacherId) {
+          allTeacherResults = allResults.filter(result => {
+            const recordedBy = result.recordedBy || result.teacherId || result.createdBy;
+            return recordedBy === teacherId;
+          });
+        }
+        
+        if (allTeacherResults.length === 0 && teacherName) {
+          allTeacherResults = allResults.filter(result => {
+            const submittedBy = result.submittedBy || result.updatedBy || result.createdBy || '';
+            return submittedBy === teacherName || submittedBy.includes(teacherName);
+          });
+        }
+        
+        setTeacherResults(allTeacherResults);
+        
+        // Find the most recent exam with results
+        examToDisplay = getMostRecentExamWithResults(examsData, allTeacherResults, teacherId);
+        setDisplayExam(examToDisplay);
+        
+        console.log(`📚 Display exam: ${examToDisplay?.title || 'None'}`);
+      }
+      
+      // ============================================================
+      // SUMMARY DATA - Show only if data should be displayed and there's an exam
       // ============================================================
       let summaryResults = [];
       let summaryClasses = [];
       let summarySubjects = [];
       let summaryTotalResults = 0;
       
-      if (currentActiveExam) {
-        console.log(`📚 Active exam found: ${currentActiveExam.title}. Showing summary data.`);
+      if (showData && examToDisplay) {
+        console.log(`📚 Displaying results for exam: ${examToDisplay.title}`);
         
-        // Get teacher results for the active exam only
+        // Filter results for the display exam
         if (teacherId) {
           summaryResults = allResults.filter(result => {
             const recordedBy = result.recordedBy || result.teacherId || result.createdBy;
             const matchesTeacher = recordedBy === teacherId;
             
-            const matchesExamName = result.examName === currentActiveExam.title;
-            const matchesExamType = result.examType === currentActiveExam.type;
-            const matchesTerm = result.term === currentActiveExam.term;
-            const matchesYear = result.year === currentActiveExam.year;
+            const matchesExamName = result.examName === examToDisplay.title;
+            const matchesExamType = result.examType === examToDisplay.type;
+            const matchesTerm = result.term === examToDisplay.term;
+            const matchesYear = result.year === examToDisplay.year;
             const matchesExam = matchesExamName || (matchesExamType && matchesTerm && matchesYear);
             
             return matchesTeacher && matchesExam;
@@ -360,10 +448,10 @@ const ClassPerformance = () => {
             const submittedBy = result.submittedBy || result.updatedBy || result.createdBy || '';
             const matchesTeacher = submittedBy === teacherName || submittedBy.includes(teacherName);
             
-            const matchesExamName = result.examName === currentActiveExam.title;
-            const matchesExamType = result.examType === currentActiveExam.type;
-            const matchesTerm = result.term === currentActiveExam.term;
-            const matchesYear = result.year === currentActiveExam.year;
+            const matchesExamName = result.examName === examToDisplay.title;
+            const matchesExamType = result.examType === examToDisplay.type;
+            const matchesTerm = result.term === examToDisplay.term;
+            const matchesYear = result.year === examToDisplay.year;
             const matchesExam = matchesExamName || (matchesExamType && matchesTerm && matchesYear);
             
             return matchesTeacher && matchesExam;
@@ -392,45 +480,22 @@ const ClassPerformance = () => {
         calculateSubjectPerformance(summaryResults, studentsData);
         
       } else {
-        // NO ACTIVE EXAM - Clear all summary data
-        console.log('📚 No active exam. Clearing summary data.');
+        // Clear all summary data
+        console.log('📚 No data to display. Clearing summary data.');
         summaryResults = [];
         summaryClasses = [];
         summarySubjects = [];
         summaryTotalResults = 0;
         setSubjectPerformance([]);
+        setDisplayExam(null);
       }
       
       // ============================================================
-      // STORE ALL RESULTS FOR FILTERING (Always keep these for filters)
-      // ============================================================
-      let allTeacherResults = [];
-      if (teacherId) {
-        allTeacherResults = allResults.filter(result => {
-          const recordedBy = result.recordedBy || result.teacherId || result.createdBy;
-          return recordedBy === teacherId;
-        });
-      }
-      
-      if (allTeacherResults.length === 0 && teacherName) {
-        allTeacherResults = allResults.filter(result => {
-          const submittedBy = result.submittedBy || result.updatedBy || result.createdBy || '';
-          return submittedBy === teacherName || submittedBy.includes(teacherName);
-        });
-      }
-      
-      // Store ALL teacher results for filtering
-      setTeacherResults(allTeacherResults);
-      
-      // ============================================================
-      // UPDATE SUMMARY STATE (Only show if exam is active)
+      // UPDATE SUMMARY STATE
       // ============================================================
       setTotalResults(summaryTotalResults);
       setTeacherClasses(summaryClasses);
       setTeacherSubjects(summarySubjects);
-      
-      // Update stats for the summary display
-      // Note: These stats are for the summary view, not the filtered view
       
     } catch (error) {
       console.error('Error loading data:', error);
@@ -577,9 +642,6 @@ const ClassPerformance = () => {
   };
 
   const loadPerformanceData = async () => {
-    // FILTER FUNCTION - Always works regardless of exam period
-    // This uses the ALL teacher results stored in teacherResults
-    
     if (!selectedClass) {
       toast.error('Please select a class');
       return;
@@ -615,7 +677,6 @@ const ClassPerformance = () => {
         return;
       }
       
-      // Use the API to fetch filtered results (this uses the database, not the stored teacherResults)
       const response = await api.get('/results', {
         params: {
           class: selectedClass,
@@ -826,7 +887,8 @@ const ClassPerformance = () => {
     );
   }
 
-  const hasSummaryResults = totalResults > 0 && isExamPeriod;
+  const hasSummaryResults = totalResults > 0 && shouldShowData;
+  const nextExam = getNextUpcomingExam(exams);
 
   return (
     <Layout title="Subject Performance" subtitle="View and analyze subject-specific performance">
@@ -854,36 +916,46 @@ const ClassPerformance = () => {
         </div>
       </div>
 
-      {/* Exam Period Status Banner */}
-      {isExamPeriod ? (
+      {/* Status Banner */}
+      {!shouldShowData && nextExam ? (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4 flex items-center gap-3">
+          <FiInfo className="w-5 h-5 text-yellow-600 flex-shrink-0" />
+          <div className="text-sm text-yellow-700">
+            <span className="font-semibold">⏳ Results Hidden</span>
+            <span className="text-xs text-yellow-500 ml-2">
+              Results will be hidden until <strong>{nextExam.title}</strong> starts on {new Date(nextExam.startDateTime).toLocaleDateString()}
+            </span>
+          </div>
+        </div>
+      ) : displayExam ? (
         <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-4 flex items-center gap-3">
           <FiCheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
           <div className="text-sm text-green-700">
-            <span className="font-semibold">Active Exam:</span> {activeExam?.title}
+            <span className="font-semibold">📊 Displaying: {displayExam.title}</span>
             <span className="text-xs text-green-500 ml-2">
-              ({activeExam?.startDateTime ? new Date(activeExam.startDateTime).toLocaleDateString() : 'Date TBA'})
+              Completed on {new Date(displayExam.endDateTime).toLocaleDateString()}
             </span>
           </div>
         </div>
       ) : (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4 flex items-center gap-3">
-          <FiInfo className="w-5 h-5 text-yellow-600 flex-shrink-0" />
-          <div className="text-sm text-yellow-700">
-            <span className="font-semibold">No Active Exam</span>
-            <span className="text-xs text-yellow-500 ml-2">
-              {exams.length > 0 ? `Next: ${exams[0]?.title} starts on ${exams[0]?.startDateTime ? new Date(exams[0].startDateTime).toLocaleDateString() : 'Date TBA'}` : 'No exams scheduled'}
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 flex items-center gap-3">
+          <FiInfo className="w-5 h-5 text-blue-600 flex-shrink-0" />
+          <div className="text-sm text-blue-700">
+            <span className="font-semibold">📋 No Results Found</span>
+            <span className="text-xs text-blue-500 ml-2">
+              No completed exams with results found
             </span>
           </div>
         </div>
       )}
 
       {/* ============================================================
-          SUMMARY SECTION - Only shows when exam is active
+          SUMMARY SECTION - Shows when data should be displayed
           ============================================================ */}
-      {isExamPeriod ? (
+      {shouldShowData ? (
         <>
           {/* Teacher Results Summary */}
-          {hasSummaryResults && (
+          {hasSummaryResults && displayExam && (
             <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding} mb-4`}>
               <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'justify-between items-center'}`}>
                 <div>
@@ -895,7 +967,7 @@ const ClassPerformance = () => {
                     </span>
                   </h3>
                   <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500 mt-1`}>
-                    Showing results for <strong>{activeExam?.title}</strong>
+                    Showing results for <strong>{displayExam?.title}</strong>
                   </p>
                 </div>
                 <div className={`flex ${deviceInfo.isMobile ? 'flex-wrap gap-1' : 'gap-2'}`}>
@@ -914,7 +986,7 @@ const ClassPerformance = () => {
             </div>
           )}
 
-          {/* Subject Performance Cards - Only shows when exam is active */}
+          {/* Subject Performance Cards */}
           {subjectPerformance.length > 0 && (
             <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding} mb-4`}>
               <h3 className={`${responsive.headingSize} font-bold text-gray-800 mb-3 flex items-center gap-2`}>
@@ -966,7 +1038,7 @@ const ClassPerformance = () => {
               </div>
               
               <div className={`mt-3 text-xs text-gray-400 border-t pt-2`}>
-                <p>Showing {totalResults} results for {activeExam?.title}</p>
+                <p>Showing {totalResults} results for {displayExam?.title}</p>
                 {teacherClasses.length > 0 && (
                   <p className="text-gray-400">Classes: {teacherClasses.join(', ')}</p>
                 )}
@@ -982,7 +1054,7 @@ const ClassPerformance = () => {
               <FiBookOpen className={`${deviceInfo.isMobile ? 'w-10 h-10' : 'w-12 h-12'} text-blue-500 mx-auto mb-3`} />
               <h3 className={`${deviceInfo.isMobile ? 'text-base' : 'text-lg'} font-semibold text-gray-800 mb-2`}>No Results Uploaded Yet</h3>
               <p className={`${deviceInfo.isMobile ? 'text-sm' : 'text-base'} text-gray-600`}>
-                You haven't uploaded any results for <strong>{activeExam?.title}</strong> yet.
+                You haven't uploaded any results for <strong>{displayExam?.title || 'any exam'}</strong> yet.
               </p>
               <Link to="/teacher/results" className="mt-4 inline-block bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg">
                 Upload Results →
@@ -992,17 +1064,17 @@ const ClassPerformance = () => {
         </>
       ) : (
         // ============================================================
-        // NO ACTIVE EXAM - Show empty state
+        // DATA HIDDEN - Show message
         // ============================================================
         <div className="bg-gray-50 border border-gray-200 rounded-xl p-8 text-center mb-4">
           <FiCalendar className={`${deviceInfo.isMobile ? 'w-10 h-10' : 'w-12 h-12'} text-gray-400 mx-auto mb-3`} />
-          <h3 className={`${deviceInfo.isMobile ? 'text-base' : 'text-lg'} font-semibold text-gray-700 mb-2`}>No Active Exam Period</h3>
+          <h3 className={`${deviceInfo.isMobile ? 'text-base' : 'text-lg'} font-semibold text-gray-700 mb-2`}>⏳ Results Hidden</h3>
           <p className={`${deviceInfo.isMobile ? 'text-sm' : 'text-base'} text-gray-500`}>
-            Results and performance data will appear when an exam is active.
+            Results are hidden until the next exam starts.
           </p>
-          {exams.length > 0 && (
+          {nextExam && (
             <p className="text-sm text-blue-500 mt-2">
-              Next exam: <strong>{exams[0]?.title}</strong> starts on {exams[0]?.startDateTime ? new Date(exams[0].startDateTime).toLocaleDateString() : 'Date TBA'}
+              Next exam: <strong>{nextExam.title}</strong> starts on {new Date(nextExam.startDateTime).toLocaleDateString()} at {new Date(nextExam.startDateTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </p>
           )}
         </div>
@@ -1042,6 +1114,23 @@ const ClassPerformance = () => {
               {availableClasses.map(cls => <option key={cls} value={cls}>{cls}</option>)}
             </select>
           </div>
+          
+          {/* Stream Filter - Placed next to Class */}
+          {selectedClass && availableStreams.length > 0 && (
+            <div>
+              <label className={`block text-gray-700 font-medium mb-1 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>Stream</label>
+              <select 
+                value={selectedStream} 
+                onChange={(e) => setSelectedStream(e.target.value)} 
+                className={`input-field w-full ${deviceInfo.isMobile ? 'text-base' : ''}`}
+              >
+                <option value="">All Streams</option>
+                {availableStreams.map(stream => (
+                  <option key={stream} value={stream}>{stream}</option>
+                ))}
+              </select>
+            </div>
+          )}
           
           <div>
             <label className={`block text-gray-700 font-medium mb-1 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>Subject</label>
@@ -1096,23 +1185,6 @@ const ClassPerformance = () => {
             </select>
           </div>
         </div>
-        
-        {/* Stream Filter */}
-        {selectedClass && availableStreams.length > 0 && (
-          <div className="mt-3">
-            <label className={`block text-gray-700 font-medium mb-1 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>Stream</label>
-            <select 
-              value={selectedStream} 
-              onChange={(e) => setSelectedStream(e.target.value)} 
-              className={`input-field w-full ${deviceInfo.isMobile ? 'text-base' : ''}`}
-            >
-              <option value="">All Streams</option>
-              {availableStreams.map(stream => (
-                <option key={stream} value={stream}>{stream}</option>
-              ))}
-            </select>
-          </div>
-        )}
         
         <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'gap-3'} mt-4`}>
           <button 
