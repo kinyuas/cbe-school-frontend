@@ -128,6 +128,73 @@ const calculateTimeRemaining = (endDateTime) => {
   return { days, hours, minutes, totalSeconds, isExpired: false, isUrgent, displayText };
 };
 
+// ===== Get the time remaining until exam end =====
+const getTimeRemainingDisplay = (endDateTime) => {
+  const timer = calculateTimeRemaining(endDateTime);
+  if (timer.isExpired) return { text: '⏰ Expired', color: 'text-red-600', isUrgent: false };
+  return {
+    text: timer.displayText,
+    color: timer.isUrgent ? 'text-red-600 font-bold' : 'text-orange-600',
+    isUrgent: timer.isUrgent
+  };
+};
+
+// ===== Get the most recent completed exam =====
+const getMostRecentCompletedExam = (examsData) => {
+  const now = new Date();
+  const completed = examsData
+    .filter(e => {
+      if (!e.endDateTime || e.isActive === false) return false;
+      const end = new Date(e.endDateTime);
+      return end < now;
+    })
+    .sort((a, b) => new Date(b.endDateTime) - new Date(a.endDateTime));
+  
+  return completed.length > 0 ? completed[0] : null;
+};
+
+// ===== Check if an exam has results from this teacher =====
+const examHasResults = (exam, resultsData, teacherId, teacherName) => {
+  return resultsData.some(r => {
+    const recordedBy = r.recordedBy || r.teacherId || r.createdBy;
+    const matchesTeacher = recordedBy === teacherId;
+    const matchesTeacherName = r.submittedBy === teacherName || r.updatedBy === teacherName || r.createdBy === teacherName;
+    
+    const matchesExamName = r.examName === exam.title;
+    const matchesExamType = r.examType === exam.type;
+    const matchesTerm = r.term === exam.term;
+    const matchesYear = r.year === exam.year;
+    const matchesExam = matchesExamName || (matchesExamType && matchesTerm && matchesYear);
+    
+    return (matchesTeacher || matchesTeacherName) && matchesExam;
+  });
+};
+
+// ===== Get the exam to display =====
+const getExamToDisplay = (examsData, resultsData, teacherId, teacherName) => {
+  // Check for active exam first
+  const now = new Date();
+  const active = examsData.find(e => {
+    if (!e.startDateTime || !e.endDateTime || e.isActive === false) return false;
+    const start = new Date(e.startDateTime);
+    const end = new Date(e.endDateTime);
+    return start <= now && end >= now;
+  });
+  if (active) return { exam: active, type: 'active' };
+  
+  // Get the most recent completed exam
+  const completed = getMostRecentCompletedExam(examsData);
+  if (completed) {
+    const hasResults = examHasResults(completed, resultsData, teacherId, teacherName);
+    return { 
+      exam: completed, 
+      type: hasResults ? 'withResults' : 'noResults' 
+    };
+  }
+  
+  return { exam: null, type: 'none' };
+};
+
 // ===== Get the next upcoming exam =====
 const getNextUpcomingExam = (examsData) => {
   const now = new Date();
@@ -140,77 +207,6 @@ const getNextUpcomingExam = (examsData) => {
     .sort((a, b) => new Date(a.startDateTime) - new Date(b.startDateTime));
   
   return upcoming.length > 0 ? upcoming[0] : null;
-};
-
-// ===== Get the most recent completed exam with results =====
-const getMostRecentExamWithResults = (examsData, resultsData, teacherId, teacherName) => {
-  const now = new Date();
-  
-  // Get all exams that have ended (completed)
-  const completedExams = examsData
-    .filter(e => {
-      if (!e.endDateTime || e.isActive === false) return false;
-      const end = new Date(e.endDateTime);
-      return end < now;
-    })
-    .sort((a, b) => new Date(b.endDateTime) - new Date(a.endDateTime));
-  
-  // Find the first completed exam that has results from this teacher
-  for (const exam of completedExams) {
-    const hasResults = resultsData.some(r => {
-      // Check if result matches this teacher
-      const recordedBy = r.recordedBy || r.teacherId || r.createdBy;
-      const matchesTeacher = recordedBy === teacherId;
-      const matchesTeacherName = r.submittedBy === teacherName || r.updatedBy === teacherName || r.createdBy === teacherName;
-      
-      const matchesExamName = r.examName === exam.title;
-      const matchesExamType = r.examType === exam.type;
-      const matchesTerm = r.term === exam.term;
-      const matchesYear = r.year === exam.year;
-      const matchesExam = matchesExamName || (matchesExamType && matchesTerm && matchesYear);
-      
-      return (matchesTeacher || matchesTeacherName) && matchesExam;
-    });
-    
-    if (hasResults) {
-      return exam;
-    }
-  }
-  
-  return null;
-};
-
-// ===== Check if data should be displayed =====
-const shouldDisplayData = (examsData, resultsData, teacherId, teacherName) => {
-  const now = new Date();
-  
-  // Find the next upcoming exam
-  const nextExam = getNextUpcomingExam(examsData);
-  
-  // If there's no upcoming exam, display data if there are results
-  if (!nextExam) {
-    // Check if there are any results from this teacher
-    const hasResults = resultsData.some(r => {
-      const recordedBy = r.recordedBy || r.teacherId || r.createdBy;
-      return recordedBy === teacherId || r.submittedBy === teacherName || r.updatedBy === teacherName;
-    });
-    return hasResults;
-  }
-  
-  // If there is a next exam, display data until its start date/time
-  const nextExamStart = new Date(nextExam.startDateTime);
-  return now < nextExamStart;
-};
-
-// ===== Get the current active exam =====
-const getActiveExam = (examsData) => {
-  const now = new Date();
-  return examsData.find(e => {
-    if (!e.startDateTime || !e.endDateTime) return false;
-    const start = new Date(e.startDateTime);
-    const end = new Date(e.endDateTime);
-    return start <= now && end >= now && e.isActive !== false;
-  }) || null;
 };
 
 const TeacherDashboard = () => {
@@ -241,12 +237,13 @@ const TeacherDashboard = () => {
   const [examTimers, setExamTimers] = useState({});
   const [teacherResults, setTeacherResults] = useState([]);
   const [displayExam, setDisplayExam] = useState(null);
+  const [displayExamType, setDisplayExamType] = useState('none');
   const [activeExam, setActiveExam] = useState(null);
   const [nextExam, setNextExam] = useState(null);
   const [teacherClass, setTeacherClass] = useState('');
   const [teacherClasses, setTeacherClasses] = useState([]);
   const [teacherSubjects, setTeacherSubjects] = useState([]);
-  const [shouldShowData, setShouldShowData] = useState(false);
+  const [allTeacherResults, setAllTeacherResults] = useState([]);
   
   const [examTimeAlerts, setExamTimeAlerts] = useState([]);
   const [showTimeAlert, setShowTimeAlert] = useState(false);
@@ -298,189 +295,192 @@ const TeacherDashboard = () => {
       // ============================================================
       // GET ALL TEACHER RESULTS
       // ============================================================
-      let allTeacherResults = [];
+      let teacherResultsData = [];
       if (teacherId) {
-        allTeacherResults = allResults.filter(result => {
+        teacherResultsData = allResults.filter(result => {
           const recordedBy = result.recordedBy || result.teacherId || result.createdBy;
           return recordedBy === teacherId;
         });
       }
       
-      if (allTeacherResults.length === 0 && teacherName) {
-        allTeacherResults = allResults.filter(result => {
+      if (teacherResultsData.length === 0 && teacherName) {
+        teacherResultsData = allResults.filter(result => {
           const submittedBy = result.submittedBy || result.updatedBy || result.createdBy || '';
           return submittedBy === teacherName || submittedBy.includes(teacherName);
         });
       }
       
+      setAllTeacherResults(teacherResultsData);
+      
       // ============================================================
-      // CHECK IF DATA SHOULD BE DISPLAYED
+      // DETERMINE WHICH EXAM TO DISPLAY
       // ============================================================
-      const showData = shouldDisplayData(examsData, allTeacherResults, teacherId, teacherName);
-      const currentActiveExam = getActiveExam(examsData);
+      const { exam: examToDisplay, type: examType } = getExamToDisplay(examsData, teacherResultsData, teacherId, teacherName);
+      
+      setDisplayExam(examToDisplay);
+      setDisplayExamType(examType);
+      
+      console.log(`📚 Display exam: ${examToDisplay?.title || 'None'}`);
+      console.log(`📚 Display type: ${examType}`);
+      
+      // ============================================================
+      // GET ACTIVE AND NEXT EXAMS
+      // ============================================================
+      const now = new Date();
+      const currentActiveExam = examsData.find(e => {
+        if (!e.startDateTime || !e.endDateTime || e.isActive === false) return false;
+        const start = new Date(e.startDateTime);
+        const end = new Date(e.endDateTime);
+        return start <= now && end >= now;
+      });
       const nextUpcomingExam = getNextUpcomingExam(examsData);
       
-      setShouldShowData(showData);
       setActiveExam(currentActiveExam);
       setNextExam(nextUpcomingExam);
       
-      console.log(`📝 Show data: ${showData}`);
       console.log(`📝 Active exam: ${currentActiveExam?.title || 'None'}`);
       console.log(`📝 Next exam: ${nextUpcomingExam?.title || 'None'}`);
       
+      // ============================================================
+      // FILTER RESULTS - Only if exam has results
+      // ============================================================
       let uploadedResultsCount = 0;
       let competenciesCount = 0;
       let classesTaughtCount = 0;
       let performanceData = [];
-      let displayExamData = null;
-      let teacherResultsData = [];
+      let filteredResults = [];
       
-      // ============================================================
-      // FIND THE EXAM TO DISPLAY (Most recent completed exam with results)
-      // ============================================================
-      if (showData) {
-        // Find the most recent completed exam with results
-        displayExamData = getMostRecentExamWithResults(examsData, allTeacherResults, teacherId, teacherName);
-        setDisplayExam(displayExamData);
-        
-        console.log(`📚 Display exam: ${displayExamData?.title || 'None'}`);
-        
-        if (displayExamData) {
-          // Filter results for the display exam
-          if (teacherId) {
-            teacherResultsData = allResults.filter(result => {
-              const recordedBy = result.recordedBy || result.teacherId || result.createdBy;
-              const matchesTeacher = recordedBy === teacherId;
-              
-              const matchesExamName = result.examName === displayExamData.title;
-              const matchesExamType = result.examType === displayExamData.type;
-              const matchesTerm = result.term === displayExamData.term;
-              const matchesYear = result.year === displayExamData.year;
-              const matchesExam = matchesExamName || (matchesExamType && matchesTerm && matchesYear);
-              
-              return matchesTeacher && matchesExam;
-            });
-          }
-          
-          if (teacherResultsData.length === 0 && teacherName) {
-            teacherResultsData = allResults.filter(result => {
-              const submittedBy = result.submittedBy || result.updatedBy || result.createdBy || '';
-              const matchesTeacher = submittedBy === teacherName || submittedBy.includes(teacherName);
-              
-              const matchesExamName = result.examName === displayExamData.title;
-              const matchesExamType = result.examType === displayExamData.type;
-              const matchesTerm = result.term === displayExamData.term;
-              const matchesYear = result.year === displayExamData.year;
-              const matchesExam = matchesExamName || (matchesExamType && matchesTerm && matchesYear);
-              
-              return matchesTeacher && matchesExam;
-            });
-          }
-          
-          setTeacherResults(teacherResultsData);
-          uploadedResultsCount = teacherResultsData.length;
-          
-          // CLASSES TAUGHT
-          const uniqueClasses = new Set();
-          teacherResultsData.forEach(r => {
-            const pupilId = r.pupilId?._id || r.pupilId;
-            if (pupilId) {
-              const pupil = findPupilById(pupilId, learners);
-              if (pupil) {
-                const className = pupil.class || pupil.grade || pupil.className;
-                if (className) uniqueClasses.add(className);
-              }
-            }
-          });
-          classesTaughtCount = uniqueClasses.size;
-          setTeacherClasses([...uniqueClasses]);
-          
-          // SUBJECTS TAUGHT
-          const uniqueSubjects = new Set();
-          teacherResultsData.forEach(r => {
-            const subject = r.subject || r.subjectName || r.learningArea;
-            if (subject) uniqueSubjects.add(subject);
-          });
-          setTeacherSubjects([...uniqueSubjects]);
-          competenciesCount = teacherResultsData.length;
-          
-          // PERFORMANCE BY SUBJECT
-          const performanceBySubject = {};
-          teacherResultsData.forEach(result => {
-            const subject = result.subject || result.subjectName || result.learningArea || 'Unknown Subject';
-            const marks = result.marks || result.score || result.marksObtained || 0;
-            const examName = result.examName || 'Assessment';
-            const pupilId = result.pupilId?._id || result.pupilId;
+      // Show data only if exam has results (active or withResults)
+      const showData = (examType === 'active' || examType === 'withResults') && examToDisplay !== null;
+      
+      if (showData && examToDisplay) {
+        // Filter results for the display exam
+        if (teacherId) {
+          filteredResults = allResults.filter(result => {
+            const recordedBy = result.recordedBy || result.teacherId || result.createdBy;
+            const matchesTeacher = recordedBy === teacherId;
             
-            let className = 'Unknown Class';
-            let stream = 'Unknown Stream';
-            if (pupilId) {
-              const pupil = findPupilById(pupilId, learners);
-              if (pupil) {
-                className = pupil.class || pupil.grade || 'Unknown Class';
-                stream = pupil.stream || 'Unknown Stream';
-              }
-            }
+            const matchesExamName = result.examName === examToDisplay.title;
+            const matchesExamType = result.examType === examToDisplay.type;
+            const matchesTerm = result.term === examToDisplay.term;
+            const matchesYear = result.year === examToDisplay.year;
+            const matchesExam = matchesExamName || (matchesExamType && matchesTerm && matchesYear);
             
-            if (!performanceBySubject[subject]) {
-              performanceBySubject[subject] = {
-                subject: subject,
-                class: className,
-                stream: stream,
-                examName: examName,
-                totalMarks: 0,
-                count: 0,
-                scores: [],
-                students: new Set(),
-                passing: 0,
-                failing: 0
-              };
-            }
-            
-            performanceBySubject[subject].totalMarks += marks;
-            performanceBySubject[subject].count++;
-            performanceBySubject[subject].scores.push(marks);
-            if (marks >= 60) performanceBySubject[subject].passing++;
-            else performanceBySubject[subject].failing++;
-            if (pupilId) performanceBySubject[subject].students.add(pupilId);
+            return matchesTeacher && matchesExam;
           });
-          
-          performanceData = Object.values(performanceBySubject).map(data => {
-            const average = data.count > 0 ? (data.totalMarks / data.count) : 0;
-            return {
-              subject: data.subject,
-              class: data.class,
-              stream: data.stream,
-              examName: data.examName,
-              average: average.toFixed(1),
-              students: data.students.size,
-              totalResults: data.count,
-              passing: data.passing,
-              failing: data.failing,
-              scores: data.scores
-            };
-          });
-          performanceData.sort((a, b) => a.subject.localeCompare(b.subject));
-          setClassPerformance(performanceData);
-        } else {
-          // No completed exam with results found
-          setTeacherResults([]);
-          setClassPerformance([]);
-          setTeacherClasses([]);
-          setTeacherSubjects([]);
         }
+        
+        if (filteredResults.length === 0 && teacherName) {
+          filteredResults = allResults.filter(result => {
+            const submittedBy = result.submittedBy || result.updatedBy || result.createdBy || '';
+            const matchesTeacher = submittedBy === teacherName || submittedBy.includes(teacherName);
+            
+            const matchesExamName = result.examName === examToDisplay.title;
+            const matchesExamType = result.examType === examToDisplay.type;
+            const matchesTerm = result.term === examToDisplay.term;
+            const matchesYear = result.year === examToDisplay.year;
+            const matchesExam = matchesExamName || (matchesExamType && matchesTerm && matchesYear);
+            
+            return matchesTeacher && matchesExam;
+          });
+        }
+        
+        setTeacherResults(filteredResults);
+        uploadedResultsCount = filteredResults.length;
+        
+        // CLASSES TAUGHT
+        const uniqueClasses = new Set();
+        filteredResults.forEach(r => {
+          const pupilId = r.pupilId?._id || r.pupilId;
+          if (pupilId) {
+            const pupil = findPupilById(pupilId, learners);
+            if (pupil) {
+              const className = pupil.class || pupil.grade || pupil.className;
+              if (className) uniqueClasses.add(className);
+            }
+          }
+        });
+        classesTaughtCount = uniqueClasses.size;
+        setTeacherClasses([...uniqueClasses]);
+        
+        // SUBJECTS TAUGHT
+        const uniqueSubjects = new Set();
+        filteredResults.forEach(r => {
+          const subject = r.subject || r.subjectName || r.learningArea;
+          if (subject) uniqueSubjects.add(subject);
+        });
+        setTeacherSubjects([...uniqueSubjects]);
+        competenciesCount = filteredResults.length;
+        
+        // PERFORMANCE BY SUBJECT
+        const performanceBySubject = {};
+        filteredResults.forEach(result => {
+          const subject = result.subject || result.subjectName || result.learningArea || 'Unknown Subject';
+          const marks = result.marks || result.score || result.marksObtained || 0;
+          const examName = result.examName || 'Assessment';
+          const pupilId = result.pupilId?._id || result.pupilId;
+          
+          let className = 'Unknown Class';
+          let stream = 'Unknown Stream';
+          if (pupilId) {
+            const pupil = findPupilById(pupilId, learners);
+            if (pupil) {
+              className = pupil.class || pupil.grade || 'Unknown Class';
+              stream = pupil.stream || 'Unknown Stream';
+            }
+          }
+          
+          if (!performanceBySubject[subject]) {
+            performanceBySubject[subject] = {
+              subject: subject,
+              class: className,
+              stream: stream,
+              examName: examName,
+              totalMarks: 0,
+              count: 0,
+              scores: [],
+              students: new Set(),
+              passing: 0,
+              failing: 0
+            };
+          }
+          
+          performanceBySubject[subject].totalMarks += marks;
+          performanceBySubject[subject].count++;
+          performanceBySubject[subject].scores.push(marks);
+          if (marks >= 60) performanceBySubject[subject].passing++;
+          else performanceBySubject[subject].failing++;
+          if (pupilId) performanceBySubject[subject].students.add(pupilId);
+        });
+        
+        performanceData = Object.values(performanceBySubject).map(data => {
+          const average = data.count > 0 ? (data.totalMarks / data.count) : 0;
+          return {
+            subject: data.subject,
+            class: data.class,
+            stream: data.stream,
+            examName: data.examName,
+            average: average.toFixed(1),
+            students: data.students.size,
+            totalResults: data.count,
+            passing: data.passing,
+            failing: data.failing,
+            scores: data.scores
+          };
+        });
+        performanceData.sort((a, b) => a.subject.localeCompare(b.subject));
+        setClassPerformance(performanceData);
+        
       } else {
-        // CLEAR DATA - results hidden until next exam starts
-        console.log('📚 Results hidden until next exam starts. Clearing data...');
+        // CLEAR DATA - No results for this exam
+        console.log('📚 No data to display. Clearing results...');
         setTeacherResults([]);
         setClassPerformance([]);
         setTeacherClasses([]);
         setTeacherSubjects([]);
-        setDisplayExam(null);
       }
       
       // ---- FILTER ACTIVE AND UPCOMING EXAMS ----
-      const now = new Date();
       const activeAndUpcomingExams = examsData.filter(e => {
         if (e.isActive === false) return false;
         if (!e.startDateTime) return false;
@@ -635,7 +635,7 @@ const TeacherDashboard = () => {
     }
   };
 
-  const getTimeRemainingDisplay = (examId) => {
+  const getTimeRemainingDisplayForExam = (examId) => {
     const timer = examTimers[examId];
     if (!timer) return null;
     if (timer.isExpired) return { text: '⏰ Expired', color: 'text-red-600', isUrgent: false };
@@ -671,43 +671,63 @@ const TeacherDashboard = () => {
   else greeting = "Good Evening";
 
   const hasTeacherResults = teacherResults.length > 0;
+  const showData = (displayExamType === 'active' || displayExamType === 'withResults') && displayExam !== null;
+
+  // Get time remaining for the display exam
+  let displayExamTimeRemaining = null;
+  if (displayExam && displayExam.endDateTime) {
+    displayExamTimeRemaining = getTimeRemainingDisplayForExam(displayExam._id);
+  }
+
+  // Get active exam time remaining
+  let activeExamTimeRemaining = null;
+  if (activeExam && activeExam.endDateTime) {
+    activeExamTimeRemaining = getTimeRemainingDisplayForExam(activeExam._id);
+  }
 
   return (
     <Layout 
       title={`${greeting}, ${user?.name || 'Teacher'}`} 
       subtitle={schoolInfo.name || user?.school || 'CBE Education'}
     >
-      {/* Status Banner */}
-      {activeExam ? (
-        <div className="bg-gradient-to-r from-green-600 to-green-700 rounded-lg p-3 mb-3 text-white">
+      {/* Status Banner with Time Remaining */}
+      {displayExam ? (
+        <div className={`rounded-lg p-3 mb-3 text-white ${
+          displayExamType === 'active' 
+            ? 'bg-gradient-to-r from-green-600 to-green-700' 
+            : displayExamType === 'withResults' 
+              ? 'bg-gradient-to-r from-blue-600 to-purple-600' 
+              : 'bg-gradient-to-r from-gray-600 to-gray-700'
+        }`}>
           <div className="flex items-center justify-between flex-wrap gap-2">
-            <span className="font-medium text-sm">📝 {activeExam.title}</span>
-            <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full">Active</span>
-          </div>
-        </div>
-      ) : displayExam && shouldShowData ? (
-        <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg p-3 mb-3 text-white">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <span className="font-medium text-sm">📊 {displayExam.title}</span>
-            <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full">Current Data</span>
-          </div>
-          <div className="text-xs opacity-80 mt-1">
-            Completed: {new Date(displayExam.endDateTime).toLocaleDateString()}
-          </div>
-        </div>
-      ) : nextExam && !shouldShowData ? (
-        <div className="bg-gradient-to-r from-yellow-600 to-orange-600 rounded-lg p-3 mb-3 text-white">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <span className="font-medium text-sm">⏳ {nextExam.title}</span>
-            <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full">Starting Soon</span>
-          </div>
-          <div className="text-xs opacity-80 mt-1">
-            Results hidden until exam begins
+            <div className="flex items-center gap-2">
+              <span className="font-medium text-sm">
+                {displayExamType === 'active' ? '📝' : displayExamType === 'withResults' ? '📊' : '📅'} 
+                {' '}{displayExam.title}
+              </span>
+              <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full">
+                {displayExamType === 'active' ? 'Active' : displayExamType === 'withResults' ? 'Current Data' : 'No Results'}
+              </span>
+            </div>
+            <div className="flex items-center gap-3">
+              {/* Time Remaining Display - Only for active or withResults exams */}
+              {displayExamTimeRemaining && (displayExamType === 'active' || displayExamType === 'withResults') && (
+                <span className={`text-xs font-semibold flex items-center gap-1 ${displayExamTimeRemaining.color}`}>
+                  <FiClock className="w-3 h-3" />
+                  {displayExamTimeRemaining.text}
+                </span>
+              )}
+              {displayExam.endDateTime && (
+                <span className="text-xs opacity-80">
+                  {displayExamType === 'active' ? 'Ends:' : 'Completed:'} {new Date(displayExam.endDateTime).toLocaleDateString()}
+                </span>
+              )}
+            </div>
           </div>
         </div>
       ) : (
         <div className="bg-gradient-to-r from-gray-600 to-gray-700 rounded-lg p-3 mb-3 text-white">
-          <span className="font-medium text-sm">📅 No data available</span>
+          <span className="font-medium text-sm">📅 No exams available</span>
         </div>
       )}
 
@@ -719,19 +739,20 @@ const TeacherDashboard = () => {
         </button>
       </div>
 
-      {/* Status Message for Hidden Data */}
-      {!shouldShowData && nextExam && (
+      {/* Status Message for No Results */}
+      {displayExam && displayExamType === 'noResults' && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-2 mb-3">
           <p className="text-xs text-yellow-700 text-center">
-            ⏳ Results are hidden until <strong>{nextExam.title}</strong> starts on {new Date(nextExam.startDateTime).toLocaleDateString()} at {new Date(nextExam.startDateTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            📋 No results uploaded yet for <strong>{displayExam.title}</strong>. 
+            <Link to="/teacher/results" className="underline ml-1">Upload now</Link>
           </p>
         </div>
       )}
 
-      {!shouldShowData && !nextExam && (
+      {!displayExam && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-2 mb-3">
           <p className="text-xs text-blue-700 text-center">
-            📋 No results available. Upload results to see data.
+            📋 No exams available. Contact admin to schedule exams.
           </p>
         </div>
       )}
@@ -773,19 +794,17 @@ const TeacherDashboard = () => {
         </Link>
         <Link to="/teacher/announcements" className="bg-orange-100 hover:bg-orange-200 p-2 rounded-lg text-center transition-colors shadow-sm">
           <FiCalendar className="w-5 h-5 text-orange-600 mx-auto" />
-          <p className="text-[10px] font-medium text-orange-700">Events</p>
+          <p className="text-[10px] font-medium text-orange-700">Events/Exams</p>
         </Link>
       </div>
 
       {/* Summary */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-2 mb-3">
         <div className="text-xs text-blue-700">
-          {shouldShowData && displayExam && hasTeacherResults ? (
+          {showData && hasTeacherResults ? (
             <>{stats.uploadedResults} results • {teacherSubjects.length} subjects • {stats.classesTaught} classes</>
-          ) : shouldShowData && displayExam && !hasTeacherResults ? (
-            <>No results for {displayExam.title}. <Link to="/teacher/results" className="underline">Upload now</Link></>
-          ) : nextExam && !shouldShowData ? (
-            <>⏳ Waiting for <strong>{nextExam.title}</strong> to start</>
+          ) : displayExam && displayExamType === 'noResults' ? (
+            <>Waiting for results on <strong>{displayExam.title}</strong></>
           ) : (
             <>No results available</>
           )}
@@ -816,6 +835,7 @@ const TeacherDashboard = () => {
               const isActive = startDateTime && endDateTime && startDateTime <= now && endDateTime >= now;
               const isUpcoming = startDateTime && startDateTime > now;
               const timer = examTimers[exam._id];
+              const timeRemaining = timer && !timer.isExpired ? timer.displayText : null;
               
               return (
                 <div key={`exam-${index}`} className={`border-l-4 ${isActive ? 'border-red-500' : isUpcoming ? 'border-orange-500' : 'border-gray-300'} pl-2 py-1`}>
@@ -824,7 +844,7 @@ const TeacherDashboard = () => {
                     <div className="flex items-center gap-1">
                       {isActive && <span className="text-[8px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full">Live</span>}
                       {isUpcoming && <span className="text-[8px] bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-full">Soon</span>}
-                      {timer && !timer.isExpired && <span className="text-[10px] text-gray-500">{timer.displayText}</span>}
+                      {timer && !timer.isExpired && <span className="text-[10px] text-gray-500">{timeRemaining}</span>}
                     </div>
                   </div>
                   <p className="text-[10px] text-gray-500">{exam.type} • {exam.term}</p>
@@ -856,22 +876,21 @@ const TeacherDashboard = () => {
       <div className="bg-white rounded-lg shadow-md p-4">
         <h2 className="text-base font-bold text-gray-800 mb-3">📊 Subjects</h2>
         
-        {!shouldShowData ? (
+        {!showData ? (
           <div className="text-center py-4">
-            <p className="text-sm text-gray-500">⏳ Results hidden until next exam</p>
-            {nextExam && (
-              <p className="text-xs text-gray-400 mt-1">{nextExam.title} starts {new Date(nextExam.startDateTime).toLocaleDateString()}</p>
+            <p className="text-sm text-gray-500">
+              {displayExam && displayExamType === 'noResults' 
+                ? `No results for ${displayExam.title}` 
+                : 'No data available'}
+            </p>
+            {displayExam && displayExamType === 'noResults' && (
+              <Link to="/teacher/results" className="text-sm text-green-600 hover:underline">Upload now</Link>
             )}
-          </div>
-        ) : !displayExam ? (
-          <div className="text-center py-4">
-            <p className="text-sm text-gray-500">No completed exam with results</p>
-            <Link to="/teacher/results" className="text-sm text-green-600 hover:underline">Upload</Link>
           </div>
         ) : !hasTeacherResults ? (
           <div className="text-center py-4">
-            <p className="text-sm text-gray-500">No results for {displayExam.title}</p>
-            <Link to="/teacher/results" className="text-sm text-green-600 hover:underline">Upload now</Link>
+            <p className="text-sm text-gray-500">No results yet</p>
+            <Link to="/teacher/results" className="text-sm text-green-600 hover:underline">Upload</Link>
           </div>
         ) : classPerformance.length > 0 ? (
           <div className="space-y-3">

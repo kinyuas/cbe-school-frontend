@@ -85,7 +85,7 @@ const useDeviceDetection = () => {
 // ===== AI Responsive Helper =====
 const useResponsiveClasses = (deviceInfo) => {
   return {
-    cardPadding: deviceInfo.isMobile ? 'p-3' : 'p-6',
+    cardPadding: deviceInfo.isMobile ? 'p-3' : 'p-5',
     headingSize: deviceInfo.isMobile ? 'text-base' : 'text-lg',
     textSize: deviceInfo.isMobile ? 'text-xs' : 'text-sm',
     buttonSize: deviceInfo.isMobile ? 'px-3 py-1.5 text-xs' : 'px-4 py-2 text-sm',
@@ -109,6 +109,52 @@ const sortClassesByOrder = (classes) => {
   });
 };
 
+// ===== Get the most recent completed exam =====
+const getMostRecentCompletedExam = (examsData) => {
+  const now = new Date();
+  const completed = examsData
+    .filter(e => {
+      if (!e.endDateTime || e.isActive === false) return false;
+      const end = new Date(e.endDateTime);
+      return end < now;
+    })
+    .sort((a, b) => new Date(b.endDateTime) - new Date(a.endDateTime));
+  
+  return completed.length > 0 ? completed[0] : null;
+};
+
+// ===== Check if an exam has results from this teacher =====
+const examHasResults = (exam, resultsData, teacherId, teacherName) => {
+  return resultsData.some(r => {
+    const recordedBy = r.recordedBy || r.teacherId || r.createdBy;
+    const matchesTeacher = recordedBy === teacherId;
+    const matchesTeacherName = r.submittedBy === teacherName || r.updatedBy === teacherName || r.createdBy === teacherName;
+    
+    const matchesExamName = r.examName === exam.title;
+    const matchesExamType = r.examType === exam.type;
+    const matchesTerm = r.term === exam.term;
+    const matchesYear = r.year === exam.year;
+    const matchesExam = matchesExamName || (matchesExamType && matchesTerm && matchesYear);
+    
+    return (matchesTeacher || matchesTeacherName) && matchesExam;
+  });
+};
+
+// ===== Get the exam to display =====
+const getExamToDisplay = (examsData, resultsData, teacherId, teacherName) => {
+  // Get the most recent completed exam
+  const completed = getMostRecentCompletedExam(examsData);
+  if (completed) {
+    const hasResults = examHasResults(completed, resultsData, teacherId, teacherName);
+    return { 
+      exam: completed, 
+      type: hasResults ? 'withResults' : 'noResults' 
+    };
+  }
+  
+  return { exam: null, type: 'none' };
+};
+
 // ===== Get the next upcoming exam =====
 const getNextUpcomingExam = (examsData) => {
   const now = new Date();
@@ -121,58 +167,6 @@ const getNextUpcomingExam = (examsData) => {
     .sort((a, b) => new Date(a.startDateTime) - new Date(b.startDateTime));
   
   return upcoming.length > 0 ? upcoming[0] : null;
-};
-
-// ===== Check if data should be displayed =====
-// Data is displayed if:
-// 1. There is NO upcoming exam (no next exam scheduled), OR
-// 2. The current time is BEFORE the next exam's start date/time
-const shouldDisplayData = (examsData) => {
-  const now = new Date();
-  const nextExam = getNextUpcomingExam(examsData);
-  
-  // If there's no upcoming exam, display data
-  if (!nextExam) return true;
-  
-  // If there is a next exam, display data until its start date/time
-  const nextExamStart = new Date(nextExam.startDateTime);
-  return now < nextExamStart;
-};
-
-// ===== Get the most recent completed exam with results =====
-const getMostRecentExamWithResults = (examsData, resultsData, teacherId) => {
-  const now = new Date();
-  
-  // Get all exams that have ended (completed)
-  const completedExams = examsData
-    .filter(e => {
-      if (!e.endDateTime || e.isActive === false) return false;
-      const end = new Date(e.endDateTime);
-      return end < now;
-    })
-    .sort((a, b) => new Date(b.endDateTime) - new Date(a.endDateTime));
-  
-  // Find the first completed exam that has results from this teacher
-  for (const exam of completedExams) {
-    const hasResults = resultsData.some(r => {
-      const recordedBy = r.recordedBy || r.teacherId || r.createdBy;
-      const matchesTeacher = recordedBy === teacherId;
-      
-      const matchesExamName = r.examName === exam.title;
-      const matchesExamType = r.examType === exam.type;
-      const matchesTerm = r.term === exam.term;
-      const matchesYear = r.year === exam.year;
-      const matchesExam = matchesExamName || (matchesExamType && matchesTerm && matchesYear);
-      
-      return matchesTeacher && matchesExam;
-    });
-    
-    if (hasResults) {
-      return exam;
-    }
-  }
-  
-  return null;
 };
 
 const ClassPerformance = () => {
@@ -194,7 +188,9 @@ const ClassPerformance = () => {
   const [teacherClasses, setTeacherClasses] = useState([]);
   const [teacherSubjects, setTeacherSubjects] = useState([]);
   const [displayExam, setDisplayExam] = useState(null);
-  const [shouldShowData, setShouldShowData] = useState(true);
+  const [displayExamType, setDisplayExamType] = useState('none');
+  const [nextExam, setNextExam] = useState(null);
+  const [allTeacherResults, setAllTeacherResults] = useState([]);
   
   // User role
   const [userRole, setUserRole] = useState(null);
@@ -377,56 +373,54 @@ const ClassPerformance = () => {
       }
       
       // ============================================================
-      // CHECK IF DATA SHOULD BE DISPLAYED
-      // Data displays until the next exam starts
+      // GET ALL TEACHER RESULTS
       // ============================================================
-      const showData = shouldDisplayData(examsData);
-      setShouldShowData(showData);
-      
-      console.log(`📝 Show data: ${showData}`);
-      
-      // ============================================================
-      // FIND THE EXAM TO DISPLAY (Most recent completed exam with results)
-      // ============================================================
-      let examToDisplay = null;
-      
-      if (showData) {
-        // Get all teacher results
-        let allTeacherResults = [];
-        if (teacherId) {
-          allTeacherResults = allResults.filter(result => {
-            const recordedBy = result.recordedBy || result.teacherId || result.createdBy;
-            return recordedBy === teacherId;
-          });
-        }
-        
-        if (allTeacherResults.length === 0 && teacherName) {
-          allTeacherResults = allResults.filter(result => {
-            const submittedBy = result.submittedBy || result.updatedBy || result.createdBy || '';
-            return submittedBy === teacherName || submittedBy.includes(teacherName);
-          });
-        }
-        
-        setTeacherResults(allTeacherResults);
-        
-        // Find the most recent exam with results
-        examToDisplay = getMostRecentExamWithResults(examsData, allTeacherResults, teacherId);
-        setDisplayExam(examToDisplay);
-        
-        console.log(`📚 Display exam: ${examToDisplay?.title || 'None'}`);
+      let teacherResultsData = [];
+      if (teacherId) {
+        teacherResultsData = allResults.filter(result => {
+          const recordedBy = result.recordedBy || result.teacherId || result.createdBy;
+          return recordedBy === teacherId;
+        });
       }
       
+      if (teacherResultsData.length === 0 && teacherName) {
+        teacherResultsData = allResults.filter(result => {
+          const submittedBy = result.submittedBy || result.updatedBy || result.createdBy || '';
+          return submittedBy === teacherName || submittedBy.includes(teacherName);
+        });
+      }
+      
+      setAllTeacherResults(teacherResultsData);
+      
       // ============================================================
-      // SUMMARY DATA - Show only if data should be displayed and there's an exam
+      // DETERMINE WHICH EXAM TO DISPLAY
+      // ============================================================
+      const { exam: examToDisplay, type: examType } = getExamToDisplay(examsData, teacherResultsData, teacherId, teacherName);
+      
+      setDisplayExam(examToDisplay);
+      setDisplayExamType(examType);
+      
+      console.log(`📚 Display exam: ${examToDisplay?.title || 'None'}`);
+      console.log(`📚 Display type: ${examType}`);
+      
+      // ============================================================
+      // GET NEXT UPCOMING EXAM
+      // ============================================================
+      const nextUpcomingExam = getNextUpcomingExam(examsData);
+      setNextExam(nextUpcomingExam);
+      
+      // ============================================================
+      // FILTER RESULTS - Only if exam has results
       // ============================================================
       let summaryResults = [];
       let summaryClasses = [];
       let summarySubjects = [];
       let summaryTotalResults = 0;
       
+      // Show data only if exam has results
+      const showData = examType === 'withResults' && examToDisplay !== null;
+      
       if (showData && examToDisplay) {
-        console.log(`📚 Displaying results for exam: ${examToDisplay.title}`);
-        
         // Filter results for the display exam
         if (teacherId) {
           summaryResults = allResults.filter(result => {
@@ -458,7 +452,10 @@ const ClassPerformance = () => {
           });
         }
         
-        // Extract classes and subjects from summary results
+        setTeacherResults(summaryResults);
+        summaryTotalResults = summaryResults.length;
+        
+        // Extract classes and subjects
         const classes = new Set();
         const subjects = new Set();
         summaryResults.forEach(r => {
@@ -474,24 +471,22 @@ const ClassPerformance = () => {
         });
         summaryClasses = [...classes];
         summarySubjects = [...subjects];
-        summaryTotalResults = summaryResults.length;
         
-        // Calculate subject performance for summary
+        // Calculate subject performance
         calculateSubjectPerformance(summaryResults, studentsData);
         
       } else {
-        // Clear all summary data
-        console.log('📚 No data to display. Clearing summary data.');
-        summaryResults = [];
-        summaryClasses = [];
-        summarySubjects = [];
-        summaryTotalResults = 0;
+        // CLEAR DATA - No results for this exam
+        console.log('📚 No data to display. Clearing results...');
+        setTeacherResults([]);
         setSubjectPerformance([]);
-        setDisplayExam(null);
+        setTeacherClasses([]);
+        setTeacherSubjects([]);
+        summaryTotalResults = 0;
       }
       
       // ============================================================
-      // UPDATE SUMMARY STATE
+      // UPDATE STATE
       // ============================================================
       setTotalResults(summaryTotalResults);
       setTeacherClasses(summaryClasses);
@@ -887,8 +882,7 @@ const ClassPerformance = () => {
     );
   }
 
-  const hasSummaryResults = totalResults > 0 && shouldShowData;
-  const nextExam = getNextUpcomingExam(exams);
+  const hasSummaryResults = totalResults > 0 && displayExamType === 'withResults';
 
   return (
     <Layout title="Subject Performance" subtitle="View and analyze subject-specific performance">
@@ -899,11 +893,11 @@ const ClassPerformance = () => {
           <div className="flex items-center gap-3">
             <FiBarChart2 className={`${deviceInfo.isMobile ? 'w-6 h-6' : 'w-8 h-8'}`} />
             <div>
-              <h2 className={`${deviceInfo.isMobile ? 'text-base' : 'text-xl'} font-bold`}>Subject Performance Analysis</h2>
+              <h2 className={`${deviceInfo.isMobile ? 'text-base' : 'text-xl'} font-bold`}>Subject Performance</h2>
               <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-sm'} opacity-90`}>
                 {userRole === 'teacher' 
-                  ? `Welcome, ${teacherName} - Your uploaded results`
-                  : 'Track and analyze student performance across subjects'}
+                  ? `${teacherName} - Your results`
+                  : 'Track student performance'}
               </p>
             </div>
           </div>
@@ -911,181 +905,156 @@ const ClassPerformance = () => {
             onClick={loadData} 
             className={`${deviceInfo.isMobile ? 'w-full mt-2' : 'ml-auto'} bg-white/20 hover:bg-white/30 text-white rounded-lg flex items-center justify-center gap-2 transition-colors ${deviceInfo.isMobile ? 'px-3 py-2 text-sm' : 'px-4 py-2 text-sm'}`}
           >
-            <FiRefreshCw className="w-4 h-4" /> Refresh Data
+            <FiRefreshCw className="w-4 h-4" /> Refresh
           </button>
         </div>
       </div>
 
       {/* Status Banner */}
-      {!shouldShowData && nextExam ? (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4 flex items-center gap-3">
-          <FiInfo className="w-5 h-5 text-yellow-600 flex-shrink-0" />
-          <div className="text-sm text-yellow-700">
-            <span className="font-semibold">⏳ Results Hidden</span>
-            <span className="text-xs text-yellow-500 ml-2">
-              Results will be hidden until <strong>{nextExam.title}</strong> starts on {new Date(nextExam.startDateTime).toLocaleDateString()}
+      {displayExam ? (
+        <div className={`rounded-lg p-3 mb-4 flex items-center gap-3 ${
+          displayExamType === 'withResults' 
+            ? 'bg-green-50 border border-green-200' 
+            : 'bg-yellow-50 border border-yellow-200'
+        }`}>
+          {displayExamType === 'withResults' ? (
+            <FiCheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
+          ) : (
+            <FiInfo className="w-5 h-5 text-yellow-600 flex-shrink-0" />
+          )}
+          <div className={`text-sm ${displayExamType === 'withResults' ? 'text-green-700' : 'text-yellow-700'}`}>
+            <span className="font-semibold">
+              {displayExamType === 'withResults' ? '📊' : '📅'} {displayExam.title}
             </span>
-          </div>
-        </div>
-      ) : displayExam ? (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-4 flex items-center gap-3">
-          <FiCheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
-          <div className="text-sm text-green-700">
-            <span className="font-semibold">📊 Displaying: {displayExam.title}</span>
-            <span className="text-xs text-green-500 ml-2">
-              Completed on {new Date(displayExam.endDateTime).toLocaleDateString()}
-            </span>
+            {displayExam.endDateTime && (
+              <span className="text-xs ml-2 opacity-70">
+                {displayExamType === 'withResults' ? 'Completed' : 'No Results'} - {new Date(displayExam.endDateTime).toLocaleDateString()}
+              </span>
+            )}
+            {displayExamType === 'noResults' && (
+              <span className="text-xs block mt-1 text-yellow-600">
+                <Link to="/teacher/results" className="underline">Upload results</Link> to see performance data
+              </span>
+            )}
           </div>
         </div>
       ) : (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 flex items-center gap-3">
-          <FiInfo className="w-5 h-5 text-blue-600 flex-shrink-0" />
-          <div className="text-sm text-blue-700">
-            <span className="font-semibold">📋 No Results Found</span>
-            <span className="text-xs text-blue-500 ml-2">
-              No completed exams with results found
-            </span>
+        <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-4 flex items-center gap-3">
+          <FiInfo className="w-5 h-5 text-gray-500 flex-shrink-0" />
+          <div className="text-sm text-gray-600">
+            <span className="font-semibold">📋 No exams available</span>
           </div>
         </div>
       )}
 
       {/* ============================================================
-          SUMMARY SECTION - Shows when data should be displayed
+          SUMMARY SECTION - Only shows when exam has results
           ============================================================ */}
-      {shouldShowData ? (
-        <>
-          {/* Teacher Results Summary */}
-          {hasSummaryResults && displayExam && (
-            <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding} mb-4`}>
-              <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'justify-between items-center'}`}>
-                <div>
-                  <h3 className={`${responsive.headingSize} font-bold text-gray-800 flex items-center gap-2`}>
-                    <FiBookOpen className="text-green-600" /> 
-                    Your Uploaded Results
-                    <span className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} bg-green-100 text-green-700 px-2 py-0.5 rounded-full ml-2`}>
-                      {totalResults} results
-                    </span>
-                  </h3>
-                  <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500 mt-1`}>
-                    Showing results for <strong>{displayExam?.title}</strong>
-                  </p>
-                </div>
-                <div className={`flex ${deviceInfo.isMobile ? 'flex-wrap gap-1' : 'gap-2'}`}>
-                  {teacherSubjects.length > 0 && (
-                    <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} bg-blue-100 text-blue-700 px-2 py-1 rounded-full`}>
-                      {teacherSubjects.length} Subjects
-                    </span>
-                  )}
-                  {teacherClasses.length > 0 && (
-                    <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} bg-purple-100 text-purple-700 px-2 py-1 rounded-full`}>
-                      {teacherClasses.length} Classes
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Subject Performance Cards */}
-          {subjectPerformance.length > 0 && (
-            <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding} mb-4`}>
-              <h3 className={`${responsive.headingSize} font-bold text-gray-800 mb-3 flex items-center gap-2`}>
-                <FiBarChart2 className="text-green-600" /> Subject Performance by Stream
-                <span className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full ml-2`}>
-                  {subjectPerformance.length} entries
+      {hasSummaryResults && displayExam && (
+        <div className={`bg-white rounded-lg shadow-md ${responsive.cardPadding} mb-4`}>
+          <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'justify-between items-center'}`}>
+            <div>
+              <h3 className={`${responsive.headingSize} font-bold text-gray-800 flex items-center gap-2`}>
+                <FiBookOpen className="text-green-600" /> 
+                Your Results
+                <span className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} bg-green-100 text-green-700 px-2 py-0.5 rounded-full ml-2`}>
+                  {totalResults} results
                 </span>
               </h3>
-              
-              <div className="space-y-4">
-                {subjectPerformance.map((subject, index) => (
-                  <div key={index} className="border-b border-gray-100 pb-3 last:border-0">
-                    <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-1' : 'justify-between'} text-sm mb-1`}>
-                      <div>
-                        <span className="font-medium text-gray-800">{subject.subject}</span>
-                        <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500 ml-2`}>
-                          ({subject.class}{subject.stream && subject.stream !== 'Unknown Stream' ? ` - ${subject.stream}` : ''})
-                        </span>
-                        <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-400 ml-2`}>
-                          - {subject.examName}
-                        </span>
-                      </div>
-                      <div className={`flex ${deviceInfo.isMobile ? 'flex-wrap gap-2' : 'gap-3'} items-center`}>
-                        <span className="text-green-600 text-xs flex items-center gap-1">
-                          <FiCheckCircle className="w-3 h-3" /> {subject.passing}
-                        </span>
-                        <span className="text-red-600 text-xs flex items-center gap-1">
-                          <FiXCircle className="w-3 h-3" /> {subject.failing}
-                        </span>
-                        <span className="font-bold text-xs text-blue-600">Avg: {subject.average}%</span>
-                        <span className="text-gray-400 text-xs">({subject.totalResults} results)</span>
-                      </div>
-                    </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div 
-                        className={`rounded-full h-2 transition-all ${
-                          subject.average >= 80 ? 'bg-purple-500' :
-                          subject.average >= 60 ? 'bg-green-500' :
-                          subject.average >= 40 ? 'bg-blue-500' : 'bg-red-500'
-                        }`}
-                        style={{ width: `${Math.min(subject.average, 100)}%` }}
-                      />
-                    </div>
-                    <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500 mt-1`}>
-                      {subject.students} students • {subject.totalResults} total results
-                    </p>
-                  </div>
-                ))}
-              </div>
-              
-              <div className={`mt-3 text-xs text-gray-400 border-t pt-2`}>
-                <p>Showing {totalResults} results for {displayExam?.title}</p>
-                {teacherClasses.length > 0 && (
-                  <p className="text-gray-400">Classes: {teacherClasses.join(', ')}</p>
-                )}
-                {teacherSubjects.length > 0 && (
-                  <p className="text-gray-400">Subjects: {teacherSubjects.join(', ')}</p>
-                )}
-              </div>
-            </div>
-          )}
-
-          {!hasSummaryResults && (
-            <div className="bg-blue-50 border border-blue-200 rounded-xl p-8 text-center mb-4">
-              <FiBookOpen className={`${deviceInfo.isMobile ? 'w-10 h-10' : 'w-12 h-12'} text-blue-500 mx-auto mb-3`} />
-              <h3 className={`${deviceInfo.isMobile ? 'text-base' : 'text-lg'} font-semibold text-gray-800 mb-2`}>No Results Uploaded Yet</h3>
-              <p className={`${deviceInfo.isMobile ? 'text-sm' : 'text-base'} text-gray-600`}>
-                You haven't uploaded any results for <strong>{displayExam?.title || 'any exam'}</strong> yet.
+              <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500 mt-1`}>
+                {displayExam?.title}
               </p>
-              <Link to="/teacher/results" className="mt-4 inline-block bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg">
-                Upload Results →
-              </Link>
             </div>
-          )}
-        </>
-      ) : (
-        // ============================================================
-        // DATA HIDDEN - Show message
-        // ============================================================
-        <div className="bg-gray-50 border border-gray-200 rounded-xl p-8 text-center mb-4">
-          <FiCalendar className={`${deviceInfo.isMobile ? 'w-10 h-10' : 'w-12 h-12'} text-gray-400 mx-auto mb-3`} />
-          <h3 className={`${deviceInfo.isMobile ? 'text-base' : 'text-lg'} font-semibold text-gray-700 mb-2`}>⏳ Results Hidden</h3>
-          <p className={`${deviceInfo.isMobile ? 'text-sm' : 'text-base'} text-gray-500`}>
-            Results are hidden until the next exam starts.
-          </p>
-          {nextExam && (
-            <p className="text-sm text-blue-500 mt-2">
-              Next exam: <strong>{nextExam.title}</strong> starts on {new Date(nextExam.startDateTime).toLocaleDateString()} at {new Date(nextExam.startDateTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            </p>
-          )}
+            <div className={`flex ${deviceInfo.isMobile ? 'flex-wrap gap-1' : 'gap-2'}`}>
+              {teacherSubjects.length > 0 && (
+                <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} bg-blue-100 text-blue-700 px-2 py-1 rounded-full`}>
+                  {teacherSubjects.length} Subjects
+                </span>
+              )}
+              {teacherClasses.length > 0 && (
+                <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} bg-purple-100 text-purple-700 px-2 py-1 rounded-full`}>
+                  {teacherClasses.length} Classes
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Subject Performance Cards */}
+      {hasSummaryResults && subjectPerformance.length > 0 && (
+        <div className={`bg-white rounded-lg shadow-md ${responsive.cardPadding} mb-4`}>
+          <h3 className={`${responsive.headingSize} font-bold text-gray-800 mb-3 flex items-center gap-2`}>
+            <FiBarChart2 className="text-green-600" /> Subjects
+            <span className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full ml-2`}>
+              {subjectPerformance.length} entries
+            </span>
+          </h3>
+          
+          <div className="space-y-4">
+            {subjectPerformance.map((subject, index) => (
+              <div key={index} className="border-b border-gray-100 pb-3 last:border-0">
+                <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-1' : 'justify-between'} text-sm mb-1`}>
+                  <div>
+                    <span className="font-medium text-gray-800">{subject.subject}</span>
+                    <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500 ml-2`}>
+                      ({subject.class}{subject.stream && subject.stream !== 'Unknown Stream' ? ` - ${subject.stream}` : ''})
+                    </span>
+                  </div>
+                  <div className={`flex ${deviceInfo.isMobile ? 'flex-wrap gap-2' : 'gap-3'} items-center`}>
+                    <span className="text-green-600 text-xs flex items-center gap-1">
+                      <FiCheckCircle className="w-3 h-3" /> {subject.passing}
+                    </span>
+                    <span className="text-red-600 text-xs flex items-center gap-1">
+                      <FiXCircle className="w-3 h-3" /> {subject.failing}
+                    </span>
+                    <span className="font-bold text-xs text-blue-600">{subject.average}%</span>
+                    <span className="text-gray-400 text-xs">({subject.totalResults} results)</span>
+                  </div>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div 
+                    className={`rounded-full h-2 transition-all ${
+                      subject.average >= 80 ? 'bg-purple-500' :
+                      subject.average >= 60 ? 'bg-green-500' :
+                      subject.average >= 40 ? 'bg-blue-500' : 'bg-red-500'
+                    }`}
+                    style={{ width: `${Math.min(subject.average, 100)}%` }}
+                  />
+                </div>
+                <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500 mt-1`}>
+                  {subject.students} students • {subject.totalResults} results
+                </p>
+              </div>
+            ))}
+          </div>
+          
+          <div className={`mt-3 text-xs text-gray-400 border-t pt-2`}>
+            <p>{totalResults} results for {displayExam?.title}</p>
+            {teacherClasses.length > 0 && (
+              <p className="text-gray-400">Classes: {teacherClasses.join(', ')}</p>
+            )}
+            {teacherSubjects.length > 0 && (
+              <p className="text-gray-400">Subjects: {teacherSubjects.join(', ')}</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {displayExamType === 'noResults' && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4 text-center">
+          <FiBookOpen className={`${deviceInfo.isMobile ? 'w-8 h-8' : 'w-10 h-10'} text-yellow-500 mx-auto mb-2`} />
+          <p className="text-gray-600 text-sm">No results for <strong>{displayExam?.title}</strong></p>
+          <Link to="/teacher/results" className="text-sm text-blue-600 hover:underline">Upload now</Link>
         </div>
       )}
 
       {/* ============================================================
           FILTER SECTION - Always visible
           ============================================================ */}
-      <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding} mb-4`}>
+      <div className={`bg-white rounded-lg shadow-md ${responsive.cardPadding} mb-4`}>
         <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-3 flex items-center gap-2`}>
-          <FiFilter className="text-green-600" /> Detailed Performance Filters
+          <FiFilter className="text-green-600" /> Filters
           <span className="text-xs font-normal text-gray-400 ml-2">
             (View all results including past exams)
           </span>
@@ -1115,7 +1084,6 @@ const ClassPerformance = () => {
             </select>
           </div>
           
-          {/* Stream Filter - Placed next to Class */}
           {selectedClass && availableStreams.length > 0 && (
             <div>
               <label className={`block text-gray-700 font-medium mb-1 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>Stream</label>
@@ -1192,59 +1160,56 @@ const ClassPerformance = () => {
             disabled={loadingData} 
             className={`btn-primary flex items-center justify-center gap-2 disabled:opacity-50 ${deviceInfo.isMobile ? 'w-full py-2.5 text-sm' : ''}`}
           >
-            <FiBarChart2 /> {loadingData ? 'Loading...' : 'VIEW DETAILED PERFORMANCE'}
+            <FiBarChart2 /> {loadingData ? 'Loading...' : 'VIEW DETAILED'}
           </button>
           <button 
             onClick={resetFilters} 
             className={`bg-gray-500 hover:bg-gray-600 text-white rounded-lg ${deviceInfo.isMobile ? 'w-full px-4 py-2.5 text-sm' : 'px-4 py-2'}`}
           >
-            RESET FILTERS
+            RESET
           </button>
         </div>
       </div>
 
       {/* ============================================================
-          DETAILED RESULTS SECTION - Always shows when filters are applied
+          DETAILED RESULTS SECTION - Shows when filters are applied
           ============================================================ */}
       {showResults && performanceData.length > 0 && (
         <>
-          {/* Stats Cards */}
           <div className={`grid ${responsive.statsGrid} ${responsive.gridGap} mb-4`}>
-            <div className={`bg-white rounded-xl shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-4'} text-center`}>
+            <div className={`bg-white rounded-lg shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-4'} text-center`}>
               <FiUsers className={`${deviceInfo.isMobile ? 'w-5 h-5' : 'w-6 h-6'} text-blue-500 mx-auto mb-1`} />
-              <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-sm'} text-gray-500`}>Total Students</p>
+              <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-sm'} text-gray-500`}>Students</p>
               <p className={`${deviceInfo.isMobile ? 'text-xl' : 'text-2xl'} font-bold text-gray-800`}>{performanceData.length}</p>
             </div>
-            <div className={`bg-white rounded-xl shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-4'} text-center`}>
+            <div className={`bg-white rounded-lg shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-4'} text-center`}>
               <FiBarChart2 className={`${deviceInfo.isMobile ? 'w-5 h-5' : 'w-6 h-6'} text-green-500 mx-auto mb-1`} />
-              <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-sm'} text-gray-500`}>Class Average</p>
+              <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-sm'} text-gray-500`}>Average</p>
               <p className={`${deviceInfo.isMobile ? 'text-xl' : 'text-2xl'} font-bold text-green-600`}>{classAverage.toFixed(1)}%</p>
             </div>
-            <div className={`bg-white rounded-xl shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-4'} text-center`}>
+            <div className={`bg-white rounded-lg shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-4'} text-center`}>
               <FiAward className={`${deviceInfo.isMobile ? 'w-5 h-5' : 'w-6 h-6'} text-yellow-500 mx-auto mb-1`} />
-              <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-sm'} text-gray-500`}>Highest Score</p>
+              <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-sm'} text-gray-500`}>Highest</p>
               <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} font-bold text-gray-800 truncate`}>{topStudent?.name || 'N/A'}</p>
               <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500`}>{topStudent?.score?.toFixed(1)}%</p>
             </div>
-            <div className={`bg-white rounded-xl shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-4'} text-center`}>
+            <div className={`bg-white rounded-lg shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-4'} text-center`}>
               <FiBookOpen className={`${deviceInfo.isMobile ? 'w-5 h-5' : 'w-6 h-6'} text-purple-500 mx-auto mb-1`} />
               <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-sm'} text-gray-500`}>Subject</p>
               <p className={`${deviceInfo.isMobile ? 'text-base' : 'text-lg'} font-bold text-purple-600 truncate`}>{selectedSubject}</p>
             </div>
           </div>
 
-          <div className={`bg-gradient-to-r from-green-50 to-blue-50 rounded-xl ${deviceInfo.isMobile ? 'p-3' : 'p-4'} mb-4`}>
+          <div className={`bg-gradient-to-r from-green-50 to-blue-50 rounded-lg ${deviceInfo.isMobile ? 'p-3' : 'p-4'} mb-4`}>
             <h3 className={`font-bold text-gray-800 ${deviceInfo.isMobile ? 'text-sm' : 'text-lg'}`}>{selectedSubject}</h3>
             <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-sm'} text-gray-600`}>
-              Class: {selectedClass} {selectedStream && `- ${selectedStream}`} | 
-              Year: {selectedYear} | Term: {selectedTerm || 'All Terms'} | 
-              Exam: {selectedExamName} ({selectedExamType})
+              {selectedClass} {selectedStream && `- ${selectedStream}`} • {selectedYear} • {selectedTerm || 'All Terms'} • {selectedExamName}
             </p>
           </div>
 
           {/* Competency Distribution */}
-          <div className={`bg-white rounded-xl shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-4'} mb-4`}>
-            <h3 className={`font-bold text-gray-800 ${deviceInfo.isMobile ? 'text-sm' : 'text-lg'} mb-3`}>Competency Distribution - {selectedSubject}</h3>
+          <div className={`bg-white rounded-lg shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-4'} mb-4`}>
+            <h3 className={`font-bold text-gray-800 ${deviceInfo.isMobile ? 'text-sm' : 'text-lg'} mb-3`}>Competency - {selectedSubject}</h3>
             <div className="space-y-3">
               {competencyLevels.map(level => {
                 const count = performanceData.filter(s => {
@@ -1259,7 +1224,7 @@ const ClassPerformance = () => {
                       <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} ${level.level.includes('Exceeding') ? 'text-purple-700' : level.level.includes('Meeting') ? 'text-green-700' : level.level.includes('Approaching') ? 'text-blue-700' : level.level.includes('Below') ? 'text-yellow-700' : 'text-red-700'}`}>
                         {deviceInfo.isMobile ? level.level.split(' ')[0] : level.level}
                       </span>
-                      <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} font-bold`}>{count} students ({percentage.toFixed(1)}%)</span>
+                      <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} font-bold`}>{count} ({percentage.toFixed(1)}%)</span>
                     </div>
                     <div className="w-full bg-gray-200 rounded-full h-1.5">
                       <div className={`rounded-full h-1.5 ${level.level.includes('Exceeding') ? 'bg-purple-500' : level.level.includes('Meeting') ? 'bg-green-500' : level.level.includes('Approaching') ? 'bg-blue-500' : level.level.includes('Below') ? 'bg-yellow-500' : 'bg-red-500'}`} style={{ width: `${percentage}%` }} />
@@ -1271,9 +1236,9 @@ const ClassPerformance = () => {
           </div>
 
           {/* Student Performance Table */}
-          <div className="bg-white rounded-xl shadow-md overflow-hidden mb-4">
+          <div className="bg-white rounded-lg shadow-md overflow-hidden mb-4">
             <div className={`${deviceInfo.isMobile ? 'px-3 py-2' : 'px-6 py-4'} border-b border-gray-200 flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'justify-between items-center'} flex-wrap`}>
-              <h3 className={`${deviceInfo.isMobile ? 'text-sm' : 'text-lg'} font-bold text-gray-800`}>Student Performance Details - {selectedSubject}</h3>
+              <h3 className={`${deviceInfo.isMobile ? 'text-sm' : 'text-lg'} font-bold text-gray-800`}>{selectedSubject} - Students</h3>
               <div className={`flex ${deviceInfo.isMobile ? 'w-full gap-2' : 'gap-2'}`}>
                 <button 
                   onClick={downloadResultsExcel} 
@@ -1289,7 +1254,7 @@ const ClassPerformance = () => {
                   <tr>
                     <th className={`${deviceInfo.isMobile ? 'px-2 py-1.5 text-[10px]' : 'px-4 py-3 text-sm'} text-left font-semibold text-gray-700`}>Student</th>
                     {!deviceInfo.isMobile && (
-                      <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Admission No</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Adm No</th>
                     )}
                     <th className={`${deviceInfo.isMobile ? 'px-2 py-1.5 text-[10px]' : 'px-4 py-3 text-sm'} text-left font-semibold text-gray-700`}>Stream</th>
                     <th className={`${deviceInfo.isMobile ? 'px-2 py-1.5 text-[10px]' : 'px-4 py-3 text-sm'} text-center font-semibold text-gray-700`}>Marks</th>
@@ -1334,29 +1299,28 @@ const ClassPerformance = () => {
             </div>
           </div>
           
-          {/* Download Buttons */}
           <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'justify-end gap-3'}`}>
             <button 
               onClick={downloadResultsExcel} 
               className={`bg-gradient-to-r from-green-600 to-green-700 text-white rounded-lg font-semibold flex items-center justify-center gap-2 shadow-md hover:from-green-700 hover:to-green-800 disabled:opacity-50 ${deviceInfo.isMobile ? 'w-full px-4 py-3 text-sm' : 'px-6 py-3'}`}
             >
-              <FiDownload /> DOWNLOAD EXCEL
+              <FiDownload /> DOWNLOAD
             </button>
           </div>
         </>
       )}
       
       {showResults && performanceData.length === 0 && !loadingData && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-8 text-center">
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-8 text-center">
           <FiBarChart2 className={`${deviceInfo.isMobile ? 'w-10 h-10' : 'w-12 h-12'} text-yellow-500 mx-auto mb-3`} />
-          <h3 className={`${deviceInfo.isMobile ? 'text-base' : 'text-lg'} font-semibold text-gray-800 mb-2`}>No Performance Data Found</h3>
-          <p className={`${deviceInfo.isMobile ? 'text-sm' : 'text-base'} text-gray-600`}>No performance data found for the selected criteria. Please adjust your selections and try again.</p>
+          <h3 className={`${deviceInfo.isMobile ? 'text-base' : 'text-lg'} font-semibold text-gray-800 mb-2`}>No Data Found</h3>
+          <p className={`${deviceInfo.isMobile ? 'text-sm' : 'text-base'} text-gray-600`}>Adjust selections and try again</p>
         </div>
       )}
 
       {/* Competency Guide */}
-      <div className={`mt-4 bg-white rounded-xl shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-4'}`}>
-        <h3 className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} font-semibold text-gray-700 mb-2`}>CBE Competency Levels Guide</h3>
+      <div className={`mt-4 bg-white rounded-lg shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-4'}`}>
+        <h3 className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} font-semibold text-gray-700 mb-2`}>CBE Competency Levels</h3>
         <div className={`grid ${deviceInfo.isMobile ? 'grid-cols-2 gap-1' : 'grid-cols-2 md:grid-cols-5 gap-2'}`}>
           {competencyLevels.map(level => (
             <div key={level.level} className={`flex items-center gap-1 ${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'}`}>
@@ -1369,23 +1333,13 @@ const ClassPerformance = () => {
         </div>
       </div>
 
-      {/* AI Responsive CSS */}
       <style jsx>{`
         @media (max-width: 768px) {
-          .input-field {
-            font-size: 16px !important;
-          }
-          input, select {
-            font-size: 16px !important;
-          }
+          .input-field { font-size: 16px !important; }
+          input, select { font-size: 16px !important; }
         }
         @media (min-width: 769px) and (max-width: 1024px) {
-          .tablet-grid-3 {
-            grid-template-columns: repeat(3, 1fr) !important;
-          }
-        }
-        .responsive-wrapper {
-          transition: all 0.3s ease;
+          .tablet-grid-3 { grid-template-columns: repeat(3, 1fr) !important; }
         }
       `}</style>
     </Layout>
