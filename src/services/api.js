@@ -5,7 +5,8 @@ import axios from 'axios';
 const API_URL = process.env.REACT_APP_API_URL || 
   (process.env.NODE_ENV === 'production' 
     ? 'https://cbe-school-backend.vercel.app/api' 
-    : 'http://localhost:5000/api');
+    : 'https://cbe-school-backend.vercel.app/apii');
+    // : 'http://localhost:5000/api');
 
 console.log('🔧 API URL:', API_URL);
 
@@ -59,14 +60,13 @@ export default api;
 
 
 
-
 // // src/services/api.js
 // import axios from 'axios';
 
 // // ============================================================
-// // API URL - Use localhost for development
+// // API URL - Use Vercel backend for production
 // // ============================================================
-// const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+// const API_URL = process.env.REACT_APP_API_URL || 'https://cbe-school-backend.vercel.app/api';
 
 // console.log('🔧 API URL:', API_URL);
 

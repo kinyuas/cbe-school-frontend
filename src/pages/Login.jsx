@@ -271,21 +271,35 @@ const Login = () => {
     }
   };
 
+  // ============ HANDLE RESEND CODE (NO DEV MODE) ============
   const handleResendCode = async () => {
-    if (!tempLoginData?.email) {
+    // Get email from tempLoginData
+    const email = tempLoginData?.email;
+    
+    if (!email) {
       toast.error('No email found. Please try logging in again.');
       return;
     }
+    
     setLoading(true);
+    
     try {
-      const result = await resendAdminCode(tempLoginData.email);
+      const result = await resendAdminCode(email);
+      
       if (result.success) {
-        toast.success(result.message);
-      } else {
-        toast.error(result.message || 'Failed to resend code');
+        // Clear existing verification code input to avoid confusion
+        setVerificationCode('');
+        
+        // Focus the input field
+        setTimeout(() => {
+          const input = document.querySelector('input[type="text"]');
+          if (input) input.focus();
+        }, 100);
       }
+      // Toast messages are handled in the context
     } catch (error) {
-      toast.error('Failed to resend code');
+      console.error('Unexpected error in handleResendCode:', error);
+      toast.error('An unexpected error occurred. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -307,6 +321,9 @@ const Login = () => {
               We've sent a 6-digit verification code to<br />
               <span className="font-semibold text-green-600">{tempLoginData?.email}</span>
             </p>
+            <p className="text-xs text-gray-400 mt-1">
+              Code expires in 15 minutes
+            </p>
           </div>
           
           <div className="space-y-5">
@@ -321,6 +338,9 @@ const Login = () => {
                 placeholder="000000"
                 autoFocus
               />
+              <p className="text-xs text-gray-400 text-center mt-1">
+                Enter the 6-digit code sent to your email
+              </p>
             </div>
             
             <button
@@ -338,15 +358,17 @@ const Login = () => {
                   setVerificationCode('');
                 }}
                 className="text-gray-500 hover:text-gray-700 flex items-center gap-1"
+                disabled={loading}
               >
                 <FiArrowLeft className="w-4 h-4" /> Back to Login
               </button>
               <button
                 onClick={handleResendCode}
                 disabled={loading}
-                className="text-green-600 hover:text-green-700 disabled:opacity-50"
+                className="text-green-600 hover:text-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
               >
-                Resend Code
+                <FiKey className="w-4 h-4" />
+                {loading ? 'Sending...' : 'Resend Code'}
               </button>
             </div>
           </div>
@@ -693,18 +715,21 @@ const Login = () => {
             </div>
             
             <div>
-              <label className={`block text-gray-700 font-medium ${deviceInfo.isMobile ? 'text-sm' : 'text-base'} mb-1`}>Password</label>
+              <label className={`block text-gray-700 font-medium ${deviceInfo.isMobile ? 'text-sm' : 'text-base'} mb-1`}>TSC Number</label>
               <div className="relative">
-                <FiLock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                <FiHash className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
                 <input
-                  type="password"
+                  type="text"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className={`w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${deviceInfo.isMobile ? 'text-base' : ''}`}
-                  placeholder="Enter your password"
+                  placeholder="Enter your TSC number"
                   required
                 />
               </div>
+              <p className="text-xs text-gray-400 mt-1">
+                Use your TSC number as your password
+              </p>
             </div>
             
             <div className="flex gap-3 pt-2">

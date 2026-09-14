@@ -137,32 +137,22 @@ export const AuthProvider = ({ children }) => {
       const response = await api.post('/auth/send-verification', { email, schoolName });
       
       if (response.data.success) {
-        if (response.data.devCode) {
-          console.log('🔑 [DEV] Verification Code:', response.data.devCode);
-          toast.success(`[DEV MODE] Code: ${response.data.devCode}`);
-        }
-        
         setTempRegistrationData({ email, schoolName });
         setRegistrationStep('verification');
+        toast.success(response.data.message || 'Verification code sent!');
         return { success: true, message: response.data.message };
       }
       return { success: false, message: response.data.message || 'Failed to send code' };
     } catch (error) {
       console.error('Send verification error:', error);
-      return { 
-        success: false, 
-        message: error.response?.data?.message || 'Failed to send verification code' 
-      };
+      const message = error.response?.data?.message || 'Failed to send verification code';
+      toast.error(message);
+      return { success: false, message };
     }
   };
 
   const signup = async (signUpData, verificationCode) => {
     try {
-      console.log('📝 Signup attempt:', {
-        email: signUpData.schoolEmail,
-        code: verificationCode
-      });
-      
       const requestData = {
         schoolName: signUpData.schoolName,
         schoolEmail: signUpData.schoolEmail,
@@ -189,20 +179,14 @@ export const AuthProvider = ({ children }) => {
         return { success: true, user };
       }
       
-      return { success: false, message: response.data.message || 'Registration failed' };
+      const message = response.data.message || 'Registration failed';
+      toast.error(message);
+      return { success: false, message };
     } catch (error) {
       console.error('Signup error:', error);
-      console.error('Response data:', error.response?.data);
-      
-      if (error.response?.status === 400) {
-        const errorMessage = error.response?.data?.message || 'Invalid verification code. Please check and try again.';
-        toast.error(errorMessage);
-        return { success: false, message: errorMessage };
-      }
-      
-      const errorMessage = error.response?.data?.message || 'Registration failed. Please try again.';
-      toast.error(errorMessage);
-      return { success: false, message: errorMessage };
+      const message = error.response?.data?.message || 'Registration failed. Please try again.';
+      toast.error(message);
+      return { success: false, message };
     }
   };
 
@@ -221,6 +205,7 @@ export const AuthProvider = ({ children }) => {
             role: 'admin'
           });
           setLoginStep('verification');
+          toast.success(response.data.message || 'Verification code sent!');
           return { 
             success: true, 
             requiresVerification: true,
@@ -228,40 +213,34 @@ export const AuthProvider = ({ children }) => {
           };
         }
         
-        return { success: false, message: response.data.message || 'Login failed' };
+        const message = response.data.message || 'Login failed';
+        toast.error(message);
+        return { success: false, message };
       } else if (role === 'teacher') {
         // Teacher login - DIRECT login with email and TSC number
-        // NO verification step - teacher logs in directly with email + TSC
         const response = await api.post('/auth/teacher/login', {
           email,
           tscNumber: password
         });
         
-        console.log('📡 Teacher login response:', response.data);
-        
-        // Check if response is successful
         if (response.data.success) {
-          // Extract token and user data
           const { token, user } = response.data;
           
           if (!user) {
-            console.error('❌ No user data in teacher login response');
+            console.error('No user data in teacher login response');
+            toast.error('Invalid response from server');
             return { 
               success: false, 
               message: 'Invalid response from server - missing user data' 
             };
           }
           
-          console.log('✅ Teacher user data received:', user);
-          
-          // Store token and user data
           localStorage.setItem('token', token);
           localStorage.setItem('user', JSON.stringify(user));
           api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-          
-          // Set user in state
           setUser(user);
           
+          toast.success('Login successful!');
           return { 
             success: true, 
             user: user,
@@ -269,40 +248,30 @@ export const AuthProvider = ({ children }) => {
           };
         }
         
-        // If response has requiresVerification flag, something is wrong
-        if (response.data.requiresVerification) {
-          console.error('❌ Teacher login unexpectedly requires verification');
-          return { 
-            success: false, 
-            message: 'Teacher login should not require verification. Please contact support.' 
-          };
-        }
-        
-        return { 
-          success: false, 
-          message: response.data.message || 'Login failed' 
-        };
+        const message = response.data.message || 'Login failed';
+        toast.error(message);
+        return { success: false, message };
       }
       
+      toast.error('Invalid role selected');
       return { success: false, message: 'Invalid role selected' };
     } catch (error) {
-      console.error('❌ Login error:', error);
-      return { 
-        success: false, 
-        message: error.response?.data?.message || 'Login failed. Please try again.' 
-      };
+      console.error('Login error:', error);
+      const message = error.response?.data?.message || 'Login failed. Please try again.';
+      toast.error(message);
+      return { success: false, message };
     }
   };
 
   // Complete login with verification code (Admin only)
   const completeLogin = async (verificationCode) => {
     if (!tempLoginData) {
+      toast.error('Login session expired. Please try again.');
       return { success: false, message: 'Login session expired. Please try again.' };
     }
     
     try {
       if (tempLoginData.role === 'admin') {
-        // Admin verification
         const response = await api.post('/auth/admin/verify', {
           email: tempLoginData.email,
           verificationCode: verificationCode
@@ -316,36 +285,69 @@ export const AuthProvider = ({ children }) => {
           setUser(user);
           setLoginStep('credentials');
           setTempLoginData(null);
+          toast.success('Login successful!');
           return { success: true, user };
         }
         
-        return { success: false, message: response.data.message || 'Verification failed' };
+        const message = response.data.message || 'Verification failed';
+        toast.error(message);
+        return { success: false, message };
       }
       
+      toast.error('Invalid role');
       return { success: false, message: 'Invalid role' };
     } catch (error) {
       console.error('Verification error:', error);
-      return { 
-        success: false, 
-        message: error.response?.data?.message || 'Verification failed. Please try again.' 
-      };
+      const message = error.response?.data?.message || 'Verification failed. Please try again.';
+      toast.error(message);
+      return { success: false, message };
     }
   };
 
-  // Resend verification code (for admin only)
+  // ============ RESEND VERIFICATION CODE (NO DEV MODE) ============
   const resendAdminCode = async (email) => {
+    if (!email) {
+      toast.error('No email found. Please try logging in again.');
+      return { success: false, message: 'No email provided' };
+    }
+    
     try {
       const response = await api.post('/auth/admin/resend-code', { email });
+      
       if (response.data.success) {
-        return { success: true, message: response.data.message };
+        toast.success(response.data.message || 'New verification code sent to your email!');
+        return { 
+          success: true, 
+          message: response.data.message,
+          expiresIn: response.data.expiresIn
+        };
       }
-      return { success: false, message: response.data.message || 'Failed to resend code' };
+      
+      toast.error(response.data.message || 'Failed to resend code');
+      return { success: false, message: response.data.message };
+      
     } catch (error) {
       console.error('Resend admin code error:', error);
-      return { 
-        success: false, 
-        message: error.response?.data?.message || 'Failed to resend code' 
-      };
+      
+      // Handle specific error cases
+      if (error.response?.status === 404) {
+        toast.error('Admin user not found. Please check your email.');
+        return { success: false, message: 'User not found' };
+      }
+      
+      if (error.response?.status === 403) {
+        toast.error('Account is deactivated. Please contact support.');
+        return { success: false, message: 'Account deactivated' };
+      }
+      
+      if (error.response?.status === 400) {
+        toast.error(error.response?.data?.message || 'Invalid request. Please try again.');
+        return { success: false, message: error.response?.data?.message };
+      }
+      
+      const errorMessage = error.response?.data?.message || 'Failed to resend verification code. Please try again.';
+      toast.error(errorMessage);
+      return { success: false, message: errorMessage };
     }
   };
 
