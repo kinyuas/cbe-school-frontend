@@ -5,21 +5,13 @@
     <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#000000" />
-    <meta
-      name="description"
-      content="CBE School Management System - Competency Based Education"
-    />
+    <meta name="description" content="CBE School Management System" />
 
-    <!-- PWA Manifest -->
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
-
-    <!-- Apple / iOS support -->
-    <link rel="apple-touch-icon" href="%PUBLIC_URL%/icons/icon-192x192.png" />
+    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="CBE System" />
-
-    <!-- Android / Chrome mobile -->
     <meta name="mobile-web-app-capable" content="yes" />
 
     <title>CBE School Management System</title>
@@ -28,18 +20,12 @@
     <noscript>You need to enable JavaScript to run this app.</noscript>
     <div id="root"></div>
 
-    <!-- Register service worker for PWA installability on Android -->
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', function () {
-          navigator.serviceWorker
-            .register('%PUBLIC_URL%/sw.js')
-            .then(function (reg) {
-              console.log('Service Worker registered:', reg.scope);
-            })
-            .catch(function (err) {
-              console.error('Service Worker registration failed:', err);
-            });
+          navigator.serviceWorker.register('%PUBLIC_URL%/sw.js')
+            .then(function (reg) { console.log('SW registered:', reg.scope); })
+            .catch(function (err) { console.error('SW failed:', err); });
         });
       }
     </script>
