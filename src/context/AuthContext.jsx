@@ -1,4 +1,5 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+// src/context/AuthContext.jsx
+import React, { createContext, useState, useContext, useEffect, useRef, useCallback } from 'react';
 import api from '../services/api';
 import toast from 'react-hot-toast';
 
@@ -11,6 +12,14 @@ export const useAuth = () => {
   }
   return context;
 };
+
+// ============================================================
+// IDLE TIMEOUT CONFIG
+// ============================================================
+const IDLE_TIMEOUT_MS = 60 * 60 * 1000;        // 1 hour — full idle time
+const IDLE_WARNING_MS = 55 * 60 * 1000;        // 55 min — show warning 5 min before
+const ACTIVITY_THROTTLE_MS = 30 * 1000;        // Only record activity every 30s
+const LAST_ACTIVITY_KEY = 'lastActivityAt';    // Persisted across page reloads
 
 // ===== AI Device Detection Hook =====
 const useDeviceDetection = () => {
@@ -91,6 +100,170 @@ export const AuthProvider = ({ children }) => {
   // AI Device Detection
   const deviceInfo = useDeviceDetection();
 
+  // ============================================================
+  // IDLE TIMEOUT — tracking state
+  // ============================================================
+  const idleTimerRef = useRef(null);
+  const warningTimerRef = useRef(null);
+  const lastActivityWriteRef = useRef(0);
+  const warningShownRef = useRef(false);
+
+  // ============================================================
+  // logout — stable reference via useCallback
+  // ============================================================
+  const logout = useCallback((reason = 'manual') => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    localStorage.removeItem(LAST_ACTIVITY_KEY);
+    delete api.defaults.headers.common['Authorization'];
+    setUser(null);
+    setLoginStep('credentials');
+    setTempLoginData(null);
+    setRegistrationStep('form');
+    setTempRegistrationData(null);
+
+    if (reason === 'idle') {
+      toast.error('You were logged out due to 1 hour of inactivity.', {
+        duration: 8000,
+        icon: '⏰',
+      });
+    } else {
+      toast.success('Logged out successfully');
+    }
+  }, []);
+
+  // ============================================================
+  // Clear idle timers
+  // ============================================================
+  const clearIdleTimers = useCallback(() => {
+    if (idleTimerRef.current) {
+      clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = null;
+    }
+    if (warningTimerRef.current) {
+      clearTimeout(warningTimerRef.current);
+      warningTimerRef.current = null;
+    }
+    warningShownRef.current = false;
+  }, []);
+
+  // ============================================================
+  // Schedule the idle-warning and idle-logout timers
+  // ============================================================
+  const scheduleIdleTimers = useCallback((elapsedMs = 0) => {
+    clearIdleTimers();
+
+    const warningDelay = IDLE_WARNING_MS - elapsedMs;
+    const logoutDelay = IDLE_TIMEOUT_MS - elapsedMs;
+
+    // If already past the logout threshold, log out immediately
+    if (logoutDelay <= 0) {
+      logout('idle');
+      return;
+    }
+
+    // Schedule the warning (if there's still time)
+    if (warningDelay > 0) {
+      warningTimerRef.current = setTimeout(() => {
+        warningShownRef.current = true;
+        toast(
+          'You will be logged out in 5 minutes due to inactivity. Move your mouse or press a key to stay signed in.',
+          {
+            duration: 30000,
+            icon: '⚠️',
+            id: 'idle-warning',
+          }
+        );
+      }, warningDelay);
+    }
+
+    // Schedule the actual logout
+    idleTimerRef.current = setTimeout(() => {
+      logout('idle');
+    }, logoutDelay);
+  }, [clearIdleTimers, logout]);
+
+  // ============================================================
+  // Record user activity — throttled so we don't re-schedule
+  // timers on every mouse move.
+  // ============================================================
+  const recordActivity = useCallback(() => {
+    const now = Date.now();
+    if (now - lastActivityWriteRef.current < ACTIVITY_THROTTLE_MS) {
+      return;
+    }
+    lastActivityWriteRef.current = now;
+
+    try {
+      localStorage.setItem(LAST_ACTIVITY_KEY, String(now));
+    } catch (e) {}
+
+    // Dismiss any warning toast
+    if (warningShownRef.current) {
+      toast.dismiss('idle-warning');
+      warningShownRef.current = false;
+    }
+
+    scheduleIdleTimers(0);
+  }, [scheduleIdleTimers]);
+
+  // ============================================================
+  // Set up idle tracking whenever a user is logged in
+  // ============================================================
+  useEffect(() => {
+    if (!user) {
+      clearIdleTimers();
+      return;
+    }
+
+    // Determine elapsed time since last activity (survives page reloads)
+    let elapsed = 0;
+    try {
+      const stored = parseInt(localStorage.getItem(LAST_ACTIVITY_KEY) || '0', 10);
+      if (stored > 0) elapsed = Date.now() - stored;
+    } catch (e) {}
+
+    // Fresh stamp if we just logged in
+    if (elapsed < 0 || elapsed > IDLE_TIMEOUT_MS) {
+      elapsed = 0;
+      try { localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now())); } catch (e) {}
+    }
+
+    scheduleIdleTimers(elapsed);
+
+    // Throttled event listener
+    const events = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'click', 'wheel'];
+    const handler = () => recordActivity();
+    events.forEach(evt => window.addEventListener(evt, handler, { passive: true }));
+
+    // Also listen for tab visibility — if user comes back to tab, check idle
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        let idleFor = 0;
+        try {
+          const stored = parseInt(localStorage.getItem(LAST_ACTIVITY_KEY) || '0', 10);
+          if (stored > 0) idleFor = Date.now() - stored;
+        } catch (e) {}
+
+        if (idleFor >= IDLE_TIMEOUT_MS) {
+          logout('idle');
+        } else {
+          scheduleIdleTimers(idleFor);
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      events.forEach(evt => window.removeEventListener(evt, handler));
+      document.removeEventListener('visibilitychange', onVisibility);
+      clearIdleTimers();
+    };
+  }, [user, clearIdleTimers, scheduleIdleTimers, recordActivity, logout]);
+
+  // ============================================================
+  // Initial token validation
+  // ============================================================
   useEffect(() => {
     const token = localStorage.getItem('token');
     const storedUser = localStorage.getItem('user');
@@ -171,6 +344,7 @@ export const AuthProvider = ({ children }) => {
         const { token, user } = response.data;
         localStorage.setItem('token', token);
         localStorage.setItem('user', JSON.stringify(user));
+        localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
         api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
         setUser(user);
         setRegistrationStep('form');
@@ -195,7 +369,6 @@ export const AuthProvider = ({ children }) => {
   const login = async (email, password, role) => {
     try {
       if (role === 'admin') {
-        // Admin login with email verification
         const response = await api.post('/auth/admin/login', { email, password });
         
         if (response.data.success && response.data.requiresVerification) {
@@ -217,7 +390,6 @@ export const AuthProvider = ({ children }) => {
         toast.error(message);
         return { success: false, message };
       } else if (role === 'teacher') {
-        // Teacher login - DIRECT login with email and TSC number
         const response = await api.post('/auth/teacher/login', {
           email,
           tscNumber: password
@@ -237,6 +409,7 @@ export const AuthProvider = ({ children }) => {
           
           localStorage.setItem('token', token);
           localStorage.setItem('user', JSON.stringify(user));
+          localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
           api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
           setUser(user);
           
@@ -263,7 +436,6 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Complete login with verification code (Admin only)
   const completeLogin = async (verificationCode) => {
     if (!tempLoginData) {
       toast.error('Login session expired. Please try again.');
@@ -281,6 +453,7 @@ export const AuthProvider = ({ children }) => {
           const { token, user } = response.data;
           localStorage.setItem('token', token);
           localStorage.setItem('user', JSON.stringify(user));
+          localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
           api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
           setUser(user);
           setLoginStep('credentials');
@@ -304,7 +477,6 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // ============ RESEND VERIFICATION CODE (NO DEV MODE) ============
   const resendAdminCode = async (email) => {
     if (!email) {
       toast.error('No email found. Please try logging in again.');
@@ -329,7 +501,6 @@ export const AuthProvider = ({ children }) => {
     } catch (error) {
       console.error('Resend admin code error:', error);
       
-      // Handle specific error cases
       if (error.response?.status === 404) {
         toast.error('Admin user not found. Please check your email.');
         return { success: false, message: 'User not found' };
@@ -349,20 +520,6 @@ export const AuthProvider = ({ children }) => {
       toast.error(errorMessage);
       return { success: false, message: errorMessage };
     }
-  };
-
-  // ============ OTHER AUTH METHODS ============
-
-  const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    delete api.defaults.headers.common['Authorization'];
-    setUser(null);
-    setLoginStep('credentials');
-    setTempLoginData(null);
-    setRegistrationStep('form');
-    setTempRegistrationData(null);
-    toast.success('Logged out successfully');
   };
 
   const isAuthenticated = !!user;

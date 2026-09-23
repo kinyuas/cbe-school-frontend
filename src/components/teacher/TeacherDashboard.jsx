@@ -96,13 +96,8 @@ const calculateTimeRemaining = (endDateTime) => {
   
   if (diff <= 0) {
     return { 
-      days: 0, 
-      hours: 0, 
-      minutes: 0, 
-      totalSeconds: 0, 
-      isExpired: true,
-      isUrgent: false,
-      displayText: 'Expired'
+      days: 0, hours: 0, minutes: 0, totalSeconds: 0, isExpired: true,
+      isUrgent: false, displayText: 'Expired'
     };
   }
   
@@ -128,10 +123,10 @@ const calculateTimeRemaining = (endDateTime) => {
   return { days, hours, minutes, totalSeconds, isExpired: false, isUrgent, displayText };
 };
 
-// ===== Get the time remaining until exam end =====
-const getTimeRemainingDisplay = (endDateTime) => {
-  const timer = calculateTimeRemaining(endDateTime);
-  if (timer.isExpired) return { text: '⏰ Expired', color: 'text-red-600', isUrgent: false };
+// ===== Get time remaining until a future date =====
+const getTimeRemainingDisplay = (targetDateTime) => {
+  const timer = calculateTimeRemaining(targetDateTime);
+  if (timer.isExpired) return { text: 'Now', color: 'text-red-600', isUrgent: false };
   return {
     text: timer.displayText,
     color: timer.isUrgent ? 'text-red-600 font-bold' : 'text-orange-600',
@@ -139,74 +134,81 @@ const getTimeRemainingDisplay = (endDateTime) => {
   };
 };
 
-// ===== Get the most recent completed exam =====
-const getMostRecentCompletedExam = (examsData) => {
-  const now = new Date();
-  const completed = examsData
-    .filter(e => {
-      if (!e.endDateTime || e.isActive === false) return false;
-      const end = new Date(e.endDateTime);
-      return end < now;
-    })
-    .sort((a, b) => new Date(b.endDateTime) - new Date(a.endDateTime));
-  
-  return completed.length > 0 ? completed[0] : null;
-};
+// ===== Normalizer for strict matching =====
+const norm = (v) => String(v || '').trim().toLowerCase();
 
-// ===== Check if an exam has results from this teacher =====
-const examHasResults = (exam, resultsData, teacherId, teacherName) => {
-  return resultsData.some(r => {
-    const recordedBy = r.recordedBy || r.teacherId || r.createdBy;
-    const matchesTeacher = recordedBy === teacherId;
-    const matchesTeacherName = r.submittedBy === teacherName || r.updatedBy === teacherName || r.createdBy === teacherName;
-    
-    const matchesExamName = r.examName === exam.title;
-    const matchesExamType = r.examType === exam.type;
-    const matchesTerm = r.term === exam.term;
-    const matchesYear = r.year === exam.year;
-    const matchesExam = matchesExamName || (matchesExamType && matchesTerm && matchesYear);
-    
-    return (matchesTeacher || matchesTeacherName) && matchesExam;
-  });
-};
-
-// ===== Get the exam to display =====
-const getExamToDisplay = (examsData, resultsData, teacherId, teacherName) => {
-  // Check for active exam first
+// ===== Get active exam (running right now) =====
+const getActiveExam = (examsData) => {
   const now = new Date();
-  const active = examsData.find(e => {
+  return examsData.find(e => {
     if (!e.startDateTime || !e.endDateTime || e.isActive === false) return false;
     const start = new Date(e.startDateTime);
     const end = new Date(e.endDateTime);
     return start <= now && end >= now;
-  });
-  if (active) return { exam: active, type: 'active' };
-  
-  // Get the most recent completed exam
-  const completed = getMostRecentCompletedExam(examsData);
-  if (completed) {
-    const hasResults = examHasResults(completed, resultsData, teacherId, teacherName);
-    return { 
-      exam: completed, 
-      type: hasResults ? 'withResults' : 'noResults' 
-    };
-  }
-  
-  return { exam: null, type: 'none' };
+  }) || null;
 };
 
-// ===== Get the next upcoming exam =====
+// ============================================================
+// ✅ Show exam X while X.start <= now < nextExam.start
+// nextExam = the exam immediately AFTER X in the sorted schedule
+// ============================================================
+const getCurrentDisplayExam = (examsData) => {
+  const now = new Date();
+
+  const sorted = [...examsData]
+    .filter(e => e.startDateTime && e.isActive !== false)
+    .sort((a, b) => new Date(a.startDateTime) - new Date(b.startDateTime));
+
+  if (sorted.length === 0) return { exam: null, nextExam: null, status: 'none' };
+
+  for (let i = 0; i < sorted.length; i++) {
+    const exam = sorted[i];
+    const start = new Date(exam.startDateTime);
+    const nextExam = sorted[i + 1] || null;
+
+    if (start > now) {
+      return { exam, nextExam, status: 'upcoming' };
+    }
+
+    if (nextExam) {
+      const nextStart = new Date(nextExam.startDateTime);
+      if (now < nextStart) {
+        const end = exam.endDateTime ? new Date(exam.endDateTime) : null;
+        const status = end && now <= end ? 'active' : 'completed';
+        return { exam, nextExam, status };
+      }
+    } else {
+      const end = exam.endDateTime ? new Date(exam.endDateTime) : null;
+      const status = end && now <= end ? 'active' : 'completed';
+      return { exam, nextExam: null, status };
+    }
+  }
+
+  return { exam: null, nextExam: null, status: 'none' };
+};
+
+// ===== Get the next upcoming exam (strictly after now) =====
 const getNextUpcomingExam = (examsData) => {
   const now = new Date();
   const upcoming = examsData
     .filter(e => {
       if (!e.startDateTime || e.isActive === false) return false;
-      const start = new Date(e.startDateTime);
-      return start > now;
+      return new Date(e.startDateTime) > now;
     })
     .sort((a, b) => new Date(a.startDateTime) - new Date(b.startDateTime));
-  
   return upcoming.length > 0 ? upcoming[0] : null;
+};
+
+// ============================================================
+// ✅ STRICT exam match: name AND type AND term AND year must all match
+// ============================================================
+const resultBelongsToExam = (result, exam) => {
+  if (!result || !exam) return false;
+  const sameName = norm(result.examName) === norm(exam.title);
+  const sameType = norm(result.examType) === norm(exam.type);
+  const sameTerm = norm(result.term) === norm(exam.term);
+  const sameYear = String(result.year || '') === String(exam.year || '');
+  return sameName && sameType && sameTerm && sameYear;
 };
 
 const TeacherDashboard = () => {
@@ -229,7 +231,7 @@ const TeacherDashboard = () => {
   
   const [exams, setExams] = useState([]);
   const [announcements, setAnnouncements] = useState([]);
-  const [classPerformance, setClassPerformance] = useState([]);
+  const [subjectPerformance, setSubjectPerformance] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [pupils, setPupils] = useState([]);
@@ -237,10 +239,9 @@ const TeacherDashboard = () => {
   const [examTimers, setExamTimers] = useState({});
   const [teacherResults, setTeacherResults] = useState([]);
   const [displayExam, setDisplayExam] = useState(null);
-  const [displayExamType, setDisplayExamType] = useState('none');
+  const [displayExamStatus, setDisplayExamStatus] = useState('none');
   const [activeExam, setActiveExam] = useState(null);
   const [nextExam, setNextExam] = useState(null);
-  const [teacherClass, setTeacherClass] = useState('');
   const [teacherClasses, setTeacherClasses] = useState([]);
   const [teacherSubjects, setTeacherSubjects] = useState([]);
   const [allTeacherResults, setAllTeacherResults] = useState([]);
@@ -250,6 +251,7 @@ const TeacherDashboard = () => {
   
   const intervalRef = useRef(null);
   const alertIntervalRef = useRef(null);
+  const displayIntervalRef = useRef(null);
 
   const findPupilById = (pupilId, learners) => {
     if (!pupilId) return null;
@@ -293,7 +295,7 @@ const TeacherDashboard = () => {
       setPupils(learners);
       
       // ============================================================
-      // GET ALL TEACHER RESULTS
+      // TEACHER'S OWN RESULTS ONLY
       // ============================================================
       let teacherResultsData = [];
       if (teacherId) {
@@ -313,36 +315,28 @@ const TeacherDashboard = () => {
       setAllTeacherResults(teacherResultsData);
       
       // ============================================================
-      // DETERMINE WHICH EXAM TO DISPLAY
+      // WHICH EXAM TO SHOW
       // ============================================================
-      const { exam: examToDisplay, type: examType } = getExamToDisplay(examsData, teacherResultsData, teacherId, teacherName);
+      const { exam: examToDisplay, status: examStatus, nextExam: nextScheduled } = getCurrentDisplayExam(examsData);
       
       setDisplayExam(examToDisplay);
-      setDisplayExamType(examType);
+      setDisplayExamStatus(examStatus);
       
-      console.log(`📚 Display exam: ${examToDisplay?.title || 'None'}`);
-      console.log(`📚 Display type: ${examType}`);
+      console.log(`📚 Display exam: ${examToDisplay?.title || 'None'} (${examStatus})`);
+      console.log(`📚 Next scheduled exam: ${nextScheduled?.title || 'None'}`);
       
       // ============================================================
-      // GET ACTIVE AND NEXT EXAMS
+      // ACTIVE + NEXT EXAM
       // ============================================================
-      const now = new Date();
-      const currentActiveExam = examsData.find(e => {
-        if (!e.startDateTime || !e.endDateTime || e.isActive === false) return false;
-        const start = new Date(e.startDateTime);
-        const end = new Date(e.endDateTime);
-        return start <= now && end >= now;
-      });
+      const currentActiveExam = getActiveExam(examsData);
       const nextUpcomingExam = getNextUpcomingExam(examsData);
       
       setActiveExam(currentActiveExam);
       setNextExam(nextUpcomingExam);
       
-      console.log(`📝 Active exam: ${currentActiveExam?.title || 'None'}`);
-      console.log(`📝 Next exam: ${nextUpcomingExam?.title || 'None'}`);
-      
       // ============================================================
-      // FILTER RESULTS - Only if exam has results
+      // FILTER RESULTS FOR THE DISPLAY EXAM
+      // STRICT MATCH: name AND type AND term AND year
       // ============================================================
       let uploadedResultsCount = 0;
       let competenciesCount = 0;
@@ -350,45 +344,18 @@ const TeacherDashboard = () => {
       let performanceData = [];
       let filteredResults = [];
       
-      // Show data only if exam has results (active or withResults)
-      const showData = (examType === 'active' || examType === 'withResults') && examToDisplay !== null;
+      const showData = examToDisplay && (examStatus === 'active' || examStatus === 'completed');
       
       if (showData && examToDisplay) {
-        // Filter results for the display exam
-        if (teacherId) {
-          filteredResults = allResults.filter(result => {
-            const recordedBy = result.recordedBy || result.teacherId || result.createdBy;
-            const matchesTeacher = recordedBy === teacherId;
-            
-            const matchesExamName = result.examName === examToDisplay.title;
-            const matchesExamType = result.examType === examToDisplay.type;
-            const matchesTerm = result.term === examToDisplay.term;
-            const matchesYear = result.year === examToDisplay.year;
-            const matchesExam = matchesExamName || (matchesExamType && matchesTerm && matchesYear);
-            
-            return matchesTeacher && matchesExam;
-          });
-        }
-        
-        if (filteredResults.length === 0 && teacherName) {
-          filteredResults = allResults.filter(result => {
-            const submittedBy = result.submittedBy || result.updatedBy || result.createdBy || '';
-            const matchesTeacher = submittedBy === teacherName || submittedBy.includes(teacherName);
-            
-            const matchesExamName = result.examName === examToDisplay.title;
-            const matchesExamType = result.examType === examToDisplay.type;
-            const matchesTerm = result.term === examToDisplay.term;
-            const matchesYear = result.year === examToDisplay.year;
-            const matchesExam = matchesExamName || (matchesExamType && matchesTerm && matchesYear);
-            
-            return matchesTeacher && matchesExam;
-          });
-        }
+        // ✅ Strict match — no other exam's results can leak in
+        filteredResults = teacherResultsData.filter(result =>
+          resultBelongsToExam(result, examToDisplay)
+        );
         
         setTeacherResults(filteredResults);
         uploadedResultsCount = filteredResults.length;
         
-        // CLASSES TAUGHT
+        // CLASSES
         const uniqueClasses = new Set();
         filteredResults.forEach(r => {
           const pupilId = r.pupilId?._id || r.pupilId;
@@ -403,7 +370,7 @@ const TeacherDashboard = () => {
         classesTaughtCount = uniqueClasses.size;
         setTeacherClasses([...uniqueClasses]);
         
-        // SUBJECTS TAUGHT
+        // SUBJECTS
         const uniqueSubjects = new Set();
         filteredResults.forEach(r => {
           const subject = r.subject || r.subjectName || r.learningArea;
@@ -412,75 +379,91 @@ const TeacherDashboard = () => {
         setTeacherSubjects([...uniqueSubjects]);
         competenciesCount = filteredResults.length;
         
-        // PERFORMANCE BY SUBJECT
-        const performanceBySubject = {};
+        // ============================================================
+        // GROUP BY SUBJECT + CLASS + STREAM (streams separated)
+        // ============================================================
+        const grouped = {};
+        
         filteredResults.forEach(result => {
           const subject = result.subject || result.subjectName || result.learningArea || 'Unknown Subject';
-          const marks = result.marks || result.score || result.marksObtained || 0;
-          const examName = result.examName || 'Assessment';
-          const pupilId = result.pupilId?._id || result.pupilId;
+          const marks = parseFloat(result.marks || result.score || result.marksObtained || 0);
+          if (isNaN(marks)) return;
           
+          const pupilId = result.pupilId?._id || result.pupilId;
           let className = 'Unknown Class';
-          let stream = 'Unknown Stream';
+          let stream = '';
+          
           if (pupilId) {
             const pupil = findPupilById(pupilId, learners);
             if (pupil) {
-              className = pupil.class || pupil.grade || 'Unknown Class';
-              stream = pupil.stream || 'Unknown Stream';
+              className = pupil.class || pupil.grade || pupil.className || 'Unknown Class';
+              stream = pupil.stream || '';
             }
           }
           
-          if (!performanceBySubject[subject]) {
-            performanceBySubject[subject] = {
-              subject: subject,
+          const key = `${subject}|${className}|${stream || 'no-stream'}`;
+          
+          if (!grouped[key]) {
+            grouped[key] = {
+              subject,
               class: className,
-              stream: stream,
-              examName: examName,
+              stream: stream || null,
+              // Force the exam name to the display exam (avoid stale result.examName)
+              examName: examToDisplay.title,
+              examType: examToDisplay.type,
+              term: examToDisplay.term,
+              year: examToDisplay.year,
               totalMarks: 0,
               count: 0,
-              scores: [],
-              students: new Set(),
               passing: 0,
-              failing: 0
+              failing: 0,
+              studentIds: new Set()
             };
           }
           
-          performanceBySubject[subject].totalMarks += marks;
-          performanceBySubject[subject].count++;
-          performanceBySubject[subject].scores.push(marks);
-          if (marks >= 60) performanceBySubject[subject].passing++;
-          else performanceBySubject[subject].failing++;
-          if (pupilId) performanceBySubject[subject].students.add(pupilId);
+          grouped[key].totalMarks += marks;
+          grouped[key].count += 1;
+          if (marks >= 60) grouped[key].passing += 1;
+          else grouped[key].failing += 1;
+          if (pupilId) grouped[key].studentIds.add(String(pupilId));
         });
         
-        performanceData = Object.values(performanceBySubject).map(data => {
-          const average = data.count > 0 ? (data.totalMarks / data.count) : 0;
-          return {
-            subject: data.subject,
-            class: data.class,
-            stream: data.stream,
-            examName: data.examName,
-            average: average.toFixed(1),
-            students: data.students.size,
-            totalResults: data.count,
-            passing: data.passing,
-            failing: data.failing,
-            scores: data.scores
-          };
+        performanceData = Object.values(grouped).map(g => ({
+          subject: g.subject,
+          class: g.class,
+          stream: g.stream,
+          examName: g.examName,
+          examType: g.examType,
+          term: g.term,
+          year: g.year,
+          meanScore: g.count > 0 ? (g.totalMarks / g.count) : 0,
+          average: g.count > 0 ? (g.totalMarks / g.count).toFixed(1) : '0.0',
+          students: g.studentIds.size,
+          totalResults: g.count,
+          passing: g.passing,
+          failing: g.failing
+        }));
+        
+        performanceData.sort((a, b) => {
+          const subj = a.subject.localeCompare(b.subject);
+          if (subj !== 0) return subj;
+          const cls = a.class.localeCompare(b.class);
+          if (cls !== 0) return cls;
+          return (a.stream || '').localeCompare(b.stream || '');
         });
-        performanceData.sort((a, b) => a.subject.localeCompare(b.subject));
-        setClassPerformance(performanceData);
+        
+        setSubjectPerformance(performanceData);
         
       } else {
-        // CLEAR DATA - No results for this exam
-        console.log('📚 No data to display. Clearing results...');
+        console.log('📚 No results to display. Clearing...');
         setTeacherResults([]);
-        setClassPerformance([]);
+        setSubjectPerformance([]);
         setTeacherClasses([]);
         setTeacherSubjects([]);
       }
       
       // ---- FILTER ACTIVE AND UPCOMING EXAMS ----
+      const now = new Date();
       const activeAndUpcomingExams = examsData.filter(e => {
         if (e.isActive === false) return false;
         if (!e.startDateTime) return false;
@@ -611,6 +594,14 @@ const TeacherDashboard = () => {
     return () => { if (alertIntervalRef.current) clearInterval(alertIntervalRef.current); };
   }, [checkExamAlerts]);
 
+  // Auto re-check which exam to display every minute
+  useEffect(() => {
+    displayIntervalRef.current = setInterval(() => {
+      loadDashboardData();
+    }, 60000);
+    return () => { if (displayIntervalRef.current) clearInterval(displayIntervalRef.current); };
+  }, [loadDashboardData]);
+
   useEffect(() => { loadDashboardData(); }, []);
 
   const handleRefresh = async () => {
@@ -671,55 +662,69 @@ const TeacherDashboard = () => {
   else greeting = "Good Evening";
 
   const hasTeacherResults = teacherResults.length > 0;
-  const showData = (displayExamType === 'active' || displayExamType === 'withResults') && displayExam !== null;
+  const showData = displayExam && (displayExamStatus === 'active' || displayExamStatus === 'completed');
 
-  // Get time remaining for the display exam
   let displayExamTimeRemaining = null;
   if (displayExam && displayExam.endDateTime) {
     displayExamTimeRemaining = getTimeRemainingDisplayForExam(displayExam._id);
   }
 
-  // Get active exam time remaining
-  let activeExamTimeRemaining = null;
-  if (activeExam && activeExam.endDateTime) {
-    activeExamTimeRemaining = getTimeRemainingDisplayForExam(activeExam._id);
+  let untilNextExamDisplay = null;
+  if (nextExam && nextExam.startDateTime && showData) {
+    untilNextExamDisplay = getTimeRemainingDisplay(nextExam.startDateTime);
   }
+
+  const overallMean = subjectPerformance.length > 0
+    ? (subjectPerformance.reduce((sum, s) => sum + parseFloat(s.average || 0), 0) / subjectPerformance.length).toFixed(1)
+    : '0.0';
+  const totalStudentsInExam = subjectPerformance.reduce((sum, s) => sum + s.students, 0);
 
   return (
     <Layout 
       title={`${greeting}, ${user?.name || 'Teacher'}`} 
       subtitle={schoolInfo.name || user?.school || 'CBE Education'}
     >
-      {/* Status Banner with Time Remaining */}
+      {/* Status Banner */}
       {displayExam ? (
         <div className={`rounded-lg p-3 mb-3 text-white ${
-          displayExamType === 'active' 
+          displayExamStatus === 'active' 
             ? 'bg-gradient-to-r from-green-600 to-green-700' 
-            : displayExamType === 'withResults' 
+            : displayExamStatus === 'completed' 
               ? 'bg-gradient-to-r from-blue-600 to-purple-600' 
               : 'bg-gradient-to-r from-gray-600 to-gray-700'
         }`}>
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
               <span className="font-medium text-sm">
-                {displayExamType === 'active' ? '📝' : displayExamType === 'withResults' ? '📊' : '📅'} 
+                {displayExamStatus === 'active' ? '📝' : displayExamStatus === 'completed' ? '📊' : '📅'} 
                 {' '}{displayExam.title}
               </span>
               <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full">
-                {displayExamType === 'active' ? 'Active' : displayExamType === 'withResults' ? 'Current Data' : 'No Results'}
+                {displayExamStatus === 'active' ? 'Active' : displayExamStatus === 'completed' ? 'Completed' : 'Upcoming'}
               </span>
+              {displayExam.type && (
+                <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full">{displayExam.type}</span>
+              )}
+              {displayExam.term && (
+                <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full">{displayExam.term}</span>
+              )}
             </div>
             <div className="flex items-center gap-3">
-              {/* Time Remaining Display - Only for active or withResults exams */}
-              {displayExamTimeRemaining && (displayExamType === 'active' || displayExamType === 'withResults') && (
+              {displayExamTimeRemaining && displayExamStatus === 'active' && (
                 <span className={`text-xs font-semibold flex items-center gap-1 ${displayExamTimeRemaining.color}`}>
                   <FiClock className="w-3 h-3" />
                   {displayExamTimeRemaining.text}
                 </span>
               )}
+              {untilNextExamDisplay && displayExamStatus === 'completed' && (
+                <span className="text-xs font-semibold flex items-center gap-1 text-yellow-200">
+                  <FiClock className="w-3 h-3" />
+                  Until next exam: {untilNextExamDisplay.text}
+                </span>
+              )}
               {displayExam.endDateTime && (
                 <span className="text-xs opacity-80">
-                  {displayExamType === 'active' ? 'Ends:' : 'Completed:'} {new Date(displayExam.endDateTime).toLocaleDateString()}
+                  {displayExamStatus === 'active' ? 'Ends:' : 'Ended:'} {new Date(displayExam.endDateTime).toLocaleDateString()}
                 </span>
               )}
             </div>
@@ -739,8 +744,16 @@ const TeacherDashboard = () => {
         </button>
       </div>
 
-      {/* Status Message for No Results */}
-      {displayExam && displayExamType === 'noResults' && (
+      {/* Status Message */}
+      {displayExam && !showData && displayExamStatus === 'upcoming' && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-2 mb-3">
+          <p className="text-xs text-blue-700 text-center">
+            📅 <strong>{displayExam.title}</strong> is upcoming. Results will appear once uploaded.
+          </p>
+        </div>
+      )}
+
+      {displayExam && displayExamStatus === 'completed' && !hasTeacherResults && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-2 mb-3">
           <p className="text-xs text-yellow-700 text-center">
             📋 No results uploaded yet for <strong>{displayExam.title}</strong>. 
@@ -802,8 +815,11 @@ const TeacherDashboard = () => {
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-2 mb-3">
         <div className="text-xs text-blue-700">
           {showData && hasTeacherResults ? (
-            <>{stats.uploadedResults} results • {teacherSubjects.length} subjects • {stats.classesTaught} classes</>
-          ) : displayExam && displayExamType === 'noResults' ? (
+            <>
+              {stats.uploadedResults} results • {subjectPerformance.length} subject{subjectPerformance.length !== 1 ? 's' : ''} • {stats.classesTaught} classes
+              {displayExam && <> • <strong>{displayExam.title}</strong></>}
+            </>
+          ) : displayExam && displayExamStatus === 'completed' && !hasTeacherResults ? (
             <>Waiting for results on <strong>{displayExam.title}</strong></>
           ) : (
             <>No results available</>
@@ -827,7 +843,6 @@ const TeacherDashboard = () => {
         
         {exams.length > 0 || announcements.length > 0 ? (
           <div className="space-y-2">
-            {/* Exams */}
             {exams.slice(0, 3).map((exam, index) => {
               const now = new Date();
               const startDateTime = exam.startDateTime ? new Date(exam.startDateTime) : null;
@@ -852,7 +867,6 @@ const TeacherDashboard = () => {
               );
             })}
             
-            {/* Events */}
             {announcements.slice(0, 2).map((event, index) => (
               <div key={`event-${index}`} className="border-l-4 border-blue-500 pl-2 py-1">
                 <div className="flex items-center justify-between">
@@ -872,60 +886,120 @@ const TeacherDashboard = () => {
         </Link>
       </div>
 
-      {/* Subject Performance */}
+      {/* ============================================================ */}
+      {/* SUBJECT PERFORMANCE — Teacher's own results only           */}
+      {/* ============================================================ */}
       <div className="bg-white rounded-lg shadow-md p-4">
-        <h2 className="text-base font-bold text-gray-800 mb-3">📊 Subjects</h2>
-        
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <h2 className="text-base font-bold text-gray-800 flex items-center gap-2">
+            📊 My Subject Performance
+          </h2>
+          {showData && displayExam && (
+            <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
+              Exam: <strong>{displayExam.title}</strong>
+            </span>
+          )}
+        </div>
+
+        {showData && subjectPerformance.length > 0 && (
+          <div className="bg-gradient-to-r from-green-50 to-blue-50 border border-blue-200 rounded-lg p-3 mb-3">
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div>
+                <p className="text-[10px] text-gray-500 uppercase">Subjects</p>
+                <p className="text-lg font-bold text-blue-700">{subjectPerformance.length}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-gray-500 uppercase">Mean Score</p>
+                <p className={`text-lg font-bold ${
+                  parseFloat(overallMean) >= 80 ? 'text-purple-600' :
+                  parseFloat(overallMean) >= 60 ? 'text-green-600' :
+                  parseFloat(overallMean) >= 40 ? 'text-blue-600' : 'text-red-600'
+                }`}>{overallMean}%</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-gray-500 uppercase">Students</p>
+                <p className="text-lg font-bold text-green-700">{totalStudentsInExam}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {!showData ? (
           <div className="text-center py-4">
             <p className="text-sm text-gray-500">
-              {displayExam && displayExamType === 'noResults' 
+              {displayExam && displayExamStatus === 'completed' 
                 ? `No results for ${displayExam.title}` 
-                : 'No data available'}
+                : displayExam && displayExamStatus === 'upcoming'
+                  ? `${displayExam.title} hasn't started yet`
+                  : 'No data available'}
             </p>
-            {displayExam && displayExamType === 'noResults' && (
+            {displayExam && displayExamStatus === 'completed' && (
               <Link to="/teacher/results" className="text-sm text-green-600 hover:underline">Upload now</Link>
             )}
           </div>
         ) : !hasTeacherResults ? (
           <div className="text-center py-4">
-            <p className="text-sm text-gray-500">No results yet</p>
+            <p className="text-sm text-gray-500">You haven't uploaded any results for this exam</p>
             <Link to="/teacher/results" className="text-sm text-green-600 hover:underline">Upload</Link>
           </div>
-        ) : classPerformance.length > 0 ? (
+        ) : subjectPerformance.length > 0 ? (
           <div className="space-y-3">
-            {classPerformance.slice(0, 3).map((subject, index) => (
-              <div key={index} className="border-b border-gray-100 pb-2 last:border-0">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm font-medium">{subject.subject}</span>
-                  <div className="flex items-center gap-2 text-xs">
-                    <span className="text-green-600">✓{subject.passing}</span>
-                    <span className="text-red-600">✗{subject.failing}</span>
-                    <span className="font-bold text-blue-600">{subject.average}%</span>
+            {subjectPerformance.map((subject, index) => {
+              const mean = parseFloat(subject.average);
+              const passRate = subject.totalResults > 0 
+                ? ((subject.passing / subject.totalResults) * 100).toFixed(0) 
+                : '0';
+
+              return (
+                <div key={index} className="border border-gray-100 rounded-lg p-3 hover:shadow-sm transition-shadow">
+                  <div className="flex justify-between items-start mb-2 flex-wrap gap-2">
+                    <div>
+                      <p className="text-sm font-bold text-gray-800">{subject.subject}</p>
+                      <p className="text-[11px] text-gray-500 mt-0.5">
+                        {subject.class}
+                        {subject.stream && subject.stream !== '' ? ` • Stream ${subject.stream}` : ''}
+                        {' • '}{subject.examName}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs">
+                      <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-semibold">
+                        {subject.students} student{subject.students !== 1 ? 's' : ''}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-between items-center text-xs mb-1">
+                    <div className="flex items-center gap-3">
+                      <span className="text-green-600">✓ {subject.passing} passed</span>
+                      <span className="text-red-600">✗ {subject.failing} failed</span>
+                      <span className="text-gray-500">({passRate}% pass)</span>
+                    </div>
+                    <span className={`font-bold ${
+                      mean >= 80 ? 'text-purple-600' :
+                      mean >= 60 ? 'text-green-600' :
+                      mean >= 40 ? 'text-blue-600' : 'text-red-600'
+                    }`}>
+                      Mean: {subject.average}%
+                    </span>
+                  </div>
+
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div className={`rounded-full h-2 transition-all ${
+                      mean >= 80 ? 'bg-purple-500' :
+                      mean >= 60 ? 'bg-green-500' :
+                      mean >= 40 ? 'bg-blue-500' : 'bg-red-500'
+                    }`} style={{ width: `${Math.min(mean, 100)}%` }} />
                   </div>
                 </div>
-                <div className="text-[10px] text-gray-500">
-                  {subject.class}{subject.stream && subject.stream !== 'Unknown Stream' ? ` - ${subject.stream}` : ''}
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1">
-                  <div className={`rounded-full h-1.5 ${
-                    subject.average >= 80 ? 'bg-purple-500' :
-                    subject.average >= 60 ? 'bg-green-500' :
-                    subject.average >= 40 ? 'bg-blue-500' : 'bg-red-500'
-                  }`} style={{ width: `${Math.min(subject.average, 100)}%` }} />
-                </div>
-              </div>
-            ))}
-            {classPerformance.length > 3 && (
-              <p className="text-[10px] text-gray-400 text-center">+{classPerformance.length - 3} more</p>
-            )}
+              );
+            })}
           </div>
         ) : (
           <p className="text-sm text-gray-500 text-center py-4">No data</p>
         )}
         
-        <Link to="/teacher/performance" className="block text-center text-sm text-green-600 hover:text-green-800 mt-2">
-          View All →
+        <Link to="/teacher/performance" className="block text-center text-sm text-green-600 hover:text-green-800 mt-3">
+          View Full Report →
         </Link>
       </div>
 

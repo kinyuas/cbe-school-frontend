@@ -1,3 +1,4 @@
+// src/components/admin/MyStudents.jsx
 import React, { useState, useEffect } from 'react';
 import Layout from '../common/Layout';
 import api from '../../services/api';
@@ -71,7 +72,6 @@ const useResponsiveClasses = (deviceInfo) => {
 };
 
 const MyStudents = () => {
-  // AI Device Detection
   const deviceInfo = useDeviceDetection();
   const responsive = useResponsiveClasses(deviceInfo);
   
@@ -93,6 +93,7 @@ const MyStudents = () => {
   const [downloadFormat, setDownloadFormat] = useState('excel');
   const [downloadClass, setDownloadClass] = useState('');
   const [downloadStream, setDownloadStream] = useState('');
+  const [downloadStreams, setDownloadStreams] = useState([]); // streams for the download class
   const [schoolInfo, setSchoolInfo] = useState({ name: '', motto: '', phone: '', email: '', poBox: '' });
 
   useEffect(() => {
@@ -102,6 +103,7 @@ const MyStudents = () => {
 
   useEffect(() => {
     filterAndSortStudents();
+    // eslint-disable-next-line
   }, [searchTerm, sortBy, sortOrder, students, selectedClass, selectedStream]);
 
   const loadSchoolInfo = () => {
@@ -110,11 +112,11 @@ const MyStudents = () => {
       if (storedSchool) {
         const school = JSON.parse(storedSchool);
         setSchoolInfo({
-          name: school.name || 'SCHOOL NAME',
+          name: school.name || school.schoolName || 'SCHOOL NAME',
           motto: school.motto || 'Excellence in Education',
-          phone: school.phone || '+254 XXX XXX XXX',
-          email: school.email || 'info@school.ac.ke',
-          poBox: school.poBox || 'P.O. Box 00000'
+          phone: school.phone || school.phoneNumber || '+254 XXX XXX XXX',
+          email: school.email || school.schoolEmail || 'info@school.ac.ke',
+          poBox: school.poBox || school.address || 'P.O. Box 00000'
         });
       }
     } catch (error) {
@@ -138,7 +140,6 @@ const MyStudents = () => {
       setStudents(studentsData);
       setFilteredStudents(studentsData);
       
-      // Extract unique classes and streams
       const classes = [...new Set(studentsData.map(s => s.class).filter(Boolean))];
       setAvailableClasses(classes);
       
@@ -152,7 +153,7 @@ const MyStudents = () => {
     }
   };
 
-  // Update streams when class changes
+  // Update streams when class changes (for the filter bar)
   useEffect(() => {
     if (selectedClass) {
       const studentsInClass = students.filter(s => s.class === selectedClass);
@@ -165,6 +166,19 @@ const MyStudents = () => {
     }
   }, [selectedClass, students]);
 
+  // Update streams when download class changes (for the download modal)
+  useEffect(() => {
+    if (downloadClass && downloadClass !== 'all') {
+      const studentsInClass = students.filter(s => s.class === downloadClass);
+      const streams = [...new Set(studentsInClass.map(s => s.stream).filter(Boolean))];
+      setDownloadStreams(streams);
+      setDownloadStream('all'); // default to all streams so the whole class is included
+    } else {
+      setDownloadStreams([]);
+      setDownloadStream('all');
+    }
+  }, [downloadClass, students]);
+
   const filterAndSortStudents = () => {
     if (!Array.isArray(students)) {
       setFilteredStudents([]);
@@ -173,17 +187,14 @@ const MyStudents = () => {
     
     let filtered = [...students];
     
-    // Filter by class
     if (selectedClass) {
       filtered = filtered.filter(student => student.class === selectedClass);
     }
     
-    // Filter by stream
     if (selectedStream && selectedStream !== 'all') {
       filtered = filtered.filter(student => student.stream === selectedStream);
     }
     
-    // Filter by search term
     if (searchTerm.trim()) {
       filtered = filtered.filter(student => 
         student.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -191,7 +202,6 @@ const MyStudents = () => {
       );
     }
     
-    // Sort students
     filtered.sort((a, b) => {
       let aValue = sortBy === 'name' ? (a.name || '').toLowerCase() : (a.admNo || '');
       let bValue = sortBy === 'name' ? (b.name || '').toLowerCase() : (b.admNo || '');
@@ -215,14 +225,14 @@ const MyStudents = () => {
     }
   };
 
-  // ===== IMPROVED WORD DOWNLOAD =====
+  // ===== WORD DOWNLOAD HTML =====
   const generateWordHTML = (studentsToDownload, className, streamName, schoolData) => {
+    // Only include the stream column when no specific stream was selected
+    // (i.e. when we're downloading the whole class or all streams of a class).
     const includeStreamColumn = !(streamName && streamName !== 'all');
     const titleText = `${className}${streamName && streamName !== 'all' ? ` - ${streamName}` : ''} Student List`;
     
-    // Generate table rows
-    const tableRows = studentsToDownload.map((student, index) => {
-      const row = `
+    const tableRows = studentsToDownload.map((student, index) => `
         <tr>
           <td style="text-align: center; padding: 8px 4px; border: 1px solid #000;">${index + 1}</td>
           <td style="padding: 8px 4px; border: 1px solid #000;">${student.name || '-'}</td>
@@ -231,12 +241,11 @@ const MyStudents = () => {
           <td style="text-align: center; padding: 8px 4px; border: 1px solid #000;">${student.gender === 'Male' ? 'M' : (student.gender === 'Female' ? 'F' : '-')}</td>
           <td style="padding: 8px 4px; border: 1px solid #000;">&nbsp;</td>
         </tr>
-      `;
-      return row;
-    }).join('');
+      `).join('');
 
-    // Build stream column header
-    const streamHeader = includeStreamColumn ? '<th style="border: 1px solid #000; padding: 8px 4px; text-align: center; background-color: #f2f2f2;">STREAM</th>' : '';
+    const streamHeader = includeStreamColumn
+      ? '<th style="border: 1px solid #000; padding: 8px 4px; text-align: center; background-color: #f2f2f2;">STREAM</th>'
+      : '';
 
     return `<!DOCTYPE html>
 <html>
@@ -245,127 +254,18 @@ const MyStudents = () => {
   <title>${titleText}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: 'Times New Roman', 'Arial', serif;
-      margin: 0;
-      padding: 20px;
-      background: white;
-    }
-    .header {
-      text-align: center;
-      width: 100%;
-      margin-bottom: 20px;
-      padding-bottom: 15px;
-      border-bottom: 2px solid #000;
-    }
-    .school-name {
-      font-size: 24px;
-      font-weight: bold;
-      text-transform: uppercase;
-      margin-bottom: 5px;
-    }
-    .motto {
-      font-size: 12px;
-      font-style: italic;
-      margin-bottom: 8px;
-    }
-    .address {
-      font-size: 10px;
-      margin-bottom: 10px;
-    }
-    .title {
-      font-size: 18px;
-      font-weight: bold;
-      text-decoration: underline;
-      margin: 10px 0;
-      text-transform: uppercase;
-    }
-    .info-row {
-      font-size: 10px;
-      margin-bottom: 5px;
-      display: flex;
-      justify-content: space-between;
-    }
-    .student-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 11px;
-      margin-top: 15px;
-    }
-    .student-table th {
-      border: 1px solid #000;
-      padding: 8px 4px;
-      text-align: center;
-      background-color: #f2f2f2;
-      font-weight: bold;
-    }
-    .student-table td {
-      border: 1px solid #000;
-      padding: 8px 4px;
-      vertical-align: middle;
-    }
-    .student-table th:first-child,
-    .student-table td:first-child {
-      width: 5%;
-      text-align: center;
-    }
-    .student-table th:nth-child(2),
-    .student-table td:nth-child(2) {
-      width: 35%;
-      text-align: left;
-    }
-    .student-table th:nth-child(3),
-    .student-table td:nth-child(3) {
-      width: 10%;
-      text-align: center;
-    }
-    ${includeStreamColumn ? `
-    .student-table th:nth-child(4),
-    .student-table td:nth-child(4) {
-      width: 10%;
-      text-align: center;
-    }
-    .student-table th:nth-child(5),
-    .student-table td:nth-child(5) {
-      width: 5%;
-      text-align: center;
-    }
-    .student-table th:nth-child(6),
-    .student-table td:nth-child(6) {
-      width: 35%;
-      text-align: left;
-    }
-    ` : `
-    .student-table th:nth-child(4),
-    .student-table td:nth-child(4) {
-      width: 5%;
-      text-align: center;
-    }
-    .student-table th:nth-child(5),
-    .student-table td:nth-child(5) {
-      width: 45%;
-      text-align: left;
-    }
-    `}
-    .signature-line {
-      margin-top: 40px;
-      display: flex;
-      justify-content: space-between;
-      font-size: 11px;
-      width: 100%;
-    }
-    .footer {
-      margin-top: 20px;
-      padding-top: 10px;
-      border-top: 1px solid #ccc;
-      font-size: 9px;
-      text-align: center;
-      width: 100%;
-    }
-    .remarks-title {
-      font-weight: bold;
-      text-align: left !important;
-    }
+    body { font-family: 'Times New Roman', 'Arial', serif; margin: 0; padding: 20px; background: white; }
+    .header { text-align: center; width: 100%; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 2px solid #000; }
+    .school-name { font-size: 24px; font-weight: bold; text-transform: uppercase; margin-bottom: 5px; }
+    .motto { font-size: 12px; font-style: italic; margin-bottom: 8px; }
+    .address { font-size: 10px; margin-bottom: 10px; }
+    .title { font-size: 18px; font-weight: bold; text-decoration: underline; margin: 10px 0; text-transform: uppercase; }
+    .info-row { font-size: 10px; margin-bottom: 5px; display: flex; justify-content: space-between; }
+    .student-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 15px; }
+    .student-table th { border: 1px solid #000; padding: 8px 4px; text-align: center; background-color: #f2f2f2; font-weight: bold; }
+    .student-table td { border: 1px solid #000; padding: 8px 4px; vertical-align: middle; }
+    .signature-line { margin-top: 40px; display: flex; justify-content: space-between; font-size: 11px; width: 100%; }
+    .footer { margin-top: 20px; padding-top: 10px; border-top: 1px solid #ccc; font-size: 9px; text-align: center; width: 100%; }
   </style>
 </head>
 <body>
@@ -387,12 +287,12 @@ const MyStudents = () => {
   <table class="student-table">
     <thead>
       <tr>
-        <th>#</th>
-        <th>NAME</th>
-        <th>ADM</th>
+        <th style="width: 5%;">#</th>
+        <th style="width: ${includeStreamColumn ? '35%' : '45%'};">NAME</th>
+        <th style="width: 10%;">ADM</th>
         ${streamHeader}
-        <th>GEN</th>
-        <th>REMARKS</th>
+        <th style="width: 5%;">GEN</th>
+        <th style="width: ${includeStreamColumn ? '35%' : '45%'};">REMARKS</th>
       </tr>
     </thead>
     <tbody>
@@ -413,6 +313,7 @@ const MyStudents = () => {
 </html>`;
   };
 
+  // ===== HANDLE DOWNLOAD =====
   const handleDownload = () => {
     if (!downloadClass) {
       toast.error('Please select a class to download');
@@ -424,7 +325,9 @@ const MyStudents = () => {
     if (downloadClass === 'all') {
       studentsToDownload = students;
     } else {
+      // ✅ Always include the whole class across all streams by default
       studentsToDownload = students.filter(s => s.class === downloadClass);
+      // Only narrow down if a specific stream is chosen
       if (downloadStream && downloadStream !== 'all') {
         studentsToDownload = studentsToDownload.filter(s => s.stream === downloadStream);
       }
@@ -435,22 +338,24 @@ const MyStudents = () => {
       return;
     }
     
-    // Prepare data for download
+    // Include stream column if the download spans multiple streams or all classes
     const includeStreamColumn = !(downloadStream && downloadStream !== 'all');
     
     const fileName = `${downloadClass}${downloadStream && downloadStream !== 'all' ? `_${downloadStream}` : ''}_students`;
     const titleText = `${downloadClass}${downloadStream && downloadStream !== 'all' ? ` - ${downloadStream}` : ''} Student List`;
     
     if (downloadFormat === 'excel') {
-      // Excel/CSV format
-      const downloadData = studentsToDownload.map(student => ({
-        '#': studentsToDownload.indexOf(student) + 1,
-        'Name': student.name,
-        'Admission': student.admNo,
-        ...(includeStreamColumn && { 'Stream': student.stream || 'N/A' }),
-        'Gender': student.gender === 'Male' ? 'M' : (student.gender === 'Female' ? 'F' : 'N/A'),
-        'REMARKS': ''
-      }));
+      const downloadData = studentsToDownload.map((student, index) => {
+        const row = {
+          '#': index + 1,
+          'Name': student.name,
+          'Admission': student.admNo,
+        };
+        if (includeStreamColumn) row['Stream'] = student.stream || 'N/A';
+        row['Gender'] = student.gender === 'Male' ? 'M' : (student.gender === 'Female' ? 'F' : 'N/A');
+        row['REMARKS'] = '';
+        return row;
+      });
       
       const headers = Object.keys(downloadData[0]);
       const csvRows = [
@@ -474,7 +379,6 @@ const MyStudents = () => {
       URL.revokeObjectURL(url);
       toast.success(`Downloaded ${studentsToDownload.length} students`);
     } else {
-      // Word format with proper styling
       const htmlContent = generateWordHTML(
         studentsToDownload, 
         downloadClass, 
@@ -509,7 +413,7 @@ const MyStudents = () => {
 
   const totalStudents = filteredStudents.length;
 
-  // Download Modal Component - AI Responsive
+  // Download Modal Component
   const DownloadModal = () => (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className={`bg-white rounded-xl ${deviceInfo.isMobile ? 'p-4 mx-4 w-full max-w-sm' : 'p-6 w-full max-w-md'}`}>
@@ -567,9 +471,12 @@ const MyStudents = () => {
             </select>
           </div>
           
-          {downloadClass && downloadClass !== 'all' && availableStreams.length > 0 && (
+          {/* ✅ Stream dropdown only shows when the class actually has streams */}
+          {downloadClass && downloadClass !== 'all' && downloadStreams.length > 0 && (
             <div>
-              <label className="block text-gray-700 font-medium mb-2">Stream (Optional)</label>
+              <label className="block text-gray-700 font-medium mb-2">
+                Stream <span className="text-xs text-gray-500 font-normal">(optional)</span>
+              </label>
               <select
                 value={downloadStream}
                 onChange={(e) => setDownloadStream(e.target.value)}
@@ -577,11 +484,14 @@ const MyStudents = () => {
                   deviceInfo.isMobile ? 'text-base' : ''
                 }`}
               >
-                <option value="all">All Streams</option>
-                {availableStreams.map(stream => (
+                <option value="all">All Streams (Whole Class)</option>
+                {downloadStreams.map(stream => (
                   <option key={stream} value={stream}>{stream}</option>
                 ))}
               </select>
+              <p className="text-[10px] text-gray-400 mt-1">
+                Leave as "All Streams" to download every learner in the class.
+              </p>
             </div>
           )}
         </div>
@@ -617,10 +527,9 @@ const MyStudents = () => {
   return (
     <Layout title="My Learners" subtitle="CBE - View and manage all learners">
       
-      {/* Search, Filter and Download Bar - AI Responsive */}
+      {/* Search, Filter and Download Bar */}
       <div className={`bg-white rounded-xl shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-4'} mb-6`}>
         <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-3' : 'flex-wrap gap-4'} items-center`}>
-          {/* Search Input */}
           <div className={`${deviceInfo.isMobile ? 'w-full' : 'flex-1 min-w-[200px]'}`}>
             <div className="relative">
               <FiSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
@@ -636,7 +545,6 @@ const MyStudents = () => {
             </div>
           </div>
           
-          {/* Class Filter */}
           {availableClasses.length > 0 && (
             <select
               value={selectedClass}
@@ -652,7 +560,6 @@ const MyStudents = () => {
             </select>
           )}
           
-          {/* Stream Filter */}
           {selectedClass && availableStreams.length > 0 && (
             <select
               value={selectedStream}
@@ -668,7 +575,6 @@ const MyStudents = () => {
             </select>
           )}
           
-          {/* Download Button */}
           <button
             onClick={() => setShowDownloadModal(true)}
             className={`bg-green-600 text-white rounded-lg flex items-center justify-center gap-2 hover:bg-green-700 transition-colors ${
@@ -678,7 +584,6 @@ const MyStudents = () => {
             <FiDownload /> DOWNLOAD LISTS
           </button>
           
-          {/* Sort Buttons */}
           <div className={`flex ${deviceInfo.isMobile ? 'w-full gap-2' : 'gap-2'}`}>
             <button
               onClick={() => toggleSort('name')}
@@ -709,7 +614,6 @@ const MyStudents = () => {
           </div>
         </div>
         
-        {/* Search Results Summary */}
         {searchTerm && (
           <div className="mt-3 pt-3 border-t border-gray-100">
             <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-gray-600`}>
@@ -719,7 +623,7 @@ const MyStudents = () => {
         )}
       </div>
 
-      {/* Students Count Summary - AI Responsive */}
+      {/* Students Count Summary */}
       <div className={`grid ${responsive.statsGrid} ${responsive.gridGap} mb-6`}>
         <div className="bg-gradient-to-r from-green-500 to-green-600 rounded-xl p-4 text-white">
           <p className="text-sm opacity-90">Total Learners</p>
@@ -754,7 +658,7 @@ const MyStudents = () => {
         </div>
       )}
 
-      {/* Class-wise Student Cards - AI Responsive */}
+      {/* Class-wise Student Cards */}
       {totalStudents > 0 && (
         <div className="space-y-6">
           {Object.entries(groupedStudents).map(([className, classStudents]) => (
@@ -822,30 +726,18 @@ const MyStudents = () => {
         </div>
       )}
       
-      {/* Download Modal */}
       {showDownloadModal && <DownloadModal />}
 
-      {/* AI Responsive CSS */}
       <style jsx>{`
         @media (max-width: 768px) {
-          .mobile-view .p-4 {
-            padding: 12px !important;
-          }
-          .mobile-view .gap-4 {
-            gap: 12px !important;
-          }
-          .mobile-view input, .mobile-view select {
-            font-size: 16px !important;
-          }
+          .mobile-view .p-4 { padding: 12px !important; }
+          .mobile-view .gap-4 { gap: 12px !important; }
+          .mobile-view input, .mobile-view select { font-size: 16px !important; }
         }
         @media (min-width: 769px) and (max-width: 1024px) {
-          .tablet-view .grid-cols-2 {
-            grid-template-columns: repeat(2, 1fr) !important;
-          }
+          .tablet-view .grid-cols-2 { grid-template-columns: repeat(2, 1fr) !important; }
         }
-        .responsive-wrapper {
-          transition: all 0.3s ease;
-        }
+        .responsive-wrapper { transition: all 0.3s ease; }
       `}</style>
     </Layout>
   );

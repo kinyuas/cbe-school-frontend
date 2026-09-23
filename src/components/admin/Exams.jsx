@@ -1,8 +1,10 @@
+// src/components/admin/Exams.jsx
 import React, { useState, useEffect } from 'react';
 import Layout from '../common/Layout';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
-import { FiPlus, FiTrash2, FiEdit2, FiCalendar, FiClock, FiAlertCircle, FiMonitor, FiSmartphone, FiTablet, FiRefreshCw } from 'react-icons/fi';
+import { useAuth } from '../../context/AuthContext';
+import { FiPlus, FiTrash2, FiEdit2, FiCalendar, FiClock, FiAlertCircle, FiMonitor, FiSmartphone, FiTablet, FiRefreshCw, FiZap } from 'react-icons/fi';
 
 // ===== AI Device Detection Hook =====
 const useDeviceDetection = () => {
@@ -84,17 +86,67 @@ const calculateTimeRemaining = (endDateTime) => {
   return { days, hours, minutes, totalSeconds, isExpired: false };
 };
 
+// ============================================================
+// EXAM PRIORITY HELPERS
+//   0 → Ongoing (currently live)
+//   1 → Upcoming (starts in the future)
+//   2 → Expired  (already ended)
+//   3 → Inactive (disabled by admin)
+// Lower number = higher priority = closer to the top
+// ============================================================
+const getExamPriority = (exam) => {
+  if (!exam.isActive) return 3;
+  const now = new Date();
+  const start = new Date(exam.startDateTime);
+  const end = new Date(exam.endDateTime);
+  if (now >= start && now <= end) return 0; // ongoing
+  if (now < start) return 1;                // upcoming
+  return 2;                                 // expired
+};
+
+const sortExamsByPriority = (examsList) => {
+  return [...examsList].sort((a, b) => {
+    const pa = getExamPriority(a);
+    const pb = getExamPriority(b);
+    if (pa !== pb) return pa - pb;
+
+    const startA = new Date(a.startDateTime).getTime();
+    const startB = new Date(b.startDateTime).getTime();
+    const endA = new Date(a.endDateTime).getTime();
+    const endB = new Date(b.endDateTime).getTime();
+
+    if (pa === 0) return endA - endB;   // ongoing: ends soonest first
+    if (pa === 1) return startA - startB; // upcoming: starts soonest first
+    if (pa === 2) return endB - endA;     // expired: most recent first
+    return startB - startA;               // inactive: newest created first
+  });
+};
+
 const Exams = () => {
   // AI Device Detection
   const deviceInfo = useDeviceDetection();
   const responsive = useResponsiveClasses(deviceInfo);
-  
+
+  // Auth state from context (kept in sync with the current token)
+  const { user, isAdmin: isAdminFromContext, isAuthenticated } = useAuth();
+
+  const userRole = (() => {
+    if (user?.role) return user.role;
+    try {
+      const stored = JSON.parse(localStorage.getItem('user') || '{}');
+      return stored.role || null;
+    } catch (e) {
+      return null;
+    }
+  })();
+
+  const isAdmin = !!isAdminFromContext || userRole === 'admin';
+
   const [exams, setExams] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingExam, setEditingExam] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [userRole, setUserRole] = useState(null);
   const [examTimers, setExamTimers] = useState({});
   
   const [formData, setFormData] = useState({
@@ -110,9 +162,19 @@ const Exams = () => {
   });
 
   useEffect(() => {
+    if (!isAuthenticated) return;
     loadExams();
-    getUserRole();
-  }, []);
+    // eslint-disable-next-line
+  }, [isAuthenticated, user?._id, user?.role]);
+
+  useEffect(() => {
+    if (!isAdmin && isModalOpen) {
+      setIsModalOpen(false);
+      setEditingExam(null);
+      resetForm();
+    }
+    // eslint-disable-next-line
+  }, [isAdmin]);
 
   // Update timers every minute
   useEffect(() => {
@@ -131,15 +193,6 @@ const Exams = () => {
     return () => clearInterval(interval);
   }, [exams]);
 
-  const getUserRole = () => {
-    try {
-      const user = JSON.parse(localStorage.getItem('user') || '{}');
-      setUserRole(user.role || 'teacher');
-    } catch (e) {
-      setUserRole('teacher');
-    }
-  };
-
   const loadExams = async () => {
     setLoading(true);
     try {
@@ -148,7 +201,6 @@ const Exams = () => {
         const examsData = response.data.data || [];
         setExams(examsData);
         
-        // Initialize timers for each exam
         const timers = {};
         examsData.forEach(exam => {
           if (exam.endDateTime) {
@@ -180,6 +232,11 @@ const Exams = () => {
   };
 
   const handleSubmit = async () => {
+    if (!isAdmin) {
+      toast.error('Only administrators can schedule exams');
+      return;
+    }
+
     if (!formData.title || !formData.startDate || !formData.endDate || !formData.startTime || !formData.endTime) {
       toast.error('Please fill in all required fields');
       return;
@@ -252,7 +309,7 @@ const Exams = () => {
   };
 
   const handleDelete = async (id) => {
-    if (userRole !== 'admin') {
+    if (!isAdmin) {
       toast.error('Only administrators can delete exams');
       return;
     }
@@ -278,7 +335,7 @@ const Exams = () => {
   };
 
   const handleEdit = (exam) => {
-    if (userRole !== 'admin') {
+    if (!isAdmin) {
       toast.error('Only administrators can edit exams');
       return;
     }
@@ -302,7 +359,7 @@ const Exams = () => {
   };
 
   const toggleExamStatus = async (examId, currentStatus) => {
-    if (userRole !== 'admin') {
+    if (!isAdmin) {
       toast.error('Only administrators can change exam status');
       return;
     }
@@ -386,7 +443,11 @@ const Exams = () => {
     );
   }
 
-  const isAdmin = userRole === 'admin';
+  // ✅ Sort exams so the CURRENT one is always at the top
+  const sortedExams = sortExamsByPriority(exams);
+  const currentExamId = sortedExams.length > 0 && getExamPriority(sortedExams[0]) === 0
+    ? sortedExams[0]._id
+    : null;
 
   return (
     <Layout 
@@ -426,21 +487,36 @@ const Exams = () => {
         </div>
       ) : (
         <div className={`grid ${deviceInfo.isMobile ? 'gap-3' : 'gap-4'}`}>
-          {exams.map((exam) => {
+          {sortedExams.map((exam) => {
             const status = getExamStatus(exam);
             const startDateTime = new Date(exam.startDateTime);
             const endDateTime = new Date(exam.endDateTime);
             const timeRemaining = getTimeRemainingDisplay(exam);
+            const isCurrent = exam._id === currentExamId;
             
             return (
-              <div key={exam._id} className={`bg-white rounded-xl shadow-md ${deviceInfo.isMobile ? 'p-4' : 'p-6'} hover:shadow-lg transition-shadow`}>
+              <div
+                key={exam._id}
+                className={`bg-white rounded-xl shadow-md ${deviceInfo.isMobile ? 'p-4' : 'p-6'} hover:shadow-lg transition-shadow ${
+                  isCurrent
+                    ? 'border-2 border-green-500 ring-2 ring-green-100'
+                    : 'border border-transparent'
+                }`}
+              >
                 <div className={`flex ${deviceInfo.isMobile ? 'flex-col' : 'flex-row'} ${deviceInfo.isMobile ? 'gap-3' : 'justify-between items-start'}`}>
                   <div className="flex-1 w-full">
                     <div className={`flex ${deviceInfo.isMobile ? 'flex-col' : 'flex-row'} ${deviceInfo.isMobile ? 'gap-2' : 'items-center gap-3'} flex-wrap`}>
                       <h3 className={`${deviceInfo.isMobile ? 'text-lg' : 'text-xl'} font-bold text-gray-800`}>
                         {exam.title}
                       </h3>
-                      <div className={`flex ${deviceInfo.isMobile ? 'flex-wrap' : 'flex-row'} gap-2`}>
+                      <div className={`flex ${deviceInfo.isMobile ? 'flex-wrap' : 'flex-row'} gap-2 items-center`}>
+                        {/* ✅ CURRENT badge for the ongoing exam */}
+                        {isCurrent && (
+                          <span className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full bg-green-600 text-white font-bold shadow">
+                            <FiZap className="w-3 h-3" />
+                            CURRENT
+                          </span>
+                        )}
                         <span className={`px-2 py-1 text-xs rounded-full ${status.color}`}>
                           {status.text}
                         </span>
@@ -477,7 +553,7 @@ const Exams = () => {
                         <FiClock className={deviceInfo.isMobile ? 'w-3 h-3' : 'w-4 h-4'} />
                         <span className="font-semibold">{timeRemaining.text}</span>
                         {isExamOngoing(exam) && (
-                          <span className="ml-2 px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-bold">
+                          <span className="ml-2 px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-bold animate-pulse">
                             LIVE
                           </span>
                         )}

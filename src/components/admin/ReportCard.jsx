@@ -1,7 +1,6 @@
 // src/components/admin/ReportCard.jsx
 import React, { useRef, useState, useEffect } from 'react';
-import { FiX, FiPrinter, FiDownload, FiBarChart2 } from 'react-icons/fi';
-import toast from 'react-hot-toast';
+import { FiX, FiPrinter } from 'react-icons/fi';
 import api from '../../services/api';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
@@ -20,54 +19,31 @@ const ReportCard = ({
   getRecommendation,
   onClose,
   combinedExamResults = null,
-  examNames = []
+  examNames = [],
+  feeSummary = null,
+  showStreamColumn = false,
 }) => {
   const printRef = useRef();
-  const [studentFees, setStudentFees] = useState({
-    previousBalance: 0,
-    currentTermFee: 0,
-    totalDue: 0,
-    paid: 0,
-    balance: 0
-  });
   const [termHistory, setTermHistory] = useState([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    loadStudentData();
+    loadTermHistory();
+    // eslint-disable-next-line
   }, [student]);
 
-  const loadStudentData = async () => {
+  const loadTermHistory = async () => {
     setLoading(true);
     try {
-      // Load student fees from database
-      const feesResponse = await api.get(`/fees/student/${student.id}`);
-      if (feesResponse.data?.success) {
-        const fees = feesResponse.data.data || {};
-        setStudentFees({
-          previousBalance: fees.previousBalance || 0,
-          currentTermFee: fees.currentTermFee || 0,
-          totalDue: (fees.previousBalance || 0) + (fees.currentTermFee || 0),
-          paid: fees.paid || 0,
-          balance: ((fees.previousBalance || 0) + (fees.currentTermFee || 0)) - (fees.paid || 0)
-        });
-      }
-
-      // Load term history for the student
       const historyResponse = await api.get(`/results/student/${student.id}/history`);
       if (historyResponse.data?.success) {
         setTermHistory(historyResponse.data.data || []);
+      } else {
+        setTermHistory([]);
       }
     } catch (error) {
-      console.error('Error loading student data:', error);
-      // Set default values if API fails
-      setStudentFees({
-        previousBalance: 0,
-        currentTermFee: 0,
-        totalDue: 0,
-        paid: 0,
-        balance: 0
-      });
+      console.error('Error loading term history:', error);
+      setTermHistory([]);
     } finally {
       setLoading(false);
     }
@@ -120,34 +96,38 @@ const ReportCard = ({
     `);
   };
 
-  const getCompetencyColor = (level) => {
-    const comp = competencyLevels.find(c => c.level === level);
-    return comp?.color || '#333';
-  };
-
-  const getCompetencyDescription = (level) => {
-    const comp = competencyLevels.find(c => c.level === level);
-    return comp?.description || '';
-  };
-
-  // Calculate total and average
   const totalMarks = allSubjects.reduce((sum, subject) => sum + (student[subject] || 0), 0);
   const averageScore = allSubjects.length > 0 ? totalMarks / allSubjects.length : 0;
   const grade = getGrade(averageScore);
   const competency = getCompetencyLevel(averageScore);
   const recommendation = getRecommendation(averageScore);
 
-  // Prepare term history data for chart
   const chartData = termHistory.map(term => ({
     term: term.termName || term.term,
     average: term.averageScore || 0,
     grade: term.grade || 'N/A'
   }));
 
+  const fee = feeSummary || {
+    totalFee: 0,
+    paid: 0,
+    balance: 0,
+    isFullyPaid: false,
+    hasCredit: false,
+    credit: 0,
+    termBreakdown: [],
+  };
+
+  const balanceIsCredit = fee.balance < 0;
+  const balanceIsZero = fee.balance === 0;
+
+  // Are we in combined mode with multiple exams?
+  const isCombinedMode = combinedExamResults && examNames.length > 1;
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl w-full max-w-5xl max-h-[90vh] overflow-y-auto">
-        <div className="sticky top-0 bg-white border-b p-4 flex justify-between items-center">
+      <div className="bg-white rounded-xl w-full max-w-6xl max-h-[90vh] overflow-y-auto">
+        <div className="sticky top-0 bg-white border-b p-4 flex justify-between items-center no-print">
           <h2 className="text-lg font-bold">Student Report Card</h2>
           <div className="flex gap-2">
             <button onClick={handlePrint} className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm flex items-center gap-1">
@@ -174,107 +154,215 @@ const ReportCard = ({
                 <p className="text-sm mt-1"><em>{schoolInfo.motto || 'Quality Education for All'}</em></p>
                 <div className="divider"></div>
                 <h2 className="text-xl font-bold">STUDENT REPORT CARD</h2>
-                <p>{selectedTerm} {selectedYear} | {selectedClass} {selectedStream}</p>
+                <p>{selectedTerm} {selectedYear} | {selectedClass}{showStreamColumn && student.stream ? ` ${student.stream}` : ''}</p>
               </div>
 
               {/* Student Info */}
               <div className="grid grid-cols-3 gap-4 mt-4 border p-3 rounded">
                 <div><strong>Name:</strong> {student.name}</div>
                 <div><strong>Admission No:</strong> {student.admNo}</div>
-                <div><strong>Stream:</strong> {student.stream || 'N/A'}</div>
+                {showStreamColumn && (
+                  <div><strong>Stream:</strong> {student.stream || 'N/A'}</div>
+                )}
                 <div><strong>Class:</strong> {selectedClass}</div>
                 <div><strong>Term:</strong> {selectedTerm}</div>
                 <div><strong>Year:</strong> {selectedYear}</div>
               </div>
 
-              {/* Combined Exam Results Section */}
-              {combinedExamResults && examNames.length > 0 && (
-                <div className="exam-section">
-                  <h3 className="font-bold text-lg mt-4">Exam Results Breakdown</h3>
-                  {examNames.map((examName, idx) => (
-                    <div key={idx} className="mt-3">
-                      <h4 className="font-semibold text-sm">{examName}</h4>
-                      <table>
-                        <thead>
-                          <tr>
-                            <th className="text-left">Subject</th>
-                            <th>Score (%)</th>
-                            <th>Grade</th>
-                            <th>Competency Level</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {allSubjects.map(subject => {
-                            const examResult = combinedExamResults[examName]?.[student.id]?.[subject] || 0;
-                            const subjectGrade = getGrade(examResult);
-                            const subjectCompetency = getCompetencyLevel(examResult);
+              {/* ============================================================ */}
+              {/* COMBINED EXAM RESULTS — one table, exam column groups        */}
+              {/* ============================================================ */}
+              {isCombinedMode && (
+                <div className="exam-section mt-6">
+                  <h3 className="font-bold text-lg">Exam Results Breakdown</h3>
+                  <div className="overflow-x-auto mt-2">
+                    <table className="w-full border-collapse text-xs">
+                      <thead>
+                        <tr>
+                          <th rowSpan={2} className="border border-gray-400 bg-gray-100 px-2 py-2 text-left align-bottom">
+                            Subject
+                          </th>
+                          {examNames.map(examName => (
+                            <th
+                              key={examName}
+                              colSpan={3}
+                              className="border border-gray-400 bg-blue-100 px-2 py-2 text-center font-bold"
+                            >
+                              {examName}
+                            </th>
+                          ))}
+                          <th colSpan={3} className="border border-gray-400 bg-green-100 px-2 py-2 text-center font-bold">
+                            Weighted Final
+                          </th>
+                        </tr>
+                        <tr>
+                          {examNames.map(examName => (
+                            <React.Fragment key={`${examName}-sub`}>
+                              <th className="border border-gray-400 bg-gray-50 px-1 py-1 text-center text-[10px]">Score</th>
+                              <th className="border border-gray-400 bg-gray-50 px-1 py-1 text-center text-[10px]">Grade</th>
+                              <th className="border border-gray-400 bg-gray-50 px-1 py-1 text-center text-[10px]">Comp</th>
+                            </React.Fragment>
+                          ))}
+                          <th className="border border-gray-400 bg-gray-50 px-1 py-1 text-center text-[10px]">Score</th>
+                          <th className="border border-gray-400 bg-gray-50 px-1 py-1 text-center text-[10px]">Grade</th>
+                          <th className="border border-gray-400 bg-gray-50 px-1 py-1 text-center text-[10px]">Comp</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {allSubjects.map(subject => {
+                          const finalMarks = student[subject] || 0;
+                          const finalGrade = getGrade(finalMarks);
+                          const finalComp = getCompetencyLevel(finalMarks);
+                          return (
+                            <tr key={subject}>
+                              <td className="border border-gray-400 px-2 py-1 text-left font-medium">{subject}</td>
+                              {examNames.map(examName => {
+                                const marks = combinedExamResults[examName]?.[student.id]?.[subject];
+                                const hasMarks = marks !== undefined && marks !== null && marks !== 0;
+                                const subjGrade = hasMarks ? getGrade(marks) : '-';
+                                const subjComp = hasMarks ? getCompetencyLevel(marks) : null;
+                                return (
+                                  <React.Fragment key={`${examName}-${subject}`}>
+                                    <td className="border border-gray-400 px-1 py-1 text-center">{hasMarks ? marks : '-'}</td>
+                                    <td className="border border-gray-400 px-1 py-1 text-center font-semibold">{subjGrade}</td>
+                                    <td
+                                      className="border border-gray-400 px-1 py-1 text-center font-semibold"
+                                      style={{ color: subjComp?.color || '#333' }}
+                                    >
+                                      {subjComp?.level || '-'}
+                                    </td>
+                                  </React.Fragment>
+                                );
+                              })}
+                              <td className="border border-gray-400 px-1 py-1 text-center bg-green-50 font-bold">{finalMarks}</td>
+                              <td className="border border-gray-400 px-1 py-1 text-center bg-green-50 font-semibold">{finalGrade}</td>
+                              <td
+                                className="border border-gray-400 px-1 py-1 text-center bg-green-50 font-semibold"
+                                style={{ color: finalComp.color }}
+                              >
+                                {finalComp.level}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        <tr className="bg-gray-100">
+                          <td className="border border-gray-400 px-2 py-1 text-left font-bold">Total</td>
+                          {examNames.map(examName => {
+                            const subjectTotals = allSubjects
+                              .map(s => combinedExamResults[examName]?.[student.id]?.[s])
+                              .filter(m => m !== undefined && m !== null && m !== 0);
+                            const examTotal = subjectTotals.reduce((a, b) => a + Number(b), 0);
                             return (
-                              <tr key={subject}>
-                                <td className="text-left">{subject}</td>
-                                <td>{examResult || '-'}</td>
-                                <td>{examResult ? subjectGrade : '-'}</td>
-                                <td>
-                                  {examResult ? (
-                                    <span style={{ color: subjectCompetency.color, fontWeight: 'bold' }}>
-                                      {subjectCompetency.level}
-                                    </span>
-                                  ) : '-'}
-                                </td>
-                              </tr>
+                              <React.Fragment key={`${examName}-total`}>
+                                <td className="border border-gray-400 px-1 py-1 text-center font-bold">{examTotal || '-'}</td>
+                                <td className="border border-gray-400 px-1 py-1 text-center">-</td>
+                                <td className="border border-gray-400 px-1 py-1 text-center">-</td>
+                              </React.Fragment>
                             );
                           })}
-                        </tbody>
-                      </table>
-                    </div>
-                  ))}
+                          <td className="border border-gray-400 px-1 py-1 text-center bg-green-50 font-bold">{totalMarks}</td>
+                          <td className="border border-gray-400 px-1 py-1 text-center bg-green-50">-</td>
+                          <td className="border border-gray-400 px-1 py-1 text-center bg-green-50">-</td>
+                        </tr>
+                        <tr className="bg-gray-100">
+                          <td className="border border-gray-400 px-2 py-1 text-left font-bold">Average</td>
+                          {examNames.map(examName => {
+                            const subjectMarks = allSubjects
+                              .map(s => combinedExamResults[examName]?.[student.id]?.[s])
+                              .filter(m => m !== undefined && m !== null && m !== 0);
+                            const examAvg = subjectMarks.length > 0
+                              ? subjectMarks.reduce((a, b) => a + Number(b), 0) / subjectMarks.length
+                              : 0;
+                            return (
+                              <React.Fragment key={`${examName}-avg`}>
+                                <td className="border border-gray-400 px-1 py-1 text-center font-bold">{examAvg ? examAvg.toFixed(1) : '-'}</td>
+                                <td className="border border-gray-400 px-1 py-1 text-center">-</td>
+                                <td className="border border-gray-400 px-1 py-1 text-center">-</td>
+                              </React.Fragment>
+                            );
+                          })}
+                          <td className="border border-gray-400 px-1 py-1 text-center bg-green-50 font-bold">{averageScore.toFixed(1)}%</td>
+                          <td className="border border-gray-400 px-1 py-1 text-center bg-green-50 font-semibold">{grade}</td>
+                          <td
+                            className="border border-gray-400 px-1 py-1 text-center bg-green-50 font-semibold"
+                            style={{ color: competency.color }}
+                          >
+                            {competency.level}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
 
-              {/* Combined Performance Summary */}
-              <div className="mt-4">
-                <h3 className="font-bold text-lg">Final Combined Results</h3>
-                <table>
-                  <thead>
-                    <tr>
-                      <th className="text-left">Subject</th>
-                      <th>Weighted Score (%)</th>
-                      <th>Grade</th>
-                      <th>Competency Level</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {allSubjects.map(subject => {
-                      const marks = student[subject] || 0;
-                      const subjectGrade = getGrade(marks);
-                      const subjectCompetency = getCompetencyLevel(marks);
-                      return (
-                        <tr key={subject}>
-                          <td className="text-left">{subject}</td>
-                          <td>{marks}</td>
-                          <td>{subjectGrade}</td>
-                          <td>
-                            <span style={{ color: subjectCompetency.color, fontWeight: 'bold' }}>
-                              {subjectCompetency.level}
-                            </span>
+              {/* ============================================================ */}
+              {/* SINGLE EXAM RESULTS — same column-grouped layout             */}
+              {/* ============================================================ */}
+              {!isCombinedMode && (
+                <div className="exam-section mt-6">
+                  <h3 className="font-bold text-lg">Exam Results</h3>
+                  <div className="overflow-x-auto mt-2">
+                    <table className="w-full border-collapse text-xs">
+                      <thead>
+                        <tr>
+                          <th
+                            rowSpan={2}
+                            className="border border-gray-400 bg-gray-100 px-2 py-2 text-left align-bottom"
+                          >
+                            Subject
+                          </th>
+                          <th colSpan={3} className="border border-gray-400 bg-blue-100 px-2 py-2 text-center font-bold">
+                            Score Details
+                          </th>
+                        </tr>
+                        <tr>
+                          <th className="border border-gray-400 bg-gray-50 px-2 py-1 text-center text-[10px]">Score</th>
+                          <th className="border border-gray-400 bg-gray-50 px-2 py-1 text-center text-[10px]">Grade</th>
+                          <th className="border border-gray-400 bg-gray-50 px-2 py-1 text-center text-[10px]">Competency</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {allSubjects.map(subject => {
+                          const marks = student[subject] || 0;
+                          const subjectGrade = getGrade(marks);
+                          const subjectCompetency = getCompetencyLevel(marks);
+                          return (
+                            <tr key={subject}>
+                              <td className="border border-gray-400 px-2 py-1 text-left font-medium">{subject}</td>
+                              <td className="border border-gray-400 px-2 py-1 text-center">{marks}</td>
+                              <td className="border border-gray-400 px-2 py-1 text-center font-semibold">{subjectGrade}</td>
+                              <td
+                                className="border border-gray-400 px-2 py-1 text-center font-semibold"
+                                style={{ color: subjectCompetency.color }}
+                              >
+                                {subjectCompetency.level}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                        <tr className="bg-gray-100">
+                          <td className="border border-gray-400 px-2 py-1 text-left font-bold">Total</td>
+                          <td className="border border-gray-400 px-2 py-1 text-center bg-green-50 font-bold">{totalMarks}</td>
+                          <td className="border border-gray-400 px-2 py-1 text-center bg-green-50">-</td>
+                          <td className="border border-gray-400 px-2 py-1 text-center bg-green-50">-</td>
+                        </tr>
+                        <tr className="bg-gray-100">
+                          <td className="border border-gray-400 px-2 py-1 text-left font-bold">Average</td>
+                          <td className="border border-gray-400 px-2 py-1 text-center bg-green-50 font-bold">{averageScore.toFixed(1)}%</td>
+                          <td className="border border-gray-400 px-2 py-1 text-center bg-green-50 font-semibold">{grade}</td>
+                          <td
+                            className="border border-gray-400 px-2 py-1 text-center bg-green-50 font-semibold"
+                            style={{ color: competency.color }}
+                          >
+                            {competency.level}
                           </td>
                         </tr>
-                      );
-                    })}
-                    <tr className="total-row">
-                      <td className="text-left">Total</td>
-                      <td>{totalMarks}</td>
-                      <td></td>
-                      <td></td>
-                    </tr>
-                    <tr className="total-row">
-                      <td className="text-left">Average</td>
-                      <td>{averageScore.toFixed(1)}%</td>
-                      <td>{grade}</td>
-                      <td style={{ color: competency.color }}>{competency.level}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
 
               {/* Competency Level Key */}
               <div className="mt-3">
@@ -314,40 +402,93 @@ const ReportCard = ({
                 <p className="text-sm mt-1">{recommendation}</p>
               </div>
 
-              {/* Fees Information - From Database */}
-              <div className="mt-4">
-                <h4 className="font-bold">Fee Statement</h4>
-                <table className="fee-table">
-                  <tbody>
-                    <tr>
-                      <td className="label">Previous Term Balance</td>
-                      <td className="amount">KSh {studentFees.previousBalance.toFixed(2)}</td>
-                    </tr>
-                    <tr>
-                      <td className="label">Current Term Fee</td>
-                      <td className="amount">KSh {studentFees.currentTermFee.toFixed(2)}</td>
-                    </tr>
-                    <tr className="total-row">
-                      <td className="label">Total Due</td>
-                      <td className="amount">KSh {studentFees.totalDue.toFixed(2)}</td>
-                    </tr>
-                    <tr>
-                      <td className="label">Amount Paid</td>
-                      <td className="amount">KSh {studentFees.paid.toFixed(2)}</td>
-                    </tr>
-                    <tr className="total-row">
-                      <td className="label">Balance</td>
-                      <td className="amount" style={{ color: studentFees.balance > 0 ? 'red' : 'green' }}>
-                        KSh {studentFees.balance.toFixed(2)}
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-                {studentFees.balance > 0 && (
-                  <p className="text-xs text-red-600 mt-1">* Please clear the balance to avoid penalties</p>
-                )}
-                {studentFees.balance === 0 && studentFees.totalDue === 0 && (
-                  <p className="text-xs text-gray-500 mt-1">* No fee records found for this student</p>
+              {/* FEE STATEMENT */}
+              <div className="mt-6">
+                <h4 className="font-bold">Fee Statement — {selectedYear}</h4>
+
+                {fee.totalFee === 0 && fee.paid === 0 ? (
+                  <p className="text-xs text-gray-500 mt-1">* No fee records found for this student.</p>
+                ) : (
+                  <>
+                    <table className="fee-table">
+                      <tbody>
+                        <tr>
+                          <td className="label">Total Fee ({selectedYear})</td>
+                          <td className="amount">KSh {fee.totalFee.toLocaleString()}</td>
+                        </tr>
+                        <tr>
+                          <td className="label">Amount Paid</td>
+                          <td className="amount">KSh {fee.paid.toLocaleString()}</td>
+                        </tr>
+                        <tr className="total-row">
+                          <td className="label">
+                            {balanceIsCredit ? 'Credit (Overpaid)' : 'Balance'}
+                          </td>
+                          <td
+                            className="amount"
+                            style={{
+                              color: balanceIsCredit ? 'green' : (balanceIsZero ? 'green' : 'red'),
+                              fontWeight: 'bold',
+                            }}
+                          >
+                            {balanceIsCredit
+                              ? `-KSh ${Math.abs(fee.balance).toLocaleString()}`
+                              : `KSh ${fee.balance.toLocaleString()}`}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+
+                    {fee.termBreakdown && fee.termBreakdown.length > 0 && (
+                      <div className="mt-3">
+                        <h5 className="font-semibold text-xs mb-1">Term-by-Term Status</h5>
+                        <table className="fee-table">
+                          <thead>
+                            <tr>
+                              <th className="text-left">Term</th>
+                              <th>Expected</th>
+                              <th>Status</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {fee.termBreakdown.map((t, i) => (
+                              <tr key={i}>
+                                <td className="text-left">{t.term}</td>
+                                <td>KSh {t.expected.toLocaleString()}</td>
+                                <td>
+                                  {t.cleared ? (
+                                    <span style={{ color: 'green', fontWeight: 'bold' }}>✓ Cleared</span>
+                                  ) : (
+                                    <span style={{ color: 'red' }}>
+                                      KSh {t.outstanding.toLocaleString()}
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    {fee.balance > 0 && (
+                      <p className="text-xs text-red-600 mt-2">
+                        * Please clear the balance of KSh {fee.balance.toLocaleString()} to avoid penalties.
+                      </p>
+                    )}
+
+                    {balanceIsCredit && (
+                      <p className="text-xs text-green-600 mt-2">
+                        * This student has a credit of KSh {Math.abs(fee.balance).toLocaleString()} that will be applied to future terms.
+                      </p>
+                    )}
+
+                    {balanceIsZero && fee.totalFee > 0 && (
+                      <p className="text-xs text-green-600 mt-2">
+                        * Fees for {selectedYear} are fully cleared.
+                      </p>
+                    )}
+                  </>
                 )}
               </div>
 

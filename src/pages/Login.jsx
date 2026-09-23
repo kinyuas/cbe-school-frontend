@@ -164,7 +164,7 @@ const Login = () => {
     try {
       const result = await sendVerificationCode(regData.schoolEmail, regData.schoolName);
       if (result.success) {
-        toast.success(`Verification code sent to ${regData.schoolEmail}`);
+        // Toast already shown by AuthContext.sendVerificationCode
         setRegistrationStep('verification');
       } else {
         toast.error(result.message || 'Failed to send verification code');
@@ -186,7 +186,7 @@ const Login = () => {
     try {
       const result = await signup(regData, verificationCode);
       if (result.success) {
-        toast.success('School registered successfully!');
+        // Toast already shown by AuthContext.signup
         navigate('/admin/dashboard');
       } else {
         toast.error(result.message || 'Verification failed');
@@ -217,13 +217,12 @@ const Login = () => {
       
       if (result.success) {
         if (result.requiresVerification) {
-          toast.success(result.message);
+          // Toast for "code sent" already shown by AuthContext.login
           setLoginStep('verification');
         } else {
-          toast.success('Login successful!');
+          // ✅ REMOVED: toast.success('Login successful!') — no success toast for teacher login
           const userData = result.user;
           if (!userData) {
-            toast.error('Login succeeded but no user data received');
             setLoading(false);
             return;
           }
@@ -233,11 +232,12 @@ const Login = () => {
             navigate('/teacher/dashboard', { replace: true });
           }
         }
-      } else {
-        toast.error(result.message || 'Login failed');
       }
+      // ✅ REMOVED: toast.error(result.message || 'Login failed')
+      // No error toast when email/password is wrong — silent failure
     } catch (error) {
-      toast.error('Login failed. Please try again.');
+      // ✅ REMOVED: toast.error('Login failed. Please try again.')
+      // Silent catch — no toast on network error either
     } finally {
       setLoading(false);
     }
@@ -253,27 +253,27 @@ const Login = () => {
     try {
       const result = await completeLogin(verificationCode);
       if (result.success) {
-        toast.success('Login successful!');
+        // ✅ REMOVED: toast.success('Login successful!') — no success toast for admin verify
         const role = result.user.role;
         if (role === 'admin') {
           navigate('/admin/dashboard', { replace: true });
         } else if (role === 'teacher') {
           navigate('/teacher/dashboard', { replace: true });
         }
-      } else {
-        toast.error(result.message || 'Verification failed');
       }
+      // ✅ REMOVED: toast.error(result.message || 'Verification failed')
+      // No error toast on wrong verification code
     } catch (error) {
-      toast.error('Login verification failed. Please try again.');
+      // ✅ REMOVED: toast.error('Login verification failed. Please try again.')
+      // Silent catch
     } finally {
       setLoading(false);
       setVerificationCode('');
     }
   };
 
-  // ============ HANDLE RESEND CODE (NO DEV MODE) ============
+  // ============ HANDLE RESEND CODE ============
   const handleResendCode = async () => {
-    // Get email from tempLoginData
     const email = tempLoginData?.email;
     
     if (!email) {
@@ -287,19 +287,17 @@ const Login = () => {
       const result = await resendAdminCode(email);
       
       if (result.success) {
-        // Clear existing verification code input to avoid confusion
+        // Toast already shown by AuthContext.resendAdminCode
         setVerificationCode('');
         
-        // Focus the input field
         setTimeout(() => {
           const input = document.querySelector('input[type="text"]');
           if (input) input.focus();
         }, 100);
       }
-      // Toast messages are handled in the context
     } catch (error) {
       console.error('Unexpected error in handleResendCode:', error);
-      toast.error('An unexpected error occurred. Please try again.');
+      // ✅ REMOVED: toast.error('An unexpected error occurred. Please try again.')
     } finally {
       setLoading(false);
     }
@@ -373,7 +371,6 @@ const Login = () => {
             </div>
           </div>
           
-          {/* Footer */}
           <div className="mt-6 pt-4 border-t border-gray-200 text-center">
             <p className="text-[10px] text-gray-400 leading-relaxed">
               Fusion XE CBE System: Transforming Learning Through Technology. Developed by Stancylus Kalong'o | Contact: 0746919850
@@ -443,7 +440,6 @@ const Login = () => {
             </div>
           </div>
           
-          {/* Footer */}
           <div className="mt-6 pt-4 border-t border-gray-200 text-center">
             <p className="text-[10px] text-gray-400 leading-relaxed">
               Fusion XE CBE System: Transforming Learning Through Technology. Developed by Stancylus Kalong'o | Contact: 0746919850
@@ -470,7 +466,6 @@ const Login = () => {
           </div>
           
           <div className={`space-y-3 ${deviceInfo.isMobile ? 'max-h-[50vh]' : 'max-h-[60vh]'} overflow-y-auto pr-2`}>
-            {/* School Information */}
             <div className="bg-blue-50 rounded-lg p-3">
               <h3 className={`font-semibold text-blue-800 mb-2 flex items-center gap-2 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>
                 <FiAward className="w-4 h-4" /> School Information
@@ -513,7 +508,6 @@ const Login = () => {
               </div>
             </div>
             
-            {/* Administrator Information */}
             <div className="bg-green-50 rounded-lg p-3">
               <h3 className={`font-semibold text-green-800 mb-2 flex items-center gap-2 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>
                 <FiUserCheck className="w-4 h-4" /> Administrator
@@ -565,7 +559,6 @@ const Login = () => {
             </button>
           </div>
           
-          {/* Footer */}
           <div className="mt-6 pt-4 border-t border-gray-200 text-center">
             <p className="text-[10px] text-gray-400 leading-relaxed">
               Fusion XE CBE System: Transforming Learning Through Technology. Developed by Stancylus Kalong'o | Contact: 0746919850
@@ -581,7 +574,6 @@ const Login = () => {
     <div className={`min-h-screen bg-gradient-to-br from-green-50 to-blue-100 flex items-center justify-center ${deviceInfo.isMobile ? 'p-3' : 'p-4'}`}>
       <div className={`bg-white rounded-2xl shadow-xl max-w-md w-full ${responsive.containerPadding}`}>
         
-        {/* CBE Logo/Branding */}
         <div className="text-center mb-6">
           <div className="flex justify-center mb-3">
             <div className="bg-gradient-to-r from-green-600 to-blue-600 p-3 rounded-full">
@@ -592,10 +584,8 @@ const Login = () => {
           <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-gray-500`}>Competency Based Education</p>
         </div>
         
-        {/* Portal Selection Cards - Only show both when no role is selected */}
         {!selectedRole && (
           <div className={`grid ${responsive.gridCols} gap-4 mb-6`}>
-            {/* Admin Portal Card */}
             <button
               onClick={handleSelectAdminPortal}
               className="p-4 rounded-xl border-2 border-gray-200 hover:border-green-300 hover:bg-green-50 transition-all hover:shadow-md"
@@ -608,7 +598,6 @@ const Login = () => {
               </div>
             </button>
             
-            {/* Teacher Portal Card */}
             <button
               onClick={handleSelectTeacherPortal}
               className="p-4 rounded-xl border-2 border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition-all hover:shadow-md"
@@ -623,7 +612,6 @@ const Login = () => {
           </div>
         )}
 
-        {/* Login Form - Only show the selected portal's form */}
         {selectedRole === 'admin' && (
           <form onSubmit={handleLoginSubmit} className="space-y-4">
             <div className="text-center mb-4">
@@ -677,7 +665,6 @@ const Login = () => {
               </button>
             </div>
             
-            {/* Register New School Link - Only in Admin Login */}
             <div className="mt-3 text-center">
               <button
                 onClick={() => {
@@ -743,7 +730,7 @@ const Login = () => {
               <button
                 type="submit"
                 disabled={loading}
-                className="flex-1 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white rounded-lg font-semibold transition-colors disabled:opacity-50 py-2"
+                className="flex-1 bg-gradient-to-br from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white rounded-lg font-semibold transition-colors disabled:opacity-50 py-2"
               >
                 {loading ? 'Processing...' : 'Login as Teacher'}
               </button>
@@ -751,7 +738,6 @@ const Login = () => {
           </form>
         )}
 
-        {/* Footer - Displayed on Main Login */}
         <div className="mt-6 pt-4 border-t border-gray-200 text-center">
           <p className={`${deviceInfo.isMobile ? 'text-[8px]' : 'text-[10px]'} text-gray-400 leading-relaxed`}>
             Fusion XE CBE System: Transforming Learning Through Technology. Developed by Stancylus Kalong'o | Contact: 0746919850

@@ -5,7 +5,8 @@ import axios from 'axios';
 const API_URL = 
   process.env.REACT_APP_API_URL || 
   (process.env.NODE_ENV === 'production' 
-    ? 'https://cbe-school-backend.vercel.app/api' 
+    // ? 'http://localhost:5000/api' 
+     ? 'https://cbe-school-backend.vercel.app/api'
     : 'http://localhost:5000/api');
 
 console.log('🔧 Active API URL:', API_URL);

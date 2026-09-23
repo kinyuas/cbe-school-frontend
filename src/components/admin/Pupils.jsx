@@ -1,3 +1,4 @@
+// src/components/admin/Pupils.jsx
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Layout from '../common/Layout';
@@ -158,6 +159,11 @@ const Pupils = () => {
   const [viewingPupilResults, setViewingPupilResults] = useState(null);
   const [pupilResults, setPupilResults] = useState([]);
   const [loadingResults, setLoadingResults] = useState(false);
+
+  // ✅ Individual student action state (promote / graduate single)
+  const [showStudentActionModal, setShowStudentActionModal] = useState(false);
+  const [studentActionData, setStudentActionData] = useState(null);
+  const [studentActionType, setStudentActionType] = useState('promote'); // 'promote' | 'graduate'
   
   const [retainedData, setRetainedData] = useState({
     studentName: '',
@@ -375,26 +381,22 @@ const Pupils = () => {
     fetchPupilResults(pupil._id);
   };
 
-  // ===== FIXED: Handle Edit Student with proper data sanitization =====
+  // ===== Handle Edit Student with proper data sanitization =====
   const handleEditStudent = (pupil) => {
     setEditingPupil(pupil);
     setIsEditModalOpen(true);
   };
 
-  // ===== FIXED: Update Student - Sanitize data before sending =====
+  // ===== Update Student - Sanitize data before sending =====
   const handleUpdatePupil = async (updatedData) => {
     try {
-      // Remove any fields that might cause issues
       const sanitizedData = { ...updatedData };
-      
-      // Remove fields that shouldn't be updated directly
       delete sanitizedData._id;
       delete sanitizedData.__v;
       delete sanitizedData.createdAt;
       delete sanitizedData.updatedAt;
       delete sanitizedData.schoolId;
       
-      // Ensure required fields are present
       if (!sanitizedData.name || sanitizedData.name.trim() === '') {
         toast.error('Student name is required');
         return;
@@ -482,6 +484,7 @@ const Pupils = () => {
     }
   };
 
+  // ===== CLASS-WIDE PROMOTE / GRADUATE =====
   const handlePromoteClass = (className) => {
     const classStudents = pupils.filter(p => p.class === className);
     if (classStudents.length === 0) {
@@ -567,6 +570,74 @@ const Pupils = () => {
     setShowPromoteModal(false);
     setPromoteClassData(null);
     setSelectedStudents([]);
+  };
+
+  // ===== INDIVIDUAL STUDENT PROMOTE / GRADUATE =====
+
+  // Open the confirm modal for promoting a single student
+  const handlePromoteStudent = (student) => {
+    const nextClass = getNextClass(student.class);
+    if (!nextClass) {
+      toast.error(`Cannot promote ${student.name}. No higher class configured.`);
+      return;
+    }
+    if (nextClass === 'graduate') {
+      // Next class is alumni → treat as graduate
+      handleGraduateStudent(student);
+      return;
+    }
+
+    setStudentActionData({ student, nextClass, currentClass: student.class });
+    setStudentActionType('promote');
+    setShowStudentActionModal(true);
+  };
+
+  // Open the confirm modal for graduating a single student
+  const handleGraduateStudent = (student) => {
+    setStudentActionData({ student, nextClass: 'alumni', currentClass: student.class });
+    setStudentActionType('graduate');
+    setShowStudentActionModal(true);
+  };
+
+  // Confirm the single-student action
+  const confirmStudentAction = async () => {
+    if (!studentActionData) return;
+    const { student } = studentActionData;
+
+    try {
+      if (studentActionType === 'graduate') {
+        const response = await api.post('/pupils/graduate', { pupilIds: [student._id] });
+        if (response.data.success) {
+          toast.success(`${student.name} has been graduated to alumni.`);
+          setShowStudentActionModal(false);
+          setStudentActionData(null);
+          setShowStudentDetail(false);
+          setViewingStudent(null);
+          loadData();
+        } else {
+          toast.error(response.data.message || 'Failed to graduate student');
+        }
+      } else {
+        const response = await api.post('/pupils/promote', {
+          pupilIds: [student._id],
+          currentClass: studentActionData.currentClass,
+          nextClass: studentActionData.nextClass
+        });
+        if (response.data.success) {
+          toast.success(`${student.name} has been promoted to ${studentActionData.nextClass}.`);
+          setShowStudentActionModal(false);
+          setStudentActionData(null);
+          setShowStudentDetail(false);
+          setViewingStudent(null);
+          loadData();
+        } else {
+          toast.error(response.data.message || 'Failed to promote student');
+        }
+      }
+    } catch (error) {
+      console.error('Error in individual student action:', error);
+      toast.error(error.response?.data?.message || 'Failed to process student action');
+    }
   };
 
   const handleTransferClick = (pupil) => {
@@ -673,7 +744,6 @@ const Pupils = () => {
     }
   });
 
-  // Group pupils by class and sort the groups
   const groupedPupils = sortedPupils.reduce((acc, pupil) => {
     if (!acc[pupil.class]) {
       acc[pupil.class] = [];
@@ -682,14 +752,12 @@ const Pupils = () => {
     return acc;
   }, {});
 
-  // Sort the class groups by academic order
   const sortedGroupedPupils = {};
   const sortedClassNames = sortClassesByOrder(Object.keys(groupedPupils));
   sortedClassNames.forEach(className => {
     sortedGroupedPupils[className] = groupedPupils[className];
   });
 
-  // Group by level for display
   const groupedByLevel = {};
   sortedClassNames.forEach(className => {
     let level = 'Other';
@@ -766,7 +834,6 @@ const Pupils = () => {
       URL.revokeObjectURL(url);
       toast.success(`Downloaded ${studentsToDownload.length} students`);
     } else {
-      // Word format
       const htmlContent = `<!DOCTYPE html>
 <html>
 <head>
@@ -1026,6 +1093,8 @@ const Pupils = () => {
   const StudentDetailModal = () => {
     if (!viewingStudent) return null;
     const previousClass = getPreviousClass(viewingStudent.class);
+    const nextClass = getNextClass(viewingStudent.class);
+    const isHighestClass = viewingStudent.class === highestClass;
     
     return (
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto">
@@ -1036,7 +1105,7 @@ const Pupils = () => {
               <p className="text-sm text-gray-500">
                 Admission: {viewingStudent.admNo} • Gender: {viewingStudent.gender === 'Male' ? 'M' : (viewingStudent.gender === 'Female' ? 'F' : (viewingStudent.gender || 'N/A'))}
                 <br />Current: {viewingStudent.class}
-                {viewingStudent.class === highestClass && (
+                {isHighestClass && (
                   <span className="ml-2 text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">Graduating Class</span>
                 )}
               </p>
@@ -1077,40 +1146,135 @@ const Pupils = () => {
               </div>
             </div>
             
+            {/* ✅ Individual student actions */}
             <div className="flex flex-wrap gap-2 pt-4 border-t">
-              <button onClick={() => { setShowStudentDetail(false); handleEditStudent(viewingStudent); }} className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-blue-700">
+              <button
+                onClick={() => { setShowStudentDetail(false); handleEditStudent(viewingStudent); }}
+                className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-blue-700"
+              >
                 EDIT
               </button>
-              <button onClick={() => { setShowStudentDetail(false); handleTransferClick(viewingStudent); }} className="bg-yellow-600 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-yellow-700">
+              <button
+                onClick={() => { setShowStudentDetail(false); handleTransferClick(viewingStudent); }}
+                className="bg-yellow-600 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-yellow-700"
+              >
                 TRANSFER
               </button>
-              <button 
-                onClick={() => { setShowStudentDetail(false); handleViewResults(viewingStudent); }} 
+              <button
+                onClick={() => { setShowStudentDetail(false); handleViewResults(viewingStudent); }}
                 className="bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-indigo-700 flex items-center gap-1"
               >
                 <FiBarChart2 className="w-3 h-3" /> VIEW RESULTS
               </button>
               {previousClass && (
-                <button 
-                  onClick={() => { setShowStudentDetail(false); handleDemoteStudent(viewingStudent); }} 
+                <button
+                  onClick={() => { setShowStudentDetail(false); handleDemoteStudent(viewingStudent); }}
                   className="bg-orange-500 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-orange-600 flex items-center gap-1"
                 >
                   <FiArrowDown className="w-3 h-3" /> DEMOTE
                 </button>
               )}
-              {viewingStudent.class === highestClass ? (
-                <button onClick={() => { setShowStudentDetail(false); handleGraduateClass(viewingStudent.class); }} className="bg-purple-600 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-purple-700 flex items-center gap-1">
-                  <FiAward className="w-3 h-3" /> GRADUATE
-                </button>
-              ) : (
-                <button onClick={() => { setShowStudentDetail(false); handlePromoteClass(viewingStudent.class); }} className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-green-700 flex items-center gap-1">
-                  <FiArrowRight className="w-3 h-3" /> PROMOTE
+
+              {/* ✅ PROMOTE this student individually */}
+              {!isHighestClass && nextClass && nextClass !== 'graduate' && (
+                <button
+                  onClick={() => handlePromoteStudent(viewingStudent)}
+                  className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-green-700 flex items-center gap-1"
+                >
+                  <FiArrowRight className="w-3 h-3" /> PROMOTE TO {nextClass}
                 </button>
               )}
-              <button onClick={() => { setShowStudentDetail(false); handleDeleteStudent(viewingStudent._id); }} className="text-red-600 hover:text-red-800 text-xs flex items-center gap-1 border border-red-300 px-3 py-1.5 rounded-lg">
+
+              {/* ✅ GRADUATE this student individually (if in highest class) */}
+              {isHighestClass && (
+                <button
+                  onClick={() => handleGraduateStudent(viewingStudent)}
+                  className="bg-purple-600 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-purple-700 flex items-center gap-1"
+                >
+                  <FiAward className="w-3 h-3" /> GRADUATE
+                </button>
+              )}
+
+              <button
+                onClick={() => { setShowStudentDetail(false); handleDeleteStudent(viewingStudent._id); }}
+                className="text-red-600 hover:text-red-800 text-xs flex items-center gap-1 border border-red-300 px-3 py-1.5 rounded-lg"
+              >
                 <FiTrash2 className="w-3 h-3" /> DELETE
               </button>
             </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ✅ Confirmation modal for single-student promote / graduate
+  const StudentActionModal = () => {
+    if (!studentActionData) return null;
+    const { student, currentClass, nextClass } = studentActionData;
+    const isGraduate = studentActionType === 'graduate';
+
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-2">
+        <div className="bg-white rounded-xl p-6 w-full max-w-md">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-bold text-gray-800">
+              {isGraduate ? 'Graduate Student' : 'Promote Student'}
+            </h2>
+            <button
+              onClick={() => { setShowStudentActionModal(false); setStudentActionData(null); }}
+              className="text-gray-500 hover:text-gray-700"
+            >
+              <FiX className="w-6 h-6" />
+            </button>
+          </div>
+
+          <div className={`mb-4 p-3 rounded-lg flex items-start gap-2 border ${
+            isGraduate ? 'bg-purple-50 border-purple-200' : 'bg-green-50 border-green-200'
+          }`}>
+            {isGraduate ? (
+              <FiAward className="w-5 h-5 text-purple-600 flex-shrink-0 mt-0.5" />
+            ) : (
+              <FiArrowRight className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+            )}
+            <div className={`text-sm ${isGraduate ? 'text-purple-800' : 'text-green-800'}`}>
+              <p className="font-semibold">{student.name}</p>
+              <p>Admission: {student.admNo}</p>
+              <p>Current Class: <strong>{currentClass}</strong></p>
+              <p>
+                {isGraduate
+                  ? <>Will be moved to: <strong>Alumni</strong></>
+                  : <>Will be promoted to: <strong>{nextClass}</strong></>
+                }
+              </p>
+            </div>
+          </div>
+
+          <div className="bg-yellow-50 p-3 rounded-lg mb-4">
+            <p className="text-sm text-yellow-800">
+              <FiInfo className="inline mr-1" />
+              {isGraduate
+                ? 'This will mark the student as an alumnus and remove them from active student lists.'
+                : `This will move the student from ${currentClass} to ${nextClass}.`
+              }
+            </p>
+          </div>
+
+          <div className="flex flex-col md:flex-row gap-2 mt-2">
+            <button
+              onClick={confirmStudentAction}
+              className={`w-full md:flex-1 text-white px-4 py-2 rounded-lg ${
+                isGraduate ? 'bg-purple-600 hover:bg-purple-700' : 'bg-green-600 hover:bg-green-700'
+              }`}
+            >
+              {isGraduate ? 'CONFIRM GRADUATION' : 'CONFIRM PROMOTION'}
+            </button>
+            <button
+              onClick={() => { setShowStudentActionModal(false); setStudentActionData(null); }}
+              className="w-full md:flex-1 bg-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-400"
+            >
+              CANCEL
+            </button>
           </div>
         </div>
       </div>
@@ -1269,7 +1433,6 @@ const Pupils = () => {
     );
   };
 
-  // Demote Modal
   const DemoteModal = () => {
     if (!demoteData) return null;
     
@@ -1441,7 +1604,7 @@ const Pupils = () => {
         )}
       </div>
 
-      {/* Class-wise Student Cards - Grouped by Level and Sorted */}
+      {/* Class-wise Student Cards */}
       {LEVEL_ORDER.map((level) => {
         const classesInLevel = groupedByLevel[level] || [];
         if (classesInLevel.length === 0) return null;
@@ -1480,14 +1643,14 @@ const Pupils = () => {
                           onClick={() => handleGraduateClass(className)}
                           className="bg-purple-600 text-white px-3 py-1 rounded-lg text-xs hover:bg-purple-700 flex items-center gap-1"
                         >
-                          <FiAward className="w-3 h-3" /> GRADUATE
+                          <FiAward className="w-3 h-3" /> GRADUATE ALL
                         </button>
                       ) : (
                         <button 
                           onClick={() => handlePromoteClass(className)}
                           className="bg-blue-600 text-white px-3 py-1 rounded-lg text-xs hover:bg-blue-700 flex items-center gap-1"
                         >
-                          <FiArrowRight className="w-3 h-3" /> PROMOTE
+                          <FiArrowRight className="w-3 h-3" /> PROMOTE ALL
                         </button>
                       )}
                     </div>
@@ -1576,6 +1739,7 @@ const Pupils = () => {
       {showDownloadModal && <DownloadModal />}
       {showDemoteModal && <DemoteModal />}
       {showResultsModal && <ResultsModal />}
+      {showStudentActionModal && <StudentActionModal />}
     </Layout>
   );
 };
