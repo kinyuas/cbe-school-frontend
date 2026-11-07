@@ -7,33 +7,56 @@ const AuthContext = createContext();
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
+  if (!context) throw new Error('useAuth must be used within an AuthProvider');
   return context;
 };
 
 // ============================================================
-// IDLE TIMEOUT CONFIG
+// CONFIGURATION
 // ============================================================
-const IDLE_TIMEOUT_MS = 60 * 60 * 1000;        // 1 hour — full idle time
-const IDLE_WARNING_MS = 55 * 60 * 1000;        // 55 min — show warning 5 min before
-const ACTIVITY_THROTTLE_MS = 30 * 1000;        // Only record activity every 30s
-const LAST_ACTIVITY_KEY = 'lastActivityAt';    // Persisted across page reloads
+const IDLE_TIMEOUT_MS = 60 * 60 * 1000;        // 1 hour
+const IDLE_WARNING_MS = 55 * 60 * 1000;        // 55 min
+const ACTIVITY_THROTTLE_MS = 30 * 1000;        // 30s
+const LAST_ACTIVITY_KEY = 'lastActivityAt';
+
+// ============================================================
+// ROLE HOME ROUTES
+// ============================================================
+const ROLE_HOME = {
+  admin: '/admin/dashboard',
+  teacher: '/teacher/dashboard',
+  bursar: '/bursar/dashboard', // 👈 Routes to the new Modular Bursar Portal
+  parent: '/parent/dashboard',
+  pupil: '/pupil/dashboard',
+  superadmin: '/sys-admin-dashboard',
+};
+
+// ============================================================
+// HELPERS
+// ============================================================
+const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+
+const isNetworkError = (error) => {
+  if (!error) return false;
+  return (
+    error.code === 'ERR_NETWORK' ||
+    error.code === 'ECONNABORTED' ||
+    error.message === 'Network Error' ||
+    (error.request && !error.response)
+  );
+};
+
+const isAuthError = (error) => {
+  const status = error?.response?.status;
+  return status === 401 || status === 403;
+};
 
 // ===== AI Device Detection Hook =====
 const useDeviceDetection = () => {
   const [deviceInfo, setDeviceInfo] = useState({
-    type: 'desktop',
-    isMobile: false,
-    isTablet: false,
-    isDesktop: true,
-    viewportWidth: 0,
-    viewportHeight: 0,
-    pixelRatio: 1,
-    isTouchDevice: false,
-    os: 'unknown',
-    browser: 'unknown'
+    type: 'desktop', isMobile: false, isTablet: false, isDesktop: true,
+    viewportWidth: 0, viewportHeight: 0, pixelRatio: 1, isTouchDevice: false,
+    os: 'unknown', browser: 'unknown',
   });
 
   useEffect(() => {
@@ -42,74 +65,60 @@ const useDeviceDetection = () => {
       const width = window.innerWidth;
       const height = window.innerHeight;
       const pixelRatio = window.devicePixelRatio || 1;
-      
+
       const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua) || width < 768;
       const isTablet = /iPad|Android(?!.*Mobile)|Tablet/i.test(ua) || (width >= 768 && width < 1024);
       const isDesktop = !isMobile && !isTablet;
       const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-      
+
       let os = 'unknown';
       if (/Windows/i.test(ua)) os = 'windows';
       else if (/Mac OS X/i.test(ua)) os = 'macos';
       else if (/Linux/i.test(ua)) os = 'linux';
       else if (/Android/i.test(ua)) os = 'android';
       else if (/iOS|iPhone|iPad/i.test(ua)) os = 'ios';
-      
+
       let browser = 'unknown';
       if (/Chrome/i.test(ua) && !/Edge/i.test(ua)) browser = 'chrome';
       else if (/Firefox/i.test(ua)) browser = 'firefox';
       else if (/Safari/i.test(ua) && !/Chrome/i.test(ua)) browser = 'safari';
       else if (/Edge/i.test(ua)) browser = 'edge';
       else if (/Opera|OPR/i.test(ua)) browser = 'opera';
-      
+
       let type = 'desktop';
       if (isMobile) type = 'mobile';
       else if (isTablet) type = 'tablet';
-      
-      setDeviceInfo({
-        type,
-        isMobile,
-        isTablet,
-        isDesktop,
-        viewportWidth: width,
-        viewportHeight: height,
-        pixelRatio,
-        isTouchDevice,
-        os,
-        browser
-      });
+
+      setDeviceInfo({ type, isMobile, isTablet, isDesktop, viewportWidth: width, viewportHeight: height, pixelRatio, isTouchDevice, os, browser });
     };
 
     detectDevice();
     window.addEventListener('resize', detectDevice);
-    
     return () => window.removeEventListener('resize', detectDevice);
   }, []);
 
   return deviceInfo;
 };
 
+// ============================================================
+// AUTH PROVIDER
+// ============================================================
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loginStep, setLoginStep] = useState('credentials');
   const [tempLoginData, setTempLoginData] = useState(null);
-  const [registrationStep, setRegistrationStep] = useState('form');
-  const [tempRegistrationData, setTempRegistrationData] = useState(null);
 
-  // AI Device Detection
   const deviceInfo = useDeviceDetection();
 
-  // ============================================================
-  // IDLE TIMEOUT — tracking state
-  // ============================================================
   const idleTimerRef = useRef(null);
   const warningTimerRef = useRef(null);
   const lastActivityWriteRef = useRef(0);
   const warningShownRef = useRef(false);
+  const validatingRef = useRef(false);
 
   // ============================================================
-  // logout — stable reference via useCallback
+  // LOGOUT
   // ============================================================
   const logout = useCallback((reason = 'manual') => {
     localStorage.removeItem('token');
@@ -119,111 +128,63 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
     setLoginStep('credentials');
     setTempLoginData(null);
-    setRegistrationStep('form');
-    setTempRegistrationData(null);
 
     if (reason === 'idle') {
-      toast.error('You were logged out due to 1 hour of inactivity.', {
-        duration: 8000,
-        icon: '⏰',
-      });
-    } else {
+      toast.error('You were logged out due to 1 hour of inactivity.', { duration: 8000, icon: '⏰' });
+    } else if (reason === 'manual') {
       toast.success('Logged out successfully');
     }
   }, []);
 
   // ============================================================
-  // Clear idle timers
+  // IDLE TIMEOUTS
   // ============================================================
   const clearIdleTimers = useCallback(() => {
-    if (idleTimerRef.current) {
-      clearTimeout(idleTimerRef.current);
-      idleTimerRef.current = null;
-    }
-    if (warningTimerRef.current) {
-      clearTimeout(warningTimerRef.current);
-      warningTimerRef.current = null;
-    }
+    if (idleTimerRef.current) { clearTimeout(idleTimerRef.current); idleTimerRef.current = null; }
+    if (warningTimerRef.current) { clearTimeout(warningTimerRef.current); warningTimerRef.current = null; }
     warningShownRef.current = false;
   }, []);
 
-  // ============================================================
-  // Schedule the idle-warning and idle-logout timers
-  // ============================================================
   const scheduleIdleTimers = useCallback((elapsedMs = 0) => {
     clearIdleTimers();
-
     const warningDelay = IDLE_WARNING_MS - elapsedMs;
     const logoutDelay = IDLE_TIMEOUT_MS - elapsedMs;
 
-    // If already past the logout threshold, log out immediately
-    if (logoutDelay <= 0) {
-      logout('idle');
-      return;
-    }
+    if (logoutDelay <= 0) { logout('idle'); return; }
 
-    // Schedule the warning (if there's still time)
     if (warningDelay > 0) {
       warningTimerRef.current = setTimeout(() => {
         warningShownRef.current = true;
-        toast(
-          'You will be logged out in 5 minutes due to inactivity. Move your mouse or press a key to stay signed in.',
-          {
-            duration: 30000,
-            icon: '⚠️',
-            id: 'idle-warning',
-          }
-        );
+        toast('You will be logged out in 5 minutes due to inactivity.', { duration: 30000, icon: '⚠️', id: 'idle-warning' });
       }, warningDelay);
     }
 
-    // Schedule the actual logout
-    idleTimerRef.current = setTimeout(() => {
-      logout('idle');
-    }, logoutDelay);
+    idleTimerRef.current = setTimeout(() => { logout('idle'); }, logoutDelay);
   }, [clearIdleTimers, logout]);
 
-  // ============================================================
-  // Record user activity — throttled so we don't re-schedule
-  // timers on every mouse move.
-  // ============================================================
   const recordActivity = useCallback(() => {
     const now = Date.now();
-    if (now - lastActivityWriteRef.current < ACTIVITY_THROTTLE_MS) {
-      return;
-    }
+    if (now - lastActivityWriteRef.current < ACTIVITY_THROTTLE_MS) return;
     lastActivityWriteRef.current = now;
 
-    try {
-      localStorage.setItem(LAST_ACTIVITY_KEY, String(now));
-    } catch (e) {}
+    try { localStorage.setItem(LAST_ACTIVITY_KEY, String(now)); } catch (e) {}
 
-    // Dismiss any warning toast
     if (warningShownRef.current) {
       toast.dismiss('idle-warning');
       warningShownRef.current = false;
     }
-
     scheduleIdleTimers(0);
   }, [scheduleIdleTimers]);
 
-  // ============================================================
-  // Set up idle tracking whenever a user is logged in
-  // ============================================================
   useEffect(() => {
-    if (!user) {
-      clearIdleTimers();
-      return;
-    }
+    if (!user) { clearIdleTimers(); return; }
 
-    // Determine elapsed time since last activity (survives page reloads)
     let elapsed = 0;
     try {
       const stored = parseInt(localStorage.getItem(LAST_ACTIVITY_KEY) || '0', 10);
       if (stored > 0) elapsed = Date.now() - stored;
     } catch (e) {}
 
-    // Fresh stamp if we just logged in
     if (elapsed < 0 || elapsed > IDLE_TIMEOUT_MS) {
       elapsed = 0;
       try { localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now())); } catch (e) {}
@@ -231,12 +192,10 @@ export const AuthProvider = ({ children }) => {
 
     scheduleIdleTimers(elapsed);
 
-    // Throttled event listener
     const events = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'click', 'wheel'];
     const handler = () => recordActivity();
-    events.forEach(evt => window.addEventListener(evt, handler, { passive: true }));
+    events.forEach((evt) => window.addEventListener(evt, handler, { passive: true }));
 
-    // Also listen for tab visibility — if user comes back to tab, check idle
     const onVisibility = () => {
       if (document.visibilityState === 'visible') {
         let idleFor = 0;
@@ -244,36 +203,70 @@ export const AuthProvider = ({ children }) => {
           const stored = parseInt(localStorage.getItem(LAST_ACTIVITY_KEY) || '0', 10);
           if (stored > 0) idleFor = Date.now() - stored;
         } catch (e) {}
-
-        if (idleFor >= IDLE_TIMEOUT_MS) {
-          logout('idle');
-        } else {
-          scheduleIdleTimers(idleFor);
-        }
+        if (idleFor >= IDLE_TIMEOUT_MS) logout('idle');
+        else scheduleIdleTimers(idleFor);
       }
     };
     document.addEventListener('visibilitychange', onVisibility);
 
     return () => {
-      events.forEach(evt => window.removeEventListener(evt, handler));
+      events.forEach((evt) => window.removeEventListener(evt, handler));
       document.removeEventListener('visibilitychange', onVisibility);
       clearIdleTimers();
     };
   }, [user, clearIdleTimers, scheduleIdleTimers, recordActivity, logout]);
 
   // ============================================================
-  // Initial token validation
+  // VALIDATE TOKEN
+  // ============================================================
+  const validateToken = useCallback(async (attempt = 0) => {
+    if (validatingRef.current) return;
+    validatingRef.current = true;
+
+    try {
+      const response = await api.get('/auth/validate', { timeout: 15000 });
+      if (response.data?.success && response.data?.user) {
+        setUser(response.data.user);
+        localStorage.setItem('user', JSON.stringify(response.data.user));
+        setLoading(false);
+        return;
+      }
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      setUser(null);
+      setLoading(false);
+    } catch (error) {
+      if (isAuthError(error)) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        delete api.defaults.headers.common['Authorization'];
+        setUser(null);
+        setLoading(false);
+        return;
+      }
+      if (attempt < 2) {
+        await sleep(1500 * (attempt + 1));
+        validatingRef.current = false;
+        return validateToken(attempt + 1);
+      }
+      setLoading(false);
+    } finally {
+      validatingRef.current = false;
+    }
+  }, []);
+
+  // ============================================================
+  // INITIAL BOOTSTRAP
   // ============================================================
   useEffect(() => {
     const token = localStorage.getItem('token');
     const storedUser = localStorage.getItem('user');
-    
+
     if (token && storedUser) {
       try {
-        const parsedUser = JSON.parse(storedUser);
-        setUser(parsedUser);
+        setUser(JSON.parse(storedUser));
         api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-        validateToken();
+        setTimeout(() => { validateToken(); }, 50);
       } catch (error) {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
@@ -283,63 +276,103 @@ export const AuthProvider = ({ children }) => {
     } else {
       setLoading(false);
     }
+  }, [validateToken]);
+
+  // ============================================================
+  // SET SESSION  👈 NEW
+  // Used by parent/pupil direct-API login in Login.jsx to sync
+  // token + user state + auth header + idle timers in one call.
+  // ============================================================
+  const setSession = useCallback((token, userObj) => {
+    if (!token || !userObj) return;
+    try {
+      localStorage.setItem('token', token);
+      localStorage.setItem('user', JSON.stringify(userObj));
+      localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
+    } catch (e) {
+      console.warn('setSession: localStorage write failed', e);
+    }
+    api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    lastActivityWriteRef.current = Date.now();
+    setUser(userObj);
   }, []);
 
-  const validateToken = async () => {
+  // ============================================================
+  // LOGIN FLOW  (admin / teacher / bursar)
+  // ============================================================
+  const login = async (identifier, password, role) => {
     try {
-      const response = await api.get('/auth/validate');
-      if (response.data.success) {
-        const userData = response.data.user;
-        setUser(userData);
-        localStorage.setItem('user', JSON.stringify(userData));
-      }
-    } catch (error) {
-      console.error('Token validation failed:', error);
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      setUser(null);
-    } finally {
-      setLoading(false);
-    }
-  };
+      const [schoolCode, email] = identifier.split('-');
 
-  // ============ REGISTRATION FLOW ============
+      let loginType = 'staff';
+      if (role === 'teacher') loginType = 'teacher';
+      else if (role === 'parent') loginType = 'parent';
+      else if (role === 'pupil') loginType = 'pupil';
 
-  const sendVerificationCode = async (email, schoolName) => {
-    try {
-      const response = await api.post('/auth/send-verification', { email, schoolName });
-      
-      if (response.data.success) {
-        setTempRegistrationData({ email, schoolName });
-        setRegistrationStep('verification');
+      const response = await api.post('/auth/login', {
+        schoolCode,
+        email,
+        password,
+        loginType
+      });
+
+      if (response.data?.requireCode) {
+        // Store the correct role (admin vs bursar)
+        // If the portal is 'admin', we store 'admin', the backend will resolve it to bursar if found.
+        setTempLoginData({ schoolCode, email, role: role || 'admin' });
+        setLoginStep('verification');
         toast.success(response.data.message || 'Verification code sent!');
-        return { success: true, message: response.data.message };
+        return { success: true, requiresVerification: true, message: response.data.message };
       }
-      return { success: false, message: response.data.message || 'Failed to send code' };
+
+      if (response.data?.token) {
+        const { token, user } = response.data;
+        localStorage.setItem('token', token);
+        localStorage.setItem('user', JSON.stringify(user));
+        localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
+        api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+        setUser(user);
+        toast.success('Login successful!');
+        return { success: true, user, requiresVerification: false };
+      }
+
+      const message = response.data?.message || 'Login failed';
+      toast.error(message);
+      return { success: false, message };
+
     } catch (error) {
-      console.error('Send verification error:', error);
-      const message = error.response?.data?.message || 'Failed to send verification code';
+      console.error('Login error:', error);
+      if (isNetworkError(error) || error.code === 'ECONNABORTED') {
+        const timeoutMsg = 'Server is taking too long. Please try again.';
+        toast.error(timeoutMsg, { duration: 6000 });
+        return { success: false, message: timeoutMsg, timeout: true };
+      }
+      const message = error.response?.data?.message || 'Login failed. Please try again.';
       toast.error(message);
       return { success: false, message };
     }
   };
 
-  const signup = async (signUpData, verificationCode) => {
+  // ============================================================
+  // VERIFY CODE FLOW
+  // ============================================================
+  const completeLogin = async (verificationCode) => {
+    if (!tempLoginData) {
+      toast.error('Login session expired. Please try again.');
+      return { success: false, message: 'Login session expired.' };
+    }
+
     try {
-      const requestData = {
-        schoolName: signUpData.schoolName,
-        schoolEmail: signUpData.schoolEmail,
-        schoolCode: signUpData.schoolCode,
-        adminName: signUpData.adminName,
-        verificationCode: verificationCode,
-        phoneNumber: signUpData.phoneNumber || '',
-        address: signUpData.address || '',
-        website: signUpData.website || '',
-        adminPhone: signUpData.adminPhone || ''
-      };
-      
-      const response = await api.post('/auth/signup', requestData);
-      
+      // The backend expects 'staff' for both Admin and Bursar logins
+      const backendLoginType = (tempLoginData.role === 'admin' || tempLoginData.role === 'bursar') ? 'staff' : tempLoginData.role;
+
+      const response = await api.post('/auth/verify-code', {
+        schoolCode: tempLoginData.schoolCode,
+        email: tempLoginData.email,
+        code: verificationCode,
+        loginType: backendLoginType
+      });
+
       if (response.data.success) {
         const { token, user } = response.data;
         localStorage.setItem('token', token);
@@ -347,128 +380,16 @@ export const AuthProvider = ({ children }) => {
         localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
         api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
         setUser(user);
-        setRegistrationStep('form');
-        setTempRegistrationData(null);
-        toast.success('School registered successfully!');
+        setLoginStep('credentials');
+        setTempLoginData(null);
+        toast.success('Login successful!');
         return { success: true, user };
       }
-      
-      const message = response.data.message || 'Registration failed';
+
+      const message = response.data.message || 'Verification failed';
       toast.error(message);
       return { success: false, message };
-    } catch (error) {
-      console.error('Signup error:', error);
-      const message = error.response?.data?.message || 'Registration failed. Please try again.';
-      toast.error(message);
-      return { success: false, message };
-    }
-  };
 
-  // ============ LOGIN FLOW ============
-
-  const login = async (email, password, role) => {
-    try {
-      if (role === 'admin') {
-        const response = await api.post('/auth/admin/login', { email, password });
-        
-        if (response.data.success && response.data.requiresVerification) {
-          setTempLoginData({ 
-            email: response.data.email,
-            userId: response.data.userId,
-            role: 'admin'
-          });
-          setLoginStep('verification');
-          toast.success(response.data.message || 'Verification code sent!');
-          return { 
-            success: true, 
-            requiresVerification: true,
-            message: response.data.message 
-          };
-        }
-        
-        const message = response.data.message || 'Login failed';
-        toast.error(message);
-        return { success: false, message };
-      } else if (role === 'teacher') {
-        const response = await api.post('/auth/teacher/login', {
-          email,
-          tscNumber: password
-        });
-        
-        if (response.data.success) {
-          const { token, user } = response.data;
-          
-          if (!user) {
-            console.error('No user data in teacher login response');
-            toast.error('Invalid response from server');
-            return { 
-              success: false, 
-              message: 'Invalid response from server - missing user data' 
-            };
-          }
-          
-          localStorage.setItem('token', token);
-          localStorage.setItem('user', JSON.stringify(user));
-          localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
-          api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-          setUser(user);
-          
-          toast.success('Login successful!');
-          return { 
-            success: true, 
-            user: user,
-            requiresVerification: false
-          };
-        }
-        
-        const message = response.data.message || 'Login failed';
-        toast.error(message);
-        return { success: false, message };
-      }
-      
-      toast.error('Invalid role selected');
-      return { success: false, message: 'Invalid role selected' };
-    } catch (error) {
-      console.error('Login error:', error);
-      const message = error.response?.data?.message || 'Login failed. Please try again.';
-      toast.error(message);
-      return { success: false, message };
-    }
-  };
-
-  const completeLogin = async (verificationCode) => {
-    if (!tempLoginData) {
-      toast.error('Login session expired. Please try again.');
-      return { success: false, message: 'Login session expired. Please try again.' };
-    }
-    
-    try {
-      if (tempLoginData.role === 'admin') {
-        const response = await api.post('/auth/admin/verify', {
-          email: tempLoginData.email,
-          verificationCode: verificationCode
-        });
-        
-        if (response.data.success) {
-          const { token, user } = response.data;
-          localStorage.setItem('token', token);
-          localStorage.setItem('user', JSON.stringify(user));
-          localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
-          api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-          setUser(user);
-          setLoginStep('credentials');
-          setTempLoginData(null);
-          toast.success('Login successful!');
-          return { success: true, user };
-        }
-        
-        const message = response.data.message || 'Verification failed';
-        toast.error(message);
-        return { success: false, message };
-      }
-      
-      toast.error('Invalid role');
-      return { success: false, message: 'Invalid role' };
     } catch (error) {
       console.error('Verification error:', error);
       const message = error.response?.data?.message || 'Verification failed. Please try again.';
@@ -477,79 +398,39 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const resendAdminCode = async (email) => {
-    if (!email) {
-      toast.error('No email found. Please try logging in again.');
-      return { success: false, message: 'No email provided' };
-    }
-    
-    try {
-      const response = await api.post('/auth/admin/resend-code', { email });
-      
-      if (response.data.success) {
-        toast.success(response.data.message || 'New verification code sent to your email!');
-        return { 
-          success: true, 
-          message: response.data.message,
-          expiresIn: response.data.expiresIn
-        };
-      }
-      
-      toast.error(response.data.message || 'Failed to resend code');
-      return { success: false, message: response.data.message };
-      
-    } catch (error) {
-      console.error('Resend admin code error:', error);
-      
-      if (error.response?.status === 404) {
-        toast.error('Admin user not found. Please check your email.');
-        return { success: false, message: 'User not found' };
-      }
-      
-      if (error.response?.status === 403) {
-        toast.error('Account is deactivated. Please contact support.');
-        return { success: false, message: 'Account deactivated' };
-      }
-      
-      if (error.response?.status === 400) {
-        toast.error(error.response?.data?.message || 'Invalid request. Please try again.');
-        return { success: false, message: error.response?.data?.message };
-      }
-      
-      const errorMessage = error.response?.data?.message || 'Failed to resend verification code. Please try again.';
-      toast.error(errorMessage);
-      return { success: false, message: errorMessage };
-    }
-  };
-
   const isAuthenticated = !!user;
   const isAdmin = user?.role === 'admin';
   const isTeacher = user?.role === 'teacher';
+  const isBursar = user?.role === 'bursar';
+  const isParent = user?.role === 'parent';
+  const isPupil = user?.role === 'pupil';
+
+  const getHomeRoute = useCallback(() => {
+    if (!user) return '/login';
+    return ROLE_HOME[user.role] || '/login';
+  }, [user]);
 
   const value = {
     user,
     loading,
     login,
     completeLogin,
-    resendAdminCode,
-    sendVerificationCode,
-    signup,
     logout,
+    setSession,              // 👈 NEW — used by parent/pupil login in Login.jsx
     isAuthenticated,
     isAdmin,
     isTeacher,
+    isBursar,
+    isParent,                // 👈 NEW (optional convenience)
+    isPupil,                 // 👈 NEW (optional convenience)
+    getHomeRoute,
     loginStep,
     setLoginStep,
-    registrationStep,
-    setRegistrationStep,
     tempLoginData,
-    tempRegistrationData,
-    deviceInfo
+    deviceInfo,
   };
 
   return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
+    <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
   );
 };

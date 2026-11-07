@@ -5,222 +5,1061 @@ import Layout from '../common/Layout';
 import AddPupilModal from '../modals/AddPupilModal';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
-import { 
-  FiX, FiSearch, FiUsers, FiAlertCircle, FiDownload, FiFileText, 
-  FiFile, FiArrowRight, FiAward, FiUserPlus, FiInfo,
-  FiEdit2, FiTrash2, FiCheckCircle, FiAlertTriangle, FiSend,
-  FiFilter, FiMonitor, FiSmartphone, FiTablet, FiBookOpen,
-  FiRotateCcw, FiArrowDown, FiEye, FiBarChart2
+import {
+  FiX, FiSearch, FiUsers, FiDownload, FiFileText, FiFile,
+  FiArrowRight, FiAward, FiUserPlus, FiInfo, FiEdit2, FiTrash2,
+  FiAlertTriangle, FiFilter, FiBookOpen, FiArrowDown, FiEye,
+  FiBarChart2, FiBriefcase, FiTarget, FiRefreshCw, FiStar, FiActivity
 } from 'react-icons/fi';
+import {
+  Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
+  WidthType, AlignmentType, BorderStyle, ImageRun, VerticalAlign,
+} from 'docx';
+import { saveAs } from 'file-saver';
 
-// ===== AI Device Detection Hook =====
+// ===== Device detection =====
 const useDeviceDetection = () => {
   const [deviceInfo, setDeviceInfo] = useState({
-    type: 'desktop',
-    screenWidth: 0,
-    screenHeight: 0,
-    isMobile: false,
-    isTablet: false,
-    isDesktop: true,
-    os: 'unknown',
-    browser: 'unknown',
-    pixelRatio: 1,
-    viewportWidth: 0,
-    viewportHeight: 0,
-    connectionType: 'unknown',
-    isTouchDevice: false
+    isMobile: false, isTablet: false, isDesktop: true
   });
-
   useEffect(() => {
-    const detectDevice = () => {
-      const ua = navigator.userAgent;
-      const width = window.innerWidth;
-      const height = window.innerHeight;
-      const pixelRatio = window.devicePixelRatio || 1;
-      
-      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua) || width < 768;
-      const isTablet = /iPad|Android(?!.*Mobile)|Tablet/i.test(ua) || (width >= 768 && width < 1024);
-      const isDesktop = !isMobile && !isTablet;
-      const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-      
-      let os = 'unknown';
-      if (/Windows/i.test(ua)) os = 'windows';
-      else if (/Mac OS X/i.test(ua)) os = 'macos';
-      else if (/Linux/i.test(ua)) os = 'linux';
-      else if (/Android/i.test(ua)) os = 'android';
-      else if (/iOS|iPhone|iPad/i.test(ua)) os = 'ios';
-      
-      let browser = 'unknown';
-      if (/Chrome/i.test(ua) && !/Edge/i.test(ua)) browser = 'chrome';
-      else if (/Firefox/i.test(ua)) browser = 'firefox';
-      else if (/Safari/i.test(ua) && !/Chrome/i.test(ua)) browser = 'safari';
-      else if (/Edge/i.test(ua)) browser = 'edge';
-      else if (/Opera|OPR/i.test(ua)) browser = 'opera';
-      
-      let connectionType = 'unknown';
-      if (navigator.connection) {
-        connectionType = navigator.connection.effectiveType || 'unknown';
-      }
-      
-      let type = 'desktop';
-      if (isMobile) type = 'mobile';
-      else if (isTablet) type = 'tablet';
-      
-      setDeviceInfo({
-        type,
-        screenWidth: window.screen.width,
-        screenHeight: window.screen.height,
-        isMobile,
-        isTablet,
-        isDesktop,
-        os,
-        browser,
-        pixelRatio,
-        viewportWidth: width,
-        viewportHeight: height,
-        connectionType,
-        isTouchDevice
-      });
+    const detect = () => {
+      const w = window.innerWidth;
+      const isMobile = w < 768;
+      const isTablet = w >= 768 && w < 1024;
+      setDeviceInfo({ isMobile, isTablet, isDesktop: !isMobile && !isTablet });
     };
-
-    detectDevice();
-    window.addEventListener('resize', detectDevice);
-    
-    return () => window.removeEventListener('resize', detectDevice);
+    detect();
+    window.addEventListener('resize', detect);
+    return () => window.removeEventListener('resize', detect);
   }, []);
-
   return deviceInfo;
 };
 
-// ===== AI Responsive Grid Helper =====
 const useResponsiveGrid = (deviceInfo) => {
   if (deviceInfo.isMobile) return 'grid-cols-1';
-  if (deviceInfo.isTablet) return 'grid-cols-2 md:grid-cols-2';
+  if (deviceInfo.isTablet) return 'grid-cols-2';
   return 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3';
 };
 
-// ===== CLASS ORDER DEFINITION =====
+// ===== Constants =====
 const CLASS_ORDER = [
-  'Play Group',
-  'Pre-Primary 1',
-  'Pre-Primary 2',
-  'Grade 1',
-  'Grade 2',
-  'Grade 3',
-  'Grade 4',
-  'Grade 5',
-  'Grade 6',
-  'Grade 7',
-  'Grade 8',
-  'Grade 9',
-  'Grade 10',
-  'Grade 11',
-  'Grade 12'
+  'Play Group', 'Pre-Primary 1', 'Pre-Primary 2',
+  'Grade 1', 'Grade 2', 'Grade 3',
+  'Grade 4', 'Grade 5', 'Grade 6',
+  'Grade 7', 'Grade 8', 'Grade 9',
+  'Grade 10', 'Grade 11', 'Grade 12'
 ];
 
 const LEVEL_ORDER = [
-  'Early Years Education',
-  'Lower Primary',
-  'Upper Primary',
-  'Junior Secondary',
-  'Senior Secondary'
+  'Early Years Education', 'Lower Primary', 'Upper Primary',
+  'Junior Secondary', 'Senior Secondary'
 ];
 
+const A4_PAGE = {
+  size: { width: 11906, height: 16838 },
+  margin: { top: 720, right: 720, bottom: 720, left: 720 },
+};
+
+// ─── EXPANDED CBE CAREER DATABASE ─────────────────────────────
+const SKILL_BOOST = {
+  'Sports':              { field: 'Sports & Recreation',         boost: 25 },
+  'Music':               { field: 'Creative & Performing Arts',  boost: 25 },
+  'Drama':               { field: 'Creative & Performing Arts',  boost: 20 },
+  'Art & Design':        { field: 'Creative & Visual Arts',      boost: 20 },
+  'Leadership':          { field: 'Business & Management',       boost: 15 },
+  'ICT':                 { field: 'ICT & Engineering',           boost: 25 },
+  'Agriculture':         { field: 'Agriculture & Environment',   boost: 15 },
+  'Home Science':        { field: 'Hospitality & Culinary',      boost: 15 },
+  'Debate':              { field: 'Law & Humanities',            boost: 15 },
+  'Community Service':   { field: 'Education & Social Sciences', boost: 12 },
+  'Technical/Practical': { field: 'Technical & Vocational',      boost: 20 }
+};
+
+const CAREER_DB = [
+  { name: 'Medicine & Surgery (MBChB)', field: 'Medicine & Health Sciences', icon: '🩺', subjects: ['Biology', 'Chemistry'], minAvg: 75 },
+  { name: 'Pharmacy', field: 'Medicine & Health Sciences', icon: '💊', subjects: ['Biology', 'Chemistry'], minAvg: 70 },
+  { name: 'Nursing', field: 'Medicine & Health Sciences', icon: '🏥', subjects: ['Biology', 'Chemistry'], minAvg: 65 },
+  { name: 'Clinical Medicine & Surgery', field: 'Medicine & Health Sciences', icon: '🧑‍⚕️', subjects: ['Biology', 'Chemistry'], minAvg: 60 },
+  { name: 'Public Health', field: 'Medicine & Health Sciences', icon: '🧬', subjects: ['Biology', 'Mathematics'], minAvg: 60 },
+  { name: 'Medical Laboratory Sciences', field: 'Medicine & Health Sciences', icon: '🔬', subjects: ['Biology', 'Chemistry'], minAvg: 65 },
+  { name: 'Computer Science', field: 'ICT & Engineering', icon: '💻', subjects: ['Mathematics', 'Physics'], minAvg: 65 },
+  { name: 'Software Engineering', field: 'ICT & Engineering', icon: '🖥️', subjects: ['Mathematics', 'Physics'], minAvg: 65 },
+  { name: 'Data Science & Analytics', field: 'ICT & Engineering', icon: '📊', subjects: ['Mathematics', 'Computer Science'], minAvg: 65 },
+  { name: 'Cybersecurity', field: 'ICT & Engineering', icon: '🛡️', subjects: ['Mathematics', 'Computer Science'], minAvg: 65 },
+  { name: 'Electrical & Electronics Engineering', field: 'ICT & Engineering', icon: '⚡', subjects: ['Mathematics', 'Physics'], minAvg: 68 },
+  { name: 'Mechanical Engineering', field: 'ICT & Engineering', icon: '⚙️', subjects: ['Mathematics', 'Physics'], minAvg: 68 },
+  { name: 'Civil Engineering', field: 'ICT & Engineering', icon: '🏗️', subjects: ['Mathematics', 'Physics'], minAvg: 68 },
+  { name: 'Commerce (BCom)', field: 'Business & Management', icon: '📈', subjects: ['Mathematics', 'Business Studies'], minAvg: 60 },
+  { name: 'Business Administration', field: 'Business & Management', icon: '💼', subjects: ['Mathematics', 'Business Studies'], minAvg: 60 },
+  { name: 'Economics', field: 'Business & Management', icon: '💰', subjects: ['Mathematics', 'Economics'], minAvg: 65 },
+  { name: 'Actuarial Science', field: 'Business & Management', icon: '📉', subjects: ['Mathematics'], minAvg: 70 },
+  { name: 'Digital Marketing', field: 'Business & Management', icon: '📱', subjects: ['Business Studies', 'English'], minAvg: 55 },
+  { name: 'Supply Chain Management', field: 'Business & Management', icon: '🚚', subjects: ['Business Studies', 'Mathematics'], minAvg: 55 },
+  { name: 'Music & Performing Arts', field: 'Creative & Performing Arts', icon: '🎼', subjects: ['Music', 'English'], minAvg: 50 },
+  { name: 'Theatre Arts & Film Technology', field: 'Creative & Performing Arts', icon: '🎬', subjects: ['English', 'Literature'], minAvg: 50 },
+  { name: 'Dance & Choreography', field: 'Creative & Performing Arts', icon: '💃', subjects: ['Physical Education', 'English'], minAvg: 45 },
+  { name: 'Fine Art & Design', field: 'Creative & Visual Arts', icon: '🎨', subjects: ['Art & Design', 'English'], minAvg: 50 },
+  { name: 'Graphic Design & Animation', field: 'Creative & Visual Arts', icon: '🖌️', subjects: ['Art & Design', 'Computer Science'], minAvg: 55 },
+  { name: 'Fashion & Textile Design', field: 'Creative & Visual Arts', icon: '👗', subjects: ['Art & Design', 'Home Science'], minAvg: 50 },
+  { name: 'Interior Design', field: 'Creative & Visual Arts', icon: '🛋️', subjects: ['Art & Design', 'Mathematics'], minAvg: 55 },
+  { name: 'Sports Science & Management', field: 'Sports & Recreation', icon: '🏅', subjects: ['Physical Education', 'Biology'], minAvg: 50 },
+  { name: 'Physical Education & Coaching', field: 'Sports & Recreation', icon: '🏃', subjects: ['Physical Education', 'English'], minAvg: 45 },
+  { name: 'Sports Journalism', field: 'Sports & Recreation', icon: '🎙️', subjects: ['English', 'Physical Education'], minAvg: 50 },
+  { name: 'Agriculture', field: 'Agriculture & Environment', icon: '🌾', subjects: ['Biology', 'Agriculture'], minAvg: 55 },
+  { name: 'Environmental Science', field: 'Agriculture & Environment', icon: '🌍', subjects: ['Biology', 'Geography'], minAvg: 55 },
+  { name: 'Agribusiness Management', field: 'Agriculture & Environment', icon: '🚜', subjects: ['Agriculture', 'Business Studies'], minAvg: 55 },
+  { name: 'Animal Science', field: 'Agriculture & Environment', icon: '🐄', subjects: ['Biology', 'Agriculture'], minAvg: 55 },
+  { name: 'Law (LLB)', field: 'Law & Humanities', icon: '⚖️', subjects: ['English', 'History'], minAvg: 70 },
+  { name: 'International Relations', field: 'Law & Humanities', icon: '🌐', subjects: ['History', 'English'], minAvg: 65 },
+  { name: 'Journalism & Media', field: 'Law & Humanities', icon: '📰', subjects: ['English', 'Kiswahili'], minAvg: 60 },
+  { name: 'Psychology', field: 'Law & Humanities', icon: '🧠', subjects: ['Biology', 'English'], minAvg: 60 },
+  { name: 'Automotive Engineering', field: 'Technical & Vocational', icon: '🚗', subjects: ['Mathematics', 'Physics'], minAvg: 50 },
+  { name: 'Electrical Installation', field: 'Technical & Vocational', icon: '🔌', subjects: ['Mathematics', 'Physics'], minAvg: 45 },
+  { name: 'Welding & Fabrication', field: 'Technical & Vocational', icon: '🛠️', subjects: ['Mathematics'], minAvg: 40 },
+  { name: 'Plumbing & Water Technology', field: 'Technical & Vocational', icon: '🚰', subjects: ['Mathematics'], minAvg: 40 },
+  { name: 'Culinary Arts & Food Technology', field: 'Hospitality & Culinary', icon: '👨‍🍳', subjects: ['Home Science', 'Biology'], minAvg: 45 },
+  { name: 'Hotel & Hospitality Management', field: 'Hospitality & Culinary', icon: '🏨', subjects: ['English', 'Business Studies'], minAvg: 55 },
+  { name: 'Tourism Management', field: 'Hospitality & Culinary', icon: '✈️', subjects: ['Geography', 'English'], minAvg: 55 },
+  { name: 'Education (B.Ed)', field: 'Education & Social Sciences', icon: '👩‍🏫', subjects: ['English', 'Mathematics'], minAvg: 55 },
+  { name: 'Social Work & Community Development', field: 'Education & Social Sciences', icon: '🤝', subjects: ['English', 'Social Studies'], minAvg: 55 },
+  { name: 'Early Childhood Education', field: 'Education & Social Sciences', icon: '🧸', subjects: ['English', 'Social Studies'], minAvg: 50 }
+];
+
+const PROFICIENCY_MULTIPLIER = {
+  'Beginner': 0.3, 'Developing': 0.5, 'Proficient': 0.8,
+  'Advanced': 1.1, 'Exceptional': 1.4
+};
+
+const normalizeSubject = (s) => (s || '').toString().toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+const getSkillName = (s) => (s?.skill || s?.skillName || '').trim();
+
+// ─── ADVANCED AI CAREER ENGINE ─────────────────────────────
+const analyzeCareer = (results, options = {}) => {
+  const { skills = [] } = options;
+
+  if (!results || results.length === 0) {
+    return { insights: [], avgScore: 0, skillsUsed: skills };
+  }
+
+  const bySubject = {};
+  results.forEach(r => {
+    const s = (r.subject || '').trim();
+    if (!s) return;
+    if (!bySubject[s]) bySubject[s] = [];
+    bySubject[s].push(Number(r.marks) || 0);
+  });
+
+  const subjectAvg = {};
+  Object.entries(bySubject).forEach(([subj, marks]) => {
+    subjectAvg[subj] = marks.reduce((a, b) => a + b, 0) / marks.length;
+  });
+
+  const subjectKeys = Object.keys(subjectAvg);
+  const avgScore = subjectKeys.length > 0
+    ? subjectKeys.reduce((sum, k) => sum + subjectAvg[k], 0) / subjectKeys.length
+    : 0;
+
+  const getScore = (target) => {
+    const t = normalizeSubject(target);
+    for (const key of subjectKeys) {
+      const n = normalizeSubject(key);
+      if (n === t || n.includes(t) || t.includes(n)) return subjectAvg[key];
+    }
+    return null;
+  };
+
+  const skillBoosts = skills.map(sk => {
+    const b = SKILL_BOOST[sk.category];
+    if (!b) return null;
+    const multiplier = PROFICIENCY_MULTIPLIER[sk.proficiency] || 0.5;
+    return { field: b.field, boost: b.boost * multiplier, skill: sk };
+  }).filter(Boolean);
+
+  const scored = CAREER_DB.map(career => {
+    let subjScore = 0, subjCount = 0;
+    const matchedSubjects = [];
+
+    career.subjects.forEach(s => {
+      const sc = getScore(s);
+      if (sc !== null) {
+        subjScore += sc;
+        subjCount++;
+        matchedSubjects.push({ name: s, score: sc });
+      }
+    });
+
+    const rawAcademic = subjCount > 0 ? subjScore / subjCount : 0;
+    const requiredCount = career.subjects.length;
+    const coverageFactor = requiredCount > 0 ? (subjCount / requiredCount) : 0;
+    const academicScore = rawAcademic * coverageFactor;
+
+    let skillBoost = 0;
+    const matchedSkillsForField = [];
+    skillBoosts.forEach(sb => {
+      if (sb.field === career.field) {
+        skillBoost += sb.boost;
+        matchedSkillsForField.push(sb.skill);
+      }
+    });
+
+    const finalScore = Math.min(100, (academicScore * 0.7) + skillBoost);
+    const meetsMin = avgScore >= career.minAvg || skillBoost >= 15;
+
+    return {
+      ...career,
+      matchScore: Math.round(finalScore),
+      meetsMin,
+      academicScore: Math.round(academicScore),
+      skillBoost: Math.round(skillBoost),
+      matchedSubjects,
+      matchedSkillsForField,
+      coveragePercent: Math.round(coverageFactor * 100),
+    };
+  });
+
+  const top3 = scored
+    .sort((a, b) => b.matchScore - a.matchScore)
+    .slice(0, 3)
+    .map(c => {
+      const parts = [];
+      if (c.matchedSkillsForField.length > 0) {
+        const names = c.matchedSkillsForField
+          .slice(0, 2)
+          .map(sk => `${getSkillName(sk)} (${sk.proficiency})`)
+          .filter(Boolean);
+        if (names.length > 0) parts.push(`Talent in ${names.join(' & ')}`);
+      }
+      if (c.matchedSubjects.length > 0) {
+        const subjList = c.matchedSubjects
+          .slice(0, 2)
+          .map(m => `${m.name} (${Math.round(m.score)}%)`)
+          .join(', ');
+        parts.push(`Strong in ${subjList}`);
+      }
+      const reason = parts.length > 0 ? parts.join(' • ') : 'Matches overall performance';
+      return { ...c, reason };
+    });
+
+  return { insights: top3, avgScore: Math.round(avgScore), skillsUsed: skills };
+};
+
+const abbreviateExam = (name) => {
+  if (!name) return 'EXAM';
+  const cleaned = String(name).replace(/[^a-zA-Z0-9\s]/g, '').trim();
+  const words = cleaned.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return 'EXAM';
+  if (words.length === 1) return words[0].slice(0, 4).toUpperCase();
+  return words.slice(0, 4).map(w => w[0]).join('').toUpperCase();
+};
+
+const buildExamAbbreviations = (exams) => {
+  const out = {};
+  const used = new Set();
+  exams.forEach(ex => {
+    let abbr = abbreviateExam(ex);
+    let attempt = abbr;
+    let n = 2;
+    while (used.has(attempt)) { attempt = `${abbr}${n++}`; }
+    used.add(attempt);
+    out[ex] = attempt;
+  });
+  return out;
+};
+
+const getGradeFromMark = (m) => {
+  if (m >= 80) return 'A';  if (m >= 75) return 'A-';
+  if (m >= 70) return 'B+'; if (m >= 65) return 'B';
+  if (m >= 60) return 'B-'; if (m >= 55) return 'C+';
+  if (m >= 50) return 'C';  if (m >= 45) return 'C-';
+  if (m >= 40) return 'D+'; if (m >= 35) return 'D';
+  if (m >= 30) return 'D-'; return 'E';
+};
+
+const getCompFromMark = (m) => {
+  if (m >= 80) return { label: 'EE', color: 'text-purple-600' };
+  if (m >= 60) return { label: 'ME', color: 'text-green-600' };
+  if (m >= 40) return { label: 'AE', color: 'text-blue-600' };
+  if (m >= 20) return { label: 'BE', color: 'text-yellow-600' };
+  return { label: 'WBE', color: 'text-red-600' };
+};
+
+const buildWordLogoParagraph = (schoolInfo = {}, opts = {}) => {
+  const {
+    schoolNameSize = 28, contactSize = 16, mottoSize = 18,
+    logoWidth = 80, logoHeight = 80,
+  } = opts;
+
+  const logoBase64 = schoolInfo?.schoolLogo || schoolInfo?.logo || '';
+  const schoolName = (schoolInfo?.name || schoolInfo?.schoolName || 'School').toUpperCase();
+  const motto = schoolInfo?.motto || '';
+  const address = schoolInfo?.address || '';
+  const phone = schoolInfo?.phone || schoolInfo?.phoneNumber || '';
+  const email = schoolInfo?.email || schoolInfo?.schoolEmail || '';
+
+  let imageType = 'png';
+  if (typeof logoBase64 === 'string' && logoBase64.startsWith('data:image/')) {
+    const m = logoBase64.match(/^data:image\/([a-zA-Z0-9+]+)/);
+    if (m) {
+      let t = m[1].toLowerCase();
+      if (t === 'jpeg') t = 'jpg';
+      if (['png', 'jpg', 'gif', 'bmp', 'svg'].includes(t)) imageType = t;
+    }
+  }
+
+  const logoChildren = [];
+  if (logoBase64 && typeof logoBase64 === 'string' && logoBase64.startsWith('data:image/')) {
+    try {
+      const base64Data = logoBase64.split(',')[1];
+      const bin = atob(base64Data);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+
+      logoChildren.push(new Paragraph({
+        alignment: AlignmentType.LEFT,
+        spacing: { before: 0, after: 0 },
+        children: [new ImageRun({
+          type: imageType, data: bytes,
+          transformation: { width: logoWidth, height: logoHeight },
+        })],
+      }));
+    } catch (e) {
+      console.warn('⚠️ Logo embed failed:', e.message);
+    }
+  }
+  if (logoChildren.length === 0) {
+    logoChildren.push(new Paragraph({ children: [new TextRun({ text: '', size: 2 })] }));
+  }
+
+  const infoChildren = [];
+  infoChildren.push(new Paragraph({
+    alignment: AlignmentType.LEFT,
+    spacing: { before: 0, after: 40 },
+    children: [new TextRun({ text: schoolName, bold: true, size: schoolNameSize, color: '1a365d' })],
+  }));
+  if (motto) {
+    infoChildren.push(new Paragraph({
+      alignment: AlignmentType.LEFT,
+      spacing: { before: 0, after: 40 },
+      children: [new TextRun({ text: `"${motto}"`, italics: true, size: mottoSize, color: '6b7280' })],
+    }));
+  }
+  if (address) {
+    infoChildren.push(new Paragraph({
+      alignment: AlignmentType.LEFT,
+      spacing: { before: 0, after: 0 },
+      children: [new TextRun({ text: address, size: contactSize, color: '4b5563' })],
+    }));
+  }
+  const contactLine = [phone, email].filter(Boolean).join(' · ');
+  if (contactLine) {
+    infoChildren.push(new Paragraph({
+      alignment: AlignmentType.LEFT,
+      spacing: { before: 0, after: 0 },
+      children: [new TextRun({ text: contactLine, size: contactSize, color: '4b5563' })],
+    }));
+  }
+
+  const noBorder = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
+  const noBorders = {
+    top: noBorder, bottom: noBorder, left: noBorder, right: noBorder,
+    insideHorizontal: noBorder, insideVertical: noBorder,
+  };
+
+  const innerTable = new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    borders: noBorders,
+    alignment: AlignmentType.CENTER,
+    rows: [new TableRow({
+      children: [
+        new TableCell({
+          width: { size: 25, type: WidthType.PERCENTAGE },
+          borders: noBorders, verticalAlign: VerticalAlign.CENTER,
+          margins: { top: 0, bottom: 0, left: 0, right: 200 },
+          children: logoChildren,
+        }),
+        new TableCell({
+          width: { size: 75, type: WidthType.PERCENTAGE },
+          borders: noBorders, verticalAlign: VerticalAlign.CENTER,
+          margins: { top: 0, bottom: 0, left: 0, right: 0 },
+          children: infoChildren,
+        }),
+      ],
+    })],
+  });
+
+  const outerTable = new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    borders: noBorders,
+    alignment: AlignmentType.CENTER,
+    rows: [new TableRow({
+      children: [
+        new TableCell({
+          width: { size: 18, type: WidthType.PERCENTAGE },
+          borders: noBorders,
+          children: [new Paragraph({ children: [new TextRun({ text: '', size: 2 })] })],
+        }),
+        new TableCell({
+          width: { size: 64, type: WidthType.PERCENTAGE },
+          borders: noBorders, verticalAlign: VerticalAlign.CENTER,
+          children: [innerTable],
+        }),
+        new TableCell({
+          width: { size: 18, type: WidthType.PERCENTAGE },
+          borders: noBorders,
+          children: [new Paragraph({ children: [new TextRun({ text: '', size: 2 })] })],
+        }),
+      ],
+    })],
+  });
+
+  return [outerTable];
+};
+
+const admNumeric = (s) => {
+  const n = parseInt(String(s?.admNo ?? '').replace(/\D/g, ''), 10);
+  return isNaN(n) ? Number.MAX_SAFE_INTEGER : n;
+};
+
+// ============================================================
+// ✅ HELPER — Sanitise pupil payload for backend (handle optional parent fields)
+// ============================================================
+const buildPupilPayload = (formData) => {
+  const payload = { ...formData };
+
+  // Clean system fields
+  delete payload._id;
+  delete payload.__v;
+  delete payload.createdAt;
+  delete payload.updatedAt;
+  delete payload.schoolId;
+  delete payload.parentIdPassword;
+  delete payload.birthCertPassword;
+
+  // The backend model requires `parentIdNumber` & `birthCertNumber` as strings.
+  // If a school chooses not to use the parent/pupil portal, we must still
+  // satisfy model validation — generate a safe unique placeholder.
+  const uniqueSuffix = `${Date.now()}${Math.floor(Math.random() * 10000)}`;
+
+  if (!payload.parentIdNumber || !String(payload.parentIdNumber).trim()) {
+    payload.parentIdNumber = `N/A-${payload.admNo || uniqueSuffix}`;
+  }
+  if (!payload.birthCertNumber || !String(payload.birthCertNumber).trim()) {
+    payload.birthCertNumber = `N/A-${payload.admNo || uniqueSuffix}`;
+  }
+
+  return payload;
+};
+
+// ============================================================
+// ✅ REBUILT RESULTS MODAL
+// ============================================================
+const ResultsModal = ({ viewingPupilResults, pupilResults, loadingResults, onClose }) => {
+  if (!viewingPupilResults) return null;
+
+  const subjectMap = {};
+  const examOrder = [];
+  const examSeen = new Set();
+
+  pupilResults.forEach(r => {
+    const subj = (r.subject || 'Unknown').trim();
+    const exam = (r.examName || 'Exam').trim();
+    const marks = Number(r.marks) || 0;
+
+    if (!subjectMap[subj]) subjectMap[subj] = {};
+    if (!subjectMap[subj][exam] || subjectMap[subj][exam] < marks) {
+      subjectMap[subj][exam] = marks;
+    }
+    if (!examSeen.has(exam)) {
+      examSeen.add(exam);
+      examOrder.push(exam);
+    }
+  });
+
+  const exams = examOrder.slice(0, 5);
+  const abbr = buildExamAbbreviations(exams);
+
+  const rows = Object.entries(subjectMap).map(([subject, examMarks]) => {
+    const scores = exams.map(ex => examMarks[ex]).filter(v => typeof v === 'number');
+    const avg = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+    return { subject, examMarks, avg };
+  });
+
+  rows.sort((a, b) => b.avg - a.avg);
+
+  const overallAvg = rows.length
+    ? Math.round(rows.reduce((s, r) => s + r.avg, 0) / rows.length)
+    : 0;
+
+  const overallComp = getCompFromMark(overallAvg);
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto p-4">
+      <div className="bg-white rounded-xl w-full max-w-5xl max-h-[90vh] overflow-y-auto">
+        <div className="sticky top-0 bg-white border-b border-gray-200 p-4 flex justify-between items-center z-10">
+          <div>
+            <h2 className="text-lg font-bold text-gray-800">{viewingPupilResults.name}</h2>
+            <p className="text-xs text-gray-500">
+              {viewingPupilResults.admNo} • {viewingPupilResults.class}
+              {viewingPupilResults.stream && ` • ${viewingPupilResults.stream}`}
+            </p>
+          </div>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700"><FiX className="w-5 h-5" /></button>
+        </div>
+
+        <div className="p-4">
+          {loadingResults ? (
+            <div className="flex justify-center py-12">
+              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-green-600"></div>
+            </div>
+          ) : rows.length === 0 ? (
+            <div className="text-center py-12 bg-gray-50 rounded-lg">
+              <FiBookOpen className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+              <p className="text-gray-500 text-sm">No results recorded yet</p>
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-3 gap-2 mb-4">
+                <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 text-center">
+                  <p className="text-[10px] text-gray-500 uppercase">Subjects</p>
+                  <p className="text-lg font-bold text-blue-600">{rows.length}</p>
+                </div>
+                <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-3 text-center">
+                  <p className="text-[10px] text-gray-500 uppercase">Exams</p>
+                  <p className="text-lg font-bold text-indigo-600">{exams.length}</p>
+                </div>
+                <div className={`bg-green-50 border border-green-100 rounded-lg p-3 text-center`}>
+                  <p className="text-[10px] text-gray-500 uppercase">Overall Avg</p>
+                  <p className={`text-lg font-bold ${overallComp.color}`}>
+                    {overallAvg}% <span className="text-xs">{overallComp.label}</span>
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-1.5 mb-3 text-[10px]">
+                {exams.map(ex => (
+                  <span key={ex} className="bg-gray-100 rounded px-2 py-0.5 text-gray-700">
+                    <strong>{abbr[ex]}</strong> = {ex}
+                  </span>
+                ))}
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-gray-100">
+                      <th className="border border-gray-300 px-2 py-2 text-left">Subject</th>
+                      {exams.map(ex => (
+                        <th key={ex} className="border border-gray-300 px-2 py-2 text-center" title={ex}>
+                          {abbr[ex]}
+                        </th>
+                      ))}
+                      <th className="border border-gray-300 px-2 py-2 text-center bg-green-50">Avg</th>
+                      <th className="border border-gray-300 px-2 py-2 text-center bg-blue-50">Grade</th>
+                      <th className="border border-gray-300 px-2 py-2 text-center bg-purple-50">Comp</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row, i) => {
+                      const comp = getCompFromMark(row.avg);
+                      const grade = getGradeFromMark(row.avg);
+                      return (
+                        <tr key={row.subject} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                          <td className="border border-gray-300 px-2 py-2 font-medium">{row.subject}</td>
+                          {exams.map(ex => {
+                            const m = row.examMarks[ex];
+                            const cls = m === undefined ? 'text-gray-300' :
+                              m >= 80 ? 'text-purple-600 font-bold' :
+                              m >= 60 ? 'text-green-600 font-bold' :
+                              m >= 40 ? 'text-blue-600' : 'text-red-600';
+                            return (
+                              <td key={ex} className={`border border-gray-300 px-2 py-2 text-center ${cls}`}>
+                                {m !== undefined ? m : '—'}
+                              </td>
+                            );
+                          })}
+                          <td className="border border-gray-300 px-2 py-2 text-center bg-green-50 font-bold text-green-700">
+                            {row.avg}%
+                          </td>
+                          <td className="border border-gray-300 px-2 py-2 text-center bg-blue-50 font-bold">
+                            {grade}
+                          </td>
+                          <td className={`border border-gray-300 px-2 py-2 text-center bg-purple-50 font-bold ${comp.color}`}>
+                            {comp.label}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    <tr className="bg-gray-100 font-bold">
+                      <td className="border border-gray-300 px-2 py-2 text-left">Exam Average</td>
+                      {exams.map(ex => {
+                        const scores = rows.map(r => r.examMarks[ex]).filter(v => typeof v === 'number');
+                        const colAvg = scores.length
+                          ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
+                          : null;
+                        return (
+                          <td key={ex} className="border border-gray-300 px-2 py-2 text-center">
+                            {colAvg !== null ? `${colAvg}%` : '—'}
+                          </td>
+                        );
+                      })}
+                      <td className="border border-gray-300 px-2 py-2 text-center bg-green-50 text-green-700">
+                        {overallAvg}%
+                      </td>
+                      <td className="border border-gray-300 px-2 py-2 text-center bg-blue-50">
+                        {getGradeFromMark(overallAvg)}
+                      </td>
+                      <td className={`border border-gray-300 px-2 py-2 text-center bg-purple-50 ${overallComp.color}`}>
+                        {overallComp.label}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <p className="text-[10px] text-gray-400 mt-3 text-center">
+                Subjects sorted by average (highest first). Missing marks show as —.
+              </p>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ---------- Career Insights Modal ----------
+const CareerInsightsModal = ({ viewingCareerPupil, careerInsights, careerAnalysisMeta, loadingCareers, onClose }) => {
+  if (!viewingCareerPupil) return null;
+  const medals = ['🥇', '🥈', '🥉'];
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto p-3">
+      <div className="bg-white rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div className="sticky top-0 z-10 bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-4 flex justify-between items-center rounded-t-xl">
+          <div>
+            <h2 className="text-base font-bold flex items-center gap-2">
+              <FiBriefcase className="w-5 h-5" />
+              AI Career & Talent Insights
+            </h2>
+            <p className="text-xs text-white/80 mt-0.5">
+              {viewingCareerPupil.name} • {viewingCareerPupil.class}
+              {viewingCareerPupil.stream && ` • ${viewingCareerPupil.stream}`}
+            </p>
+          </div>
+          <button onClick={onClose} className="text-white hover:bg-white/20 p-1.5 rounded-lg">
+            <FiX className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-4">
+          {loadingCareers ? (
+            <div className="flex flex-col items-center justify-center py-16">
+              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-600"></div>
+              <p className="mt-3 text-sm text-gray-600">Analysing results & talents...</p>
+            </div>
+          ) : careerInsights.length === 0 ? (
+            <div className="text-center py-12 bg-gray-50 rounded-lg">
+              <FiBriefcase className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+              <p className="text-sm text-gray-500">Not enough data to suggest careers</p>
+              <p className="text-xs text-gray-400 mt-1">Add exam results and skills first</p>
+            </div>
+          ) : (
+            <>
+              <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-3 mb-4 flex justify-between items-center">
+                <div>
+                  <p className="text-xs font-bold text-indigo-900 uppercase">Academic Avg Score</p>
+                  <p className="text-xl font-bold text-indigo-700">{careerAnalysisMeta.avgScore}%</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs font-bold text-indigo-900 uppercase">Talents Analysed</p>
+                  <p className="text-xl font-bold text-indigo-700">{careerAnalysisMeta.skillsUsed?.length || 0}</p>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {careerInsights.map((c, i) => (
+                  <div key={i} className="flex flex-col border border-gray-200 rounded-lg p-3 hover:shadow-md transition-shadow bg-white">
+                    <div className="flex items-center gap-3 mb-2">
+                      <span className="text-2xl flex-shrink-0">{medals[i]}</span>
+                      <span className="text-3xl flex-shrink-0">{c.icon}</span>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-bold text-gray-800 text-sm truncate">{c.name}</h3>
+                        <p className="text-[10px] uppercase font-semibold text-gray-500 tracking-wider">{c.field}</p>
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <p className="text-xl font-bold text-indigo-600">{c.matchScore}%</p>
+                        <p className="text-[9px] text-gray-400 uppercase">Match</p>
+                      </div>
+                    </div>
+                    <div className="bg-indigo-50/50 rounded p-2 text-[11px] text-indigo-900 border border-indigo-100">
+                      <span className="font-bold">Why?</span> {c.reason}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <p className="text-[10px] text-gray-400 text-center mt-4">
+                Suggestions are based on combined term talents and last 3 exam averages. Consider the learner's interests too.
+              </p>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ---------- Download Modal ----------
+const DownloadModal = ({ pupils, classesWithStudents, sortClassesByOrder, downloadFormat, setDownloadFormat, downloadClass, setDownloadClass, downloadStream, setDownloadStream, availableStreamsForDownload, onClose, onSubmit }) => (
+  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+    <div className="bg-white rounded-xl p-5 w-full max-w-md">
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-lg font-bold text-gray-800">Download Class Lists</h2>
+        <button onClick={onClose} className="text-gray-500 hover:text-gray-700"><FiX className="w-5 h-5" /></button>
+      </div>
+
+      <div className="space-y-4">
+        <div>
+          <label className="block text-gray-700 text-sm font-medium mb-2">Format</label>
+          <div className="flex gap-3">
+            <button onClick={() => setDownloadFormat('excel')}
+              className={`flex-1 py-2 px-3 rounded-lg border-2 flex items-center justify-center gap-1 text-sm ${downloadFormat === 'excel' ? 'border-green-500 bg-green-50 text-green-700' : 'border-gray-300'}`}>
+              <FiFile className="w-4 h-4" /> Excel
+            </button>
+            <button onClick={() => setDownloadFormat('word')}
+              className={`flex-1 py-2 px-3 rounded-lg border-2 flex items-center justify-center gap-1 text-sm ${downloadFormat === 'word' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300'}`}>
+              <FiFileText className="w-4 h-4" /> Word
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-gray-700 text-sm font-medium mb-2">Class</label>
+          <select value={downloadClass} onChange={(e) => setDownloadClass(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+            <option value="">Select Class</option>
+            <option value="all">All ({pupils.length})</option>
+            {sortClassesByOrder(classesWithStudents).map(c => {
+              const count = pupils.filter(p => p.class === c).length;
+              return <option key={c} value={c}>{c} ({count})</option>;
+            })}
+          </select>
+        </div>
+
+        {downloadClass && downloadClass !== 'all' && availableStreamsForDownload.length > 0 && (
+          <div>
+            <label className="block text-gray-700 text-sm font-medium mb-2">Stream</label>
+            <select value={downloadStream} onChange={(e) => setDownloadStream(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+              <option value="all">All Streams</option>
+              {availableStreamsForDownload.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+        )}
+      </div>
+
+      <div className="flex gap-3 mt-5">
+        <button onClick={onClose} className="flex-1 bg-gray-300 text-gray-700 py-2 rounded-lg text-sm">Cancel</button>
+        <button onClick={onSubmit} className="flex-1 bg-green-600 text-white py-2 rounded-lg text-sm hover:bg-green-700">Download</button>
+      </div>
+    </div>
+  </div>
+);
+
+// ---------- Student Detail Modal ----------
+const StudentDetailModal = ({
+  viewingStudent, highestClass, 
+  getPreviousClass, getNextClass,
+  onClose, onEditStudent, onTransfer, onViewResults, onViewCareerInsights,
+  onDemote, onPromote, onGraduate, onDelete
+}) => {
+  if (!viewingStudent) return null;
+  const previousClass = getPreviousClass(viewingStudent.class);
+  const nextClass = getNextClass(viewingStudent.class);
+  const isHighest = viewingStudent.class === highestClass;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto p-3">
+      <div className="bg-white rounded-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+        <div className="sticky top-0 bg-white border-b border-gray-200 p-4 flex justify-between items-center z-10">
+          <div>
+            <h2 className="text-lg font-bold text-gray-800">{viewingStudent.name}</h2>
+            <p className="text-xs text-gray-500">
+              {viewingStudent.admNo} • {viewingStudent.class}
+              {isHighest && <span className="ml-2 bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full text-[10px]">Graduating</span>}
+            </p>
+          </div>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700"><FiX className="w-5 h-5" /></button>
+        </div>
+
+        <div className="p-4">
+          <div className="bg-blue-50 rounded-lg p-4 mb-4">
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div><span className="text-gray-500">Parent ID No:</span> {viewingStudent.parentIdNumber || 'N/A'}</div>
+              <div><span className="text-gray-500">Birth Cert No:</span> {viewingStudent.birthCertNumber || 'N/A'}</div>
+              <div><span className="text-gray-500">Stream:</span> {viewingStudent.stream || 'N/A'}</div>
+              <div><span className="text-gray-500">Parent:</span> {viewingStudent.parentName || 'N/A'}</div>
+              <div><span className="text-gray-500">Contact:</span> {viewingStudent.parentPhone || 'N/A'}</div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2 pt-3 border-t">
+            <button onClick={onEditStudent} className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-xs">Edit</button>
+            <button onClick={onTransfer} className="bg-yellow-600 text-white px-3 py-1.5 rounded-lg text-xs">Transfer</button>
+            <button onClick={onViewResults} className="bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-xs">Results</button>
+            <button onClick={onViewCareerInsights} className="bg-purple-600 text-white px-3 py-1.5 rounded-lg text-xs">Careers</button>
+            {previousClass && (
+              <button onClick={onDemote} className="bg-orange-500 text-white px-3 py-1.5 rounded-lg text-xs">Demote</button>
+            )}
+            {!isHighest && nextClass && nextClass !== 'graduate' && (
+              <button onClick={onPromote} className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-xs">Promote → {nextClass}</button>
+            )}
+            {isHighest && (
+              <button onClick={onGraduate} className="bg-purple-600 text-white px-3 py-1.5 rounded-lg text-xs">Graduate</button>
+            )}
+            <button onClick={onDelete} className="text-red-600 border border-red-300 px-3 py-1.5 rounded-lg text-xs">Delete</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ---------- Student Action Modal ----------
+const StudentActionModal = ({ studentActionData, studentActionType, onClose, onConfirm }) => {
+  if (!studentActionData) return null;
+  const { student, currentClass, nextClass } = studentActionData;
+  const isGrad = studentActionType === 'graduate';
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
+      <div className="bg-white rounded-xl p-5 w-full max-w-sm">
+        <h2 className="text-lg font-bold text-gray-800 mb-3">
+          {isGrad ? 'Graduate Student' : 'Promote Student'}
+        </h2>
+        <div className={`mb-4 p-3 rounded-lg text-sm ${isGrad ? 'bg-purple-50 text-purple-800' : 'bg-green-50 text-green-800'}`}>
+          <p className="font-semibold">{student.name}</p>
+          <p>{currentClass} → {isGrad ? 'Alumni' : nextClass}</p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={onClose} className="flex-1 bg-gray-300 text-gray-700 py-2 rounded-lg text-sm">Cancel</button>
+          <button onClick={onConfirm}
+            className={`flex-1 text-white py-2 rounded-lg text-sm ${isGrad ? 'bg-purple-600' : 'bg-green-600'}`}>
+            Confirm
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ---------- Promote Modal ----------
+const PromoteModal = ({ promoteClassData, promoteAction, selectedStudents, onToggleStudent, onSelectAll, onConfirm, onClose }) => {
+  if (!promoteClassData) return null;
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl p-5 w-full max-w-2xl max-h-[80vh] overflow-y-auto">
+        <div className="flex justify-between items-center mb-3">
+          <h2 className="text-lg font-bold">{promoteAction === 'graduate' ? 'Graduate Class' : 'Promote Class'}</h2>
+          <button onClick={onClose} className="text-gray-500"><FiX className="w-5 h-5" /></button>
+        </div>
+        <p className="text-sm text-gray-600 mb-3">{promoteClassData.className} → {promoteClassData.nextClass}</p>
+        <div className="flex justify-between items-center mb-3">
+          <span className="text-xs text-gray-500">Selected: {selectedStudents.length}/{promoteClassData.students.length}</span>
+          <button onClick={onSelectAll} className="text-blue-600 text-xs">
+            {selectedStudents.length === promoteClassData.students.length ? 'Deselect All' : 'Select All'}
+          </button>
+        </div>
+        <div className="border rounded-lg overflow-x-auto max-h-72">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 sticky top-0">
+              <tr>
+                <th className="px-2 py-2 text-left text-xs w-10"></th>
+                <th className="px-2 py-2 text-left text-xs">Adm</th>
+                <th className="px-2 py-2 text-left text-xs">Name</th>
+                <th className="px-2 py-2 text-left text-xs">Stream</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {promoteClassData.students.map(s => (
+                <tr key={s._id}>
+                  <td className="px-2 py-1.5">
+                    <input type="checkbox" checked={selectedStudents.includes(s._id)} onChange={() => onToggleStudent(s._id)} />
+                  </td>
+                  <td className="px-2 py-1.5">{s.admNo}</td>
+                  <td className="px-2 py-1.5 font-medium">{s.name}</td>
+                  <td className="px-2 py-1.5">{s.stream || '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="flex gap-2 mt-4">
+          <button onClick={onClose} className="flex-1 bg-gray-300 text-gray-700 py-2 rounded-lg text-sm">Cancel</button>
+          <button onClick={onConfirm} className="flex-1 bg-green-600 text-white py-2 rounded-lg text-sm">Confirm</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ---------- Transfer Modal ----------
+const TransferModal = ({ selectedPupil, transferData, setTransferData, onClose, onSubmit }) => {
+  if (!selectedPupil) return null;
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl p-5 w-full max-w-md">
+        <div className="flex justify-between items-center mb-3">
+          <h2 className="text-lg font-bold">Transfer Learner</h2>
+          <button onClick={onClose} className="text-gray-500"><FiX className="w-5 h-5" /></button>
+        </div>
+        <div className="mb-3 p-2 bg-yellow-50 rounded-lg text-sm text-yellow-800">
+          {selectedPupil.name} ({selectedPupil.admNo})
+        </div>
+        <div className="space-y-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Reason *</label>
+            <select value={transferData.reason}
+              onChange={(e) => setTransferData({ ...transferData, reason: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+              <option value="">Select</option>
+              <option>Change of School</option>
+              <option>Family Relocation</option>
+              <option>Financial Reasons</option>
+              <option>Academic Reasons</option>
+              <option>Health Reasons</option>
+              <option>Other</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Destination School</label>
+            <input type="text" value={transferData.destinationSchool}
+              onChange={(e) => setTransferData({ ...transferData, destinationSchool: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Remarks</label>
+            <textarea value={transferData.remarks}
+              onChange={(e) => setTransferData({ ...transferData, remarks: e.target.value })}
+              rows="2" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+          </div>
+        </div>
+        <div className="flex gap-2 mt-4">
+          <button onClick={onClose} className="flex-1 bg-gray-300 text-gray-700 py-2 rounded-lg text-sm">Cancel</button>
+          <button onClick={onSubmit} className="flex-1 bg-yellow-600 text-white py-2 rounded-lg text-sm">Transfer</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ---------- Demote Modal ----------
+const DemoteModal = ({ demoteData, onClose, onConfirm }) => {
+  if (!demoteData) return null;
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl p-5 w-full max-w-sm">
+        <h2 className="text-lg font-bold mb-3">Demote Student</h2>
+        <div className="mb-4 p-3 bg-orange-50 rounded-lg text-sm text-orange-800">
+          <p className="font-semibold">{demoteData.student.name}</p>
+          <p>{demoteData.currentClass} → {demoteData.previousClass}</p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={onClose} className="flex-1 bg-gray-300 text-gray-700 py-2 rounded-lg text-sm">Cancel</button>
+          <button onClick={onConfirm} className="flex-1 bg-orange-600 text-white py-2 rounded-lg text-sm">Confirm</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================
+// MAIN COMPONENT
+// ============================================================
 const Pupils = () => {
   const navigate = useNavigate();
-  
   const deviceInfo = useDeviceDetection();
   const responsiveGrid = useResponsiveGrid(deviceInfo);
-  
+
   const [pupils, setPupils] = useState([]);
-  const [transferredLearners, setTransferredLearners] = useState([]);
-  const [alumni, setAlumni] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingPupil, setEditingPupil] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedClass, setSelectedClass] = useState('all');
   const [selectedStream, setSelectedStream] = useState('');
-  const [availableClasses, setAvailableClasses] = useState([]);
   const [availableStreams, setAvailableStreams] = useState([]);
-  const [schoolInfo, setSchoolInfo] = useState({ classes: [], name: '', motto: '', poBox: '', phone: '', email: '' });
+  const [schoolInfo, setSchoolInfo] = useState({ classes: [], name: '', motto: '', phone: '', email: '' });
   const [sortBy, setSortBy] = useState('name');
   const [sortOrder, setSortOrder] = useState('asc');
   const [loading, setLoading] = useState(true);
   const [highestClass, setHighestClass] = useState('');
   const [classOrder, setClassOrder] = useState([]);
-  
-  // Demote state
+
   const [showDemoteModal, setShowDemoteModal] = useState(false);
   const [demoteData, setDemoteData] = useState(null);
-  
-  // View Results state
+
   const [showResultsModal, setShowResultsModal] = useState(false);
   const [viewingPupilResults, setViewingPupilResults] = useState(null);
   const [pupilResults, setPupilResults] = useState([]);
   const [loadingResults, setLoadingResults] = useState(false);
 
-  // ✅ Individual student action state (promote / graduate single)
+  const [showCareerModal, setShowCareerModal] = useState(false);
+  const [viewingCareerPupil, setViewingCareerPupil] = useState(null);
+  const [careerInsights, setCareerInsights] = useState([]);
+  const [careerAnalysisMeta, setCareerAnalysisMeta] = useState({ avgScore: 0, skillsUsed: [] });
+  const [loadingCareers, setLoadingCareers] = useState(false);
+
   const [showStudentActionModal, setShowStudentActionModal] = useState(false);
   const [studentActionData, setStudentActionData] = useState(null);
-  const [studentActionType, setStudentActionType] = useState('promote'); // 'promote' | 'graduate'
-  
+  const [studentActionType, setStudentActionType] = useState('promote');
+
+  // Retained data for "Add Pupil" — now includes parentIdNumber
   const [retainedData, setRetainedData] = useState({
-    studentName: '',
-    admNo: '',
-    birthCertNo: '',
-    dateOfBirth: '',
-    gender: '',
-    className: '',
-    stream: '',
-    parentName: '',
-    parentPhone: '',
-    parentEmail: '',
-    address: '',
-    medicalInfo: '',
-    previousSchool: ''
+    studentName: '', admNo: '', birthCertNumber: '', dateOfBirth: '',
+    gender: '', className: '', stream: '', parentName: '',
+    parentPhone: '', parentEmail: '', parentIdNumber: '',
+    address: '', medicalInfo: '', previousSchool: ''
   });
 
-  const getClassOrder = (className) => {
-    const index = CLASS_ORDER.indexOf(className);
-    return index !== -1 ? index : 999;
-  };
+  const [showPromoteModal, setShowPromoteModal] = useState(false);
+  const [promoteClassData, setPromoteClassData] = useState(null);
+  const [selectedStudents, setSelectedStudents] = useState([]);
+  const [promoteAction, setPromoteAction] = useState('promote');
 
-  const sortClassesByOrder = (classes) => {
-    return [...classes].sort((a, b) => {
-      const orderA = getClassOrder(a.name || a);
-      const orderB = getClassOrder(b.name || b);
-      return orderA - orderB;
-    });
-  };
+  const [showTransferModal, setShowTransferModal] = useState(false);
+  const [selectedPupil, setSelectedPupil] = useState(null);
+  const [transferData, setTransferData] = useState({ reason: '', destinationSchool: '', remarks: '' });
 
-  const getClassesByLevel = (classes) => {
-    const grouped = {};
-    classes.forEach(cls => {
-      const className = cls.name || cls;
-      let level = 'Other';
-      if (CLASS_ORDER.slice(0, 3).includes(className)) level = 'Early Years Education';
-      else if (CLASS_ORDER.slice(3, 6).includes(className)) level = 'Lower Primary';
-      else if (CLASS_ORDER.slice(6, 9).includes(className)) level = 'Upper Primary';
-      else if (CLASS_ORDER.slice(9, 12).includes(className)) level = 'Junior Secondary';
-      else if (CLASS_ORDER.slice(12, 15).includes(className)) level = 'Senior Secondary';
-      
-      if (!grouped[level]) grouped[level] = [];
-      grouped[level].push(cls);
-    });
-    return grouped;
+  const [showStudentDetail, setShowStudentDetail] = useState(false);
+  const [viewingStudent, setViewingStudent] = useState(null);
+
+  const [showDownloadModal, setShowDownloadModal] = useState(false);
+  const [downloadFormat, setDownloadFormat] = useState('excel');
+  const [downloadClass, setDownloadClass] = useState('');
+  const [downloadStream, setDownloadStream] = useState('');
+  const [availableStreamsForDownload, setAvailableStreamsForDownload] = useState([]);
+
+  const getClassOrder = (name) => {
+    const i = CLASS_ORDER.indexOf(name);
+    return i === -1 ? 999 : i;
   };
+  const sortClassesByOrder = (arr) =>
+    [...arr].sort((a, b) => getClassOrder(a.name || a) - getClassOrder(b.name || b));
 
   const saveRetainedData = (formData) => {
-    setRetainedData(prev => ({
-      ...prev,
-      ...formData
-    }));
-    try {
-      localStorage.setItem('retainedStudentData', JSON.stringify({ ...retainedData, ...formData }));
-    } catch (e) {
-      console.log('Could not save retained data to localStorage');
-    }
+    const next = { ...retainedData, ...formData };
+    setRetainedData(next);
+    try { localStorage.setItem('retainedStudentData', JSON.stringify(next)); } catch (e) {}
+  };
+  const clearRetainedData = () => {
+    setRetainedData({
+      studentName: '', admNo: '', birthCertNumber: '', dateOfBirth: '', gender: '',
+      className: '', stream: '', parentName: '', parentPhone: '', parentEmail: '',
+      parentIdNumber: '', address: '', medicalInfo: '', previousSchool: ''
+    });
+    try { localStorage.removeItem('retainedStudentData'); } catch (e) {}
   };
 
   useEffect(() => {
@@ -228,68 +1067,21 @@ const Pupils = () => {
       const saved = localStorage.getItem('retainedStudentData');
       if (saved) {
         const parsed = JSON.parse(saved);
-        setRetainedData(parsed);
-        console.log('Loaded retained student data:', parsed);
+        // Migrate old keys gracefully
+        if (parsed.birthCertNo && !parsed.birthCertNumber) parsed.birthCertNumber = parsed.birthCertNo;
+        if (parsed.studentName && !parsed.name) parsed.name = parsed.studentName;
+        setRetainedData(prev => ({ ...prev, ...parsed }));
       }
-    } catch (e) {
-      console.log('Could not load retained data from localStorage');
-    }
+    } catch (e) {}
   }, []);
-
-  const clearRetainedData = () => {
-    setRetainedData({
-      studentName: '',
-      admNo: '',
-      birthCertNo: '',
-      dateOfBirth: '',
-      gender: '',
-      className: '',
-      stream: '',
-      parentName: '',
-      parentPhone: '',
-      parentEmail: '',
-      address: '',
-      medicalInfo: '',
-      previousSchool: ''
-    });
-    try {
-      localStorage.removeItem('retainedStudentData');
-    } catch (e) {
-      console.log('Could not clear retained data from localStorage');
-    }
-  };
-
-  const [showPromoteModal, setShowPromoteModal] = useState(false);
-  const [promoteClassData, setPromoteClassData] = useState(null);
-  const [selectedStudents, setSelectedStudents] = useState([]);
-  const [promoteAction, setPromoteAction] = useState('promote');
-  
-  const [showTransferModal, setShowTransferModal] = useState(false);
-  const [selectedPupil, setSelectedPupil] = useState(null);
-  const [transferData, setTransferData] = useState({
-    reason: '',
-    destinationSchool: '',
-    remarks: ''
-  });
-  
-  const [showStudentDetail, setShowStudentDetail] = useState(false);
-  const [viewingStudent, setViewingStudent] = useState(null);
-  
-  const [showDownloadModal, setShowDownloadModal] = useState(false);
-  const [downloadFormat, setDownloadFormat] = useState('excel');
-  const [downloadClass, setDownloadClass] = useState('');
-  const [downloadStream, setDownloadStream] = useState('');
-  const [availableStreamsForDownload, setAvailableStreamsForDownload] = useState([]);
 
   useEffect(() => {
     loadData();
   }, []);
 
-  // Update streams when class changes for filtering
   useEffect(() => {
     if (selectedClass && selectedClass !== 'all') {
-      const pupilsInClass = pupils.filter(p => p.class === selectedClass);
-      const streams = [...new Set(pupilsInClass.map(s => s.stream).filter(Boolean))];
+      const streams = [...new Set(pupils.filter(p => p.class === selectedClass).map(s => s.stream).filter(Boolean))];
       setAvailableStreams(streams);
       setSelectedStream('');
     } else {
@@ -298,11 +1090,9 @@ const Pupils = () => {
     }
   }, [selectedClass, pupils]);
 
-  // Update streams for download modal when download class changes
   useEffect(() => {
     if (downloadClass && downloadClass !== 'all') {
-      const studentsInClass = pupils.filter(p => p.class === downloadClass);
-      const streams = [...new Set(studentsInClass.map(s => s.stream).filter(Boolean))];
+      const streams = [...new Set(pupils.filter(p => p.class === downloadClass).map(s => s.stream).filter(Boolean))];
       setAvailableStreamsForDownload(streams);
       setDownloadStream('');
     } else {
@@ -314,40 +1104,25 @@ const Pupils = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      // Load school info from API
       const schoolRes = await api.get('/school/settings');
       if (schoolRes.data?.success && schoolRes.data?.data) {
         const school = schoolRes.data.data;
-        setSchoolInfo(school);
+        setSchoolInfo({
+          ...school,
+          name: school.schoolName || school.name || '',
+          email: school.schoolEmail || school.email || '',
+          phone: school.phoneNumber || school.phone || '',
+          schoolLogo: school.schoolLogo || school.logo || '',
+        });
         const classes = school.classes || [];
-        const activeClasses = classes
-          .filter(c => c.isActive !== false)
-          .map(c => c.name);
-        
-        const sortedClasses = sortClassesByOrder(activeClasses);
-        setAvailableClasses(sortedClasses);
-        setClassOrder(sortedClasses);
-        
-        if (sortedClasses.length > 0) {
-          setHighestClass(sortedClasses[sortedClasses.length - 1]);
-        }
+        const active = classes.filter(c => c.isActive !== false).map(c => c.name);
+        const sorted = sortClassesByOrder(active);
+        setClassOrder(sorted);
+        if (sorted.length > 0) setHighestClass(sorted[sorted.length - 1]);
       }
-      
-      const pupilsResponse = await api.get('/pupils');
-      if (pupilsResponse.data.success) {
-        setPupils(pupilsResponse.data.data || []);
-      }
-      
-      const transferredResponse = await api.get('/transferred');
-      if (transferredResponse.data.success) {
-        setTransferredLearners(transferredResponse.data.data || []);
-      }
-      
-      const alumniResponse = await api.get('/alumni');
-      if (alumniResponse.data.success) {
-        setAlumni(alumniResponse.data.data || []);
-      }
-      
+
+      const pupilsRes = await api.get('/pupils');
+      if (pupilsRes.data.success) setPupils(pupilsRes.data.data || []);
     } catch (error) {
       console.error('Error loading data:', error);
       toast.error('Failed to load data');
@@ -356,20 +1131,44 @@ const Pupils = () => {
     }
   };
 
-  // ===== FETCH PUPIL RESULTS =====
+  const generateCareerInsights = async (pupil) => {
+    setLoadingCareers(true);
+    try {
+      const resultsRes = await api.get(`/results/pupil/${pupil._id}`);
+      const results = resultsRes.data?.success ? (resultsRes.data.data || []) : [];
+
+      let skills = [];
+      try {
+        const skRes = await api.get(`/skills/pupil/${pupil._id}`);
+        if (skRes.data?.success) skills = skRes.data.data || [];
+      } catch (e) {}
+
+      const analysis = analyzeCareer(results, { skills });
+
+      setCareerInsights(analysis.insights);
+      setCareerAnalysisMeta({ avgScore: analysis.avgScore, skillsUsed: analysis.skillsUsed });
+    } catch (err) {
+      console.error(err);
+      setCareerInsights([]);
+    } finally {
+      setLoadingCareers(false);
+    }
+  };
+
+  const handleViewCareerInsights = async (pupil) => {
+    setViewingCareerPupil(pupil);
+    setShowCareerModal(true);
+    setCareerInsights([]);
+    await generateCareerInsights(pupil);
+  };
+
   const fetchPupilResults = async (pupilId) => {
     setLoadingResults(true);
     try {
-      const response = await api.get(`/results/pupil/${pupilId}`);
-      if (response.data.success) {
-        setPupilResults(response.data.data || []);
-      } else {
-        setPupilResults([]);
-      }
-    } catch (error) {
-      console.error('Error fetching pupil results:', error);
+      const res = await api.get(`/results/pupil/${pupilId}`);
+      setPupilResults(res.data?.success ? (res.data.data || []) : []);
+    } catch (err) {
       setPupilResults([]);
-      toast.error('Failed to load pupil results');
     } finally {
       setLoadingResults(false);
     }
@@ -381,295 +1180,199 @@ const Pupils = () => {
     fetchPupilResults(pupil._id);
   };
 
-  // ===== Handle Edit Student with proper data sanitization =====
-  const handleEditStudent = (pupil) => {
-    setEditingPupil(pupil);
-    setIsEditModalOpen(true);
-  };
+  const handleEditStudent = (pupil) => { setEditingPupil(pupil); setIsEditModalOpen(true); };
 
-  // ===== Update Student - Sanitize data before sending =====
-  const handleUpdatePupil = async (updatedData) => {
+  const handleUpdatePupil = async (data) => {
     try {
-      const sanitizedData = { ...updatedData };
-      delete sanitizedData._id;
-      delete sanitizedData.__v;
-      delete sanitizedData.createdAt;
-      delete sanitizedData.updatedAt;
-      delete sanitizedData.schoolId;
-      
-      if (!sanitizedData.name || sanitizedData.name.trim() === '') {
-        toast.error('Student name is required');
-        return;
-      }
-      
-      if (!sanitizedData.admNo || sanitizedData.admNo.trim() === '') {
-        toast.error('Admission number is required');
-        return;
-      }
-      
-      console.log('📤 Updating pupil with data:', sanitizedData);
-      
-      const response = await api.put(`/pupils/${editingPupil._id}`, sanitizedData);
-      if (response.data.success) {
-        toast.success('Student updated successfully');
+      if (!data.name?.trim()) return toast.error('Name required');
+      if (!data.admNo?.trim()) return toast.error('Adm required');
+
+      const payload = buildPupilPayload(data);
+      const res = await api.put(`/pupils/${editingPupil._id}`, payload);
+      if (res.data.success) {
+        toast.success('Student updated');
         loadData();
         setIsEditModalOpen(false);
         setEditingPupil(null);
-      } else {
-        toast.error(response.data.message || 'Failed to update student');
-      }
-    } catch (error) {
-      console.error('Error updating student:', error);
-      if (error.response?.data?.message) {
-        toast.error(error.response.data.message);
-      } else {
-        toast.error('Failed to update student. Please check the data and try again.');
-      }
+      } else toast.error(res.data.message || 'Failed');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to update');
     }
   };
 
-  const getNextClass = (currentClass) => {
-    const classOrderList = classOrder;
-    const currentIndex = classOrderList.indexOf(currentClass);
-    
-    if (currentIndex === -1) return null;
-    if (currentIndex === classOrderList.length - 1) return 'graduate';
-    return classOrderList[currentIndex + 1];
+  const handleAddPupil = async (pupilData) => {
+    try {
+      if (!pupilData.name?.trim()) return toast.error('Name required');
+      if (!pupilData.admNo?.trim()) return toast.error('Adm required');
+
+      const payload = buildPupilPayload(pupilData);
+      const res = await api.post('/pupils', payload);
+      if (res.data.success) {
+        toast.success('Student added');
+        clearRetainedData();
+        loadData();
+        setIsModalOpen(false);
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to add');
+      saveRetainedData(pupilData);
+    }
   };
 
-  const getPreviousClass = (currentClass) => {
-    const classOrderList = classOrder;
-    const currentIndex = classOrderList.indexOf(currentClass);
-    
-    if (currentIndex === -1) return null;
-    if (currentIndex === 0) return null;
-    return classOrderList[currentIndex - 1];
+  const handleDeleteStudent = async (id) => {
+    if (!window.confirm('Delete this student? Cannot be undone.')) return;
+    try {
+      const res = await api.delete(`/pupils/${id}`);
+      if (res.data.success) { toast.success('Deleted'); loadData(); }
+    } catch (err) { toast.error('Failed to delete'); }
   };
 
-  // ===== DEMOTE FUNCTIONALITY =====
+  const getNextClass = (current) => {
+    const i = classOrder.indexOf(current);
+    if (i === -1) return null;
+    if (i === classOrder.length - 1) return 'graduate';
+    return classOrder[i + 1];
+  };
+  const getPreviousClass = (current) => {
+    const i = classOrder.indexOf(current);
+    if (i === -1 || i === 0) return null;
+    return classOrder[i - 1];
+  };
+
   const handleDemoteStudent = (student) => {
-    const previousClass = getPreviousClass(student.class);
-    if (!previousClass) {
-      toast.error(`${student.name} is already in the lowest class and cannot be demoted.`);
-      return;
-    }
-    
-    setDemoteData({
-      student: student,
-      previousClass: previousClass,
-      currentClass: student.class
-    });
+    const prev = getPreviousClass(student.class);
+    if (!prev) return toast.error('Already in lowest class');
+    setDemoteData({ student, previousClass: prev, currentClass: student.class });
     setShowDemoteModal(true);
   };
 
   const confirmDemote = async () => {
     if (!demoteData) return;
-    
     try {
-      const response = await api.put(`/pupils/${demoteData.student._id}`, {
-        class: demoteData.previousClass
-      });
-      
-      if (response.data.success) {
-        toast.success(`${demoteData.student.name} demoted to ${demoteData.previousClass}`);
+      const res = await api.put(`/pupils/${demoteData.student._id}`, { class: demoteData.previousClass });
+      if (res.data.success) {
+        toast.success(`Demoted to ${demoteData.previousClass}`);
         setShowDemoteModal(false);
         setDemoteData(null);
         loadData();
-      } else {
-        toast.error('Failed to demote student');
       }
-    } catch (error) {
-      console.error('Error demoting student:', error);
-      toast.error(error.response?.data?.message || 'Failed to demote student');
-    }
+    } catch (err) { toast.error('Failed to demote'); }
   };
 
-  // ===== CLASS-WIDE PROMOTE / GRADUATE =====
   const handlePromoteClass = (className) => {
-    const classStudents = pupils.filter(p => p.class === className);
-    if (classStudents.length === 0) {
-      toast.error(`No students found in ${className}`);
-      return;
-    }
-    
-    const nextClass = getNextClass(className);
-    if (!nextClass) {
-      toast.error(`Cannot promote from ${className}. No higher class configured.`);
-      return;
-    }
-    
-    setPromoteClassData({ className, nextClass, students: classStudents });
-    setSelectedStudents(classStudents.map(s => s._id));
-    setPromoteAction(nextClass === 'graduate' ? 'graduate' : 'promote');
+    const students = pupils.filter(p => p.class === className);
+    if (students.length === 0) return toast.error('No students');
+    const next = getNextClass(className);
+    if (!next) return toast.error('No higher class');
+    setPromoteClassData({ className, nextClass: next, students });
+    setSelectedStudents(students.map(s => s._id));
+    setPromoteAction(next === 'graduate' ? 'graduate' : 'promote');
     setShowPromoteModal(true);
   };
 
   const handleGraduateClass = (className) => {
-    if (className !== highestClass) {
-      toast.error(`Graduation is only available for the highest class: ${highestClass}`);
-      return;
-    }
-    
-    const classStudents = pupils.filter(p => p.class === className);
-    if (classStudents.length === 0) {
-      toast.error(`No students found in ${className}`);
-      return;
-    }
-    
-    setPromoteClassData({ className, nextClass: 'alumni', students: classStudents });
-    setSelectedStudents(classStudents.map(s => s._id));
+    if (className !== highestClass) return toast.error(`Only ${highestClass} can graduate`);
+    const students = pupils.filter(p => p.class === className);
+    if (students.length === 0) return toast.error('No students');
+    setPromoteClassData({ className, nextClass: 'alumni', students });
+    setSelectedStudents(students.map(s => s._id));
     setPromoteAction('graduate');
     setShowPromoteModal(true);
   };
 
-  const toggleStudentSelection = (studentId) => {
-    setSelectedStudents(prev => 
-      prev.includes(studentId) 
-        ? prev.filter(id => id !== studentId)
-        : [...prev, studentId]
-    );
+  const toggleStudentSelection = (id) => {
+    setSelectedStudents(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   };
 
   const selectAllStudents = () => {
-    if (selectedStudents.length === promoteClassData?.students.length) {
-      setSelectedStudents([]);
-    } else {
-      setSelectedStudents(promoteClassData?.students.map(s => s._id) || []);
-    }
+    if (selectedStudents.length === promoteClassData?.students.length) setSelectedStudents([]);
+    else setSelectedStudents(promoteClassData?.students.map(s => s._id) || []);
   };
 
   const confirmPromotion = async () => {
-    if (!promoteClassData || selectedStudents.length === 0) {
-      toast.error('Please select at least one student');
-      return;
-    }
-    
+    if (!promoteClassData || selectedStudents.length === 0) return toast.error('Select students');
     try {
       if (promoteAction === 'graduate') {
-        const response = await api.post('/pupils/graduate', { pupilIds: selectedStudents });
-        if (response.data.success) {
-          toast.success(response.data.message);
-          loadData();
-        }
+        const res = await api.post('/pupils/graduate', { pupilIds: selectedStudents });
+        if (res.data.success) { toast.success(res.data.message); loadData(); }
       } else {
-        const response = await api.post('/pupils/promote', { 
+        const res = await api.post('/pupils/promote', {
           pupilIds: selectedStudents,
           currentClass: promoteClassData.className,
           nextClass: promoteClassData.nextClass
         });
-        if (response.data.success) {
-          toast.success(response.data.message);
-          loadData();
-        }
+        if (res.data.success) { toast.success(res.data.message); loadData(); }
       }
-    } catch (error) {
-      console.error('Error in promotion:', error);
-      toast.error(error.response?.data?.message || 'Failed to process promotion');
-    }
-    
+    } catch (err) { toast.error('Promotion failed'); }
     setShowPromoteModal(false);
     setPromoteClassData(null);
     setSelectedStudents([]);
   };
 
-  // ===== INDIVIDUAL STUDENT PROMOTE / GRADUATE =====
-
-  // Open the confirm modal for promoting a single student
   const handlePromoteStudent = (student) => {
-    const nextClass = getNextClass(student.class);
-    if (!nextClass) {
-      toast.error(`Cannot promote ${student.name}. No higher class configured.`);
-      return;
-    }
-    if (nextClass === 'graduate') {
-      // Next class is alumni → treat as graduate
-      handleGraduateStudent(student);
-      return;
-    }
-
-    setStudentActionData({ student, nextClass, currentClass: student.class });
+    const next = getNextClass(student.class);
+    if (!next) return toast.error('No higher class');
+    if (next === 'graduate') return handleGraduateStudent(student);
+    setStudentActionData({ student, nextClass: next, currentClass: student.class });
     setStudentActionType('promote');
     setShowStudentActionModal(true);
   };
 
-  // Open the confirm modal for graduating a single student
   const handleGraduateStudent = (student) => {
     setStudentActionData({ student, nextClass: 'alumni', currentClass: student.class });
     setStudentActionType('graduate');
     setShowStudentActionModal(true);
   };
 
-  // Confirm the single-student action
   const confirmStudentAction = async () => {
     if (!studentActionData) return;
     const { student } = studentActionData;
-
     try {
       if (studentActionType === 'graduate') {
-        const response = await api.post('/pupils/graduate', { pupilIds: [student._id] });
-        if (response.data.success) {
-          toast.success(`${student.name} has been graduated to alumni.`);
+        const res = await api.post('/pupils/graduate', { pupilIds: [student._id] });
+        if (res.data.success) {
+          toast.success(`${student.name} graduated`);
           setShowStudentActionModal(false);
           setStudentActionData(null);
           setShowStudentDetail(false);
           setViewingStudent(null);
           loadData();
-        } else {
-          toast.error(response.data.message || 'Failed to graduate student');
         }
       } else {
-        const response = await api.post('/pupils/promote', {
+        const res = await api.post('/pupils/promote', {
           pupilIds: [student._id],
           currentClass: studentActionData.currentClass,
           nextClass: studentActionData.nextClass
         });
-        if (response.data.success) {
-          toast.success(`${student.name} has been promoted to ${studentActionData.nextClass}.`);
+        if (res.data.success) {
+          toast.success(`${student.name} promoted`);
           setShowStudentActionModal(false);
           setStudentActionData(null);
           setShowStudentDetail(false);
           setViewingStudent(null);
           loadData();
-        } else {
-          toast.error(response.data.message || 'Failed to promote student');
         }
       }
-    } catch (error) {
-      console.error('Error in individual student action:', error);
-      toast.error(error.response?.data?.message || 'Failed to process student action');
-    }
+    } catch (err) { toast.error('Failed'); }
   };
 
   const handleTransferClick = (pupil) => {
     setSelectedPupil(pupil);
-    setTransferData({
-      reason: '',
-      destinationSchool: '',
-      remarks: ''
-    });
+    setTransferData({ reason: '', destinationSchool: '', remarks: '' });
     setShowTransferModal(true);
   };
 
   const handleTransferSubmit = async () => {
-    if (!transferData.reason) {
-      toast.error('Please provide a transfer reason');
-      return;
-    }
-    
+    if (!transferData.reason) return toast.error('Select reason');
     try {
-      const response = await api.post(`/pupils/${selectedPupil._id}/transfer`, transferData);
-      if (response.data.success) {
-        toast.success(`${selectedPupil.name} has been transferred successfully`);
+      const res = await api.post(`/pupils/${selectedPupil._id}/transfer`, transferData);
+      if (res.data.success) {
+        toast.success('Transferred');
         loadData();
         setShowTransferModal(false);
         setSelectedPupil(null);
-      } else {
-        toast.error(response.data.message || 'Failed to transfer student');
       }
-    } catch (error) {
-      console.error('Error transferring student:', error);
-      toast.error(error.response?.data?.message || 'Failed to transfer student');
-    }
+    } catch (err) { toast.error('Failed to transfer'); }
   };
 
   const handleViewStudent = (pupil) => {
@@ -677,809 +1380,198 @@ const Pupils = () => {
     setShowStudentDetail(true);
   };
 
-  const handleDeleteStudent = async (id) => {
-    if (window.confirm('Are you sure you want to delete this student? This action cannot be undone.')) {
-      try {
-        const response = await api.delete(`/pupils/${id}`);
-        if (response.data.success) {
-          toast.success('Student deleted successfully');
-          loadData();
-        }
-      } catch (error) {
-        console.error('Error deleting student:', error);
-        toast.error(error.response?.data?.message || 'Failed to delete student');
-      }
-    }
-  };
-
-  const handleAddPupil = async (pupilData) => {
-    try {
-      const response = await api.post('/pupils', pupilData);
-      if (response.data.success) {
-        toast.success('Student added successfully');
-        clearRetainedData();
-        loadData();
-        setIsModalOpen(false);
-      }
-    } catch (error) {
-      console.error('Error adding student:', error);
-      if (error.response?.data?.errors) {
-        const errors = error.response.data.errors;
-        Object.keys(errors).forEach(field => {
-          toast.error(`${field}: ${errors[field]}`);
-        });
-      } else {
-        toast.error(error.response?.data?.message || 'Failed to add student');
-      }
-      saveRetainedData(pupilData);
-    }
-  };
-
-  // Only show classes that have students
   const classesWithStudents = [...new Set(pupils.map(p => p.class).filter(Boolean))];
   const sortedClassesWithStudents = sortClassesByOrder(classesWithStudents);
 
-  const filteredPupils = pupils.filter(pupil => {
-    const matchesSearch = searchTerm === '' || 
-      pupil.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      pupil.admNo?.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesClass = selectedClass === 'all' || pupil.class === selectedClass;
-    const matchesStream = !selectedStream || selectedStream === '' || pupil.stream === selectedStream;
-    return matchesSearch && matchesClass && matchesStream;
+  const filteredPupils = pupils.filter(p => {
+    const searchMatch = searchTerm === '' ||
+      p.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      p.admNo?.toLowerCase().includes(searchTerm.toLowerCase());
+    const classMatch = selectedClass === 'all' || p.class === selectedClass;
+    const streamMatch = !selectedStream || p.stream === selectedStream;
+    return searchMatch && classMatch && streamMatch;
   });
 
   const sortedPupils = [...filteredPupils].sort((a, b) => {
-    let aVal, bVal;
-    if (sortBy === 'name') {
-      aVal = a.name || '';
-      bVal = b.name || '';
-    } else {
-      aVal = a.admNo || '';
-      bVal = b.admNo || '';
-    }
-    if (sortOrder === 'asc') {
-      return aVal.localeCompare(bVal);
-    } else {
-      return bVal.localeCompare(aVal);
-    }
+    const key = sortBy === 'name' ? 'name' : 'admNo';
+    const aV = a[key] || '';
+    const bV = b[key] || '';
+    return sortOrder === 'asc' ? aV.localeCompare(bV) : bV.localeCompare(aV);
   });
 
-  const groupedPupils = sortedPupils.reduce((acc, pupil) => {
-    if (!acc[pupil.class]) {
-      acc[pupil.class] = [];
-    }
-    acc[pupil.class].push(pupil);
+  const groupedPupils = sortedPupils.reduce((acc, p) => {
+    if (!acc[p.class]) acc[p.class] = [];
+    acc[p.class].push(p);
     return acc;
   }, {});
 
   const sortedGroupedPupils = {};
-  const sortedClassNames = sortClassesByOrder(Object.keys(groupedPupils));
-  sortedClassNames.forEach(className => {
-    sortedGroupedPupils[className] = groupedPupils[className];
+  sortClassesByOrder(Object.keys(groupedPupils)).forEach(c => {
+    sortedGroupedPupils[c] = groupedPupils[c];
   });
 
   const groupedByLevel = {};
-  sortedClassNames.forEach(className => {
+  Object.keys(sortedGroupedPupils).forEach(className => {
     let level = 'Other';
     if (CLASS_ORDER.slice(0, 3).includes(className)) level = 'Early Years Education';
     else if (CLASS_ORDER.slice(3, 6).includes(className)) level = 'Lower Primary';
     else if (CLASS_ORDER.slice(6, 9).includes(className)) level = 'Upper Primary';
     else if (CLASS_ORDER.slice(9, 12).includes(className)) level = 'Junior Secondary';
     else if (CLASS_ORDER.slice(12, 15).includes(className)) level = 'Senior Secondary';
-    
     if (!groupedByLevel[level]) groupedByLevel[level] = [];
     groupedByLevel[level].push(className);
   });
 
-  const handleDownloadSubmit = () => {
-    if (!downloadClass) {
-      toast.error('Please select a class');
-      return;
+  const handleDownloadSubmit = async () => {
+    if (!downloadClass) return toast.error('Select class');
+    let students = downloadClass === 'all' ? pupils : pupils.filter(p => p.class === downloadClass);
+
+    const hasStreamFilter =
+      downloadStream &&
+      downloadStream !== 'all' &&
+      downloadStream !== '';
+
+    if (hasStreamFilter) {
+      students = students.filter(p => p.stream === downloadStream);
     }
-    
-    let studentsToDownload = [];
-    
-    if (downloadClass === 'all') {
-      studentsToDownload = pupils;
-    } else {
-      studentsToDownload = pupils.filter(p => p.class === downloadClass);
-      if (downloadStream && downloadStream !== 'all' && downloadStream !== '') {
-        studentsToDownload = studentsToDownload.filter(p => p.stream === downloadStream);
-      }
-    }
-    
-    if (studentsToDownload.length === 0) {
-      toast.error('No students found to download');
-      return;
-    }
-    
-    const fileName = `${downloadClass}${downloadStream && downloadStream !== 'all' && downloadStream !== '' ? `_${downloadStream}` : ''}_students`;
-    const titleText = `${downloadClass}${downloadStream && downloadStream !== 'all' && downloadStream !== '' ? ` - ${downloadStream}` : ''} Student List`;
-    
-    const schoolName = schoolInfo.name || schoolInfo.schoolName || 'SCHOOL NAME';
-    const schoolMotto = schoolInfo.motto || 'Excellence in Education';
-    const schoolPoBox = schoolInfo.poBox || 'P.O. Box 00000';
-    const schoolPhone = schoolInfo.phone || schoolInfo.phoneNumber || '+254 XXX XXX XXX';
-    const schoolEmail = schoolInfo.email || schoolInfo.schoolEmail || 'info@school.ac.ke';
-    
+    if (students.length === 0) return toast.error('No students');
+
+    students = [...students].sort((a, b) => admNumeric(a) - admNumeric(b));
+
+    const fileStreamPart = hasStreamFilter ? `_${downloadStream}` : '';
+    const fileName = `${downloadClass}${fileStreamPart}_students`;
+
+    const classLabel = downloadClass === 'all' ? 'All Students' : downloadClass;
+    const streamLabel = hasStreamFilter ? ` (${downloadStream})` : '';
+    const titleText = `${classLabel}${streamLabel} STUDENT LIST`.toUpperCase();
+
+    const showStrCol = !hasStreamFilter;
+
     if (downloadFormat === 'excel') {
-      const downloadData = studentsToDownload.map((student, index) => ({
-        '#': index + 1,
-        'Name': student.name,
-        'Adm': student.admNo,
-        'Gen': student.gender === 'Male' ? 'M' : (student.gender === 'Female' ? 'F' : (student.gender || 'N/A')),
-        'Str': student.stream || 'N/A',
-        'REMARKS': ''
-      }));
-      
-      const headers = Object.keys(downloadData[0]);
-      const csvRows = [
-        `"${schoolName}"`,
-        `"${schoolMotto}"`,
-        `"${schoolPoBox} | Tel: ${schoolPhone} | Email: ${schoolEmail}"`,
+      const data = students.map((s, i) => {
+        const row = {
+          '#': i + 1,
+          ADM: s.admNo,
+          NAME: s.name,
+          GEN: s.gender === 'Male' ? 'M' : (s.gender === 'Female' ? 'F' : (s.gender || 'N/A')),
+        };
+        if (showStrCol) row.STR = s.stream || 'N/A';
+        row.REMARKS = '';
+        return row;
+      });
+      const headers = Object.keys(data[0]);
+      const rows = [
+        `"${(schoolInfo.name || schoolInfo.schoolName || 'SCHOOL').toUpperCase()}"`,
+        `"${schoolInfo.motto || ''}"`,
+        `"${schoolInfo.address || ''} | Tel: ${schoolInfo.phone || schoolInfo.phoneNumber || ''}"`,
         `"${titleText}"`,
         `"Generated: ${new Date().toLocaleString()}"`,
-        `"Total Students: ${studentsToDownload.length}"`,
         '',
         headers.join(','),
-        ...downloadData.map(row => headers.map(header => `"${row[header] || ''}"`).join(','))
-      ];
-      const csvContent = csvRows.join('\n');
-      const blob = new Blob(["\uFEFF" + csvContent], { type: 'text/csv;charset=utf-8;' });
+        ...data.map(r => headers.map(h => `"${r[h] || ''}"`).join(','))
+      ].join('\n');
+      const blob = new Blob(["\uFEFF" + rows], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = `${fileName}_${new Date().toISOString().split('T')[0]}.csv`;
       a.click();
       URL.revokeObjectURL(url);
-      toast.success(`Downloaded ${studentsToDownload.length} students`);
     } else {
-      const htmlContent = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <title>${titleText} - ${schoolName}</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'Times New Roman', 'Arial', serif; margin: 0; padding: 20px; background: white; }
-    .header { text-align: center; width: 100%; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 2px solid #000; }
-    .school-name { font-size: 24px; font-weight: bold; text-transform: uppercase; margin-bottom: 5px; }
-    .motto { font-size: 12px; font-style: italic; margin-bottom: 8px; }
-    .address { font-size: 10px; margin-bottom: 10px; }
-    .title { font-size: 18px; font-weight: bold; text-decoration: underline; margin: 10px 0; text-transform: uppercase; }
-    .info-row { font-size: 10px; margin-bottom: 5px; display: flex; justify-content: space-between; }
-    .student-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 15px; }
-    .student-table th, .student-table td { border: 1px solid #000; padding: 8px 4px; vertical-align: top; }
-    .student-table th:first-child, .student-table td:first-child { width: 5%; text-align: center; }
-    .student-table th:nth-child(2), .student-table td:nth-child(2) { width: 25%; text-align: left; }
-    .student-table th:nth-child(3), .student-table td:nth-child(3) { width: 8%; text-align: center; }
-    .student-table th:nth-child(4), .student-table td:nth-child(4) { width: 5%; text-align: center; }
-    .student-table th:nth-child(5), .student-table td:nth-child(5) { width: 7%; text-align: center; }
-    .student-table th:nth-child(6), .student-table td:nth-child(6) { width: 50%; text-align: left; }
-    .student-table td { height: 35px; }
-    .signature-line { margin-top: 40px; display: flex; justify-content: space-between; font-size: 11px; width: 100%; }
-    .footer { margin-top: 20px; padding-top: 10px; border-top: 1px solid #ccc; font-size: 9px; text-align: center; width: 100%; }
-  </style>
-</head>
-<body>
-  <div class="header">
-    <div class="school-name">${schoolName}</div>
-    <div class="motto">"${schoolMotto}"</div>
-    <div class="address">${schoolPoBox} | Tel: ${schoolPhone} | Email: ${schoolEmail}</div>
-    <div class="title">${titleText}</div>
-    <div class="info-row">
-      <span>Generated on: ${new Date().toLocaleDateString()}</span>
-      <span>Time: ${new Date().toLocaleTimeString()}</span>
-    </div>
-    <div class="info-row">
-      <span>Academic Year: ${new Date().getFullYear()}</span>
-      <span>Total Students: ${studentsToDownload.length}</span>
-    </div>
-  </div>
-  
-  <table class="student-table">
-    <thead>
-      <tr>
-        <th>#</th>
-        <th>NAME</th>
-        <th>ADM</th>
-        <th>GEN</th>
-        <th>STR</th>
-        <th>REMARKS</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${studentsToDownload.map((student, idx) => `
-        <tr>
-          <td style="text-align: center;">${idx + 1}</td>
-          <td>${student.name || '-'}</td>
-          <td style="text-align: center;">${student.admNo || '-'}</td>
-          <td style="text-align: center;">${student.gender === 'Male' ? 'M' : (student.gender === 'Female' ? 'F' : (student.gender || '-'))}</td>
-          <td style="text-align: center;">${student.stream || '-'}</td>
-          <td>&nbsp;</td>
-        </tr>
-      `).join('')}
-    </tbody>
-  </table>
-  
-  <div class="signature-line">
-    <div>_____________________<br>Class Teacher's Signature</div>
-    <div>_____________________<br>Deputy Head Teacher</div>
-    <div>_____________________<br>Head Teacher</div>
-  </div>
-  
-  <div class="footer">
-    <p>This is a computer-generated document. No signature required.</p>
-  </div>
-</body>
-</html>`;
-      const blob = new Blob([htmlContent], { type: 'application/msword' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${fileName}_${new Date().toISOString().split('T')[0]}.doc`;
-      a.click();
-      URL.revokeObjectURL(url);
-      toast.success(`Downloaded ${studentsToDownload.length} students`);
+      try {
+        const thinBorder = { style: BorderStyle.SINGLE, size: 4, color: '999999' };
+        const cellBorders = { top: thinBorder, bottom: thinBorder, left: thinBorder, right: thinBorder };
+        const children = [];
+
+        children.push(...buildWordLogoParagraph(schoolInfo, {
+          schoolNameSize: 28, contactSize: 16, mottoSize: 18,
+          logoWidth: 80, logoHeight: 80,
+        }));
+
+        children.push(
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { before: 240, after: 120 },
+            children: [new TextRun({ text: titleText, bold: true, size: 24, underline: {} })],
+          }),
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 200 },
+            children: [new TextRun({
+              text: `Generated: ${new Date().toLocaleDateString()}    |    Total: ${students.length}`,
+              size: 18,
+            })],
+          }),
+        );
+
+        const headers = ['#', 'ADM', 'NAME', 'GEN'];
+        if (showStrCol) headers.push('STR');
+        headers.push('REMARKS');
+
+        const headerRow = new TableRow({
+          children: headers.map(h => new TableCell({
+            borders: cellBorders, shading: { fill: 'F0F0F0' },
+            children: [new Paragraph({
+              alignment: AlignmentType.CENTER,
+              children: [new TextRun({ text: h, bold: true, size: 18 })],
+            })],
+          })),
+        });
+
+        const bodyRows = students.map((s, i) => {
+          const cells = [
+            new TableCell({ borders: cellBorders, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(i + 1), size: 18 })] })] }),
+            new TableCell({ borders: cellBorders, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: s.admNo || '-', size: 18 })] })] }),
+            new TableCell({ borders: cellBorders, children: [new Paragraph({ children: [new TextRun({ text: s.name || '-', size: 18 })] })] }),
+            new TableCell({ borders: cellBorders, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: s.gender === 'Male' ? 'M' : (s.gender === 'Female' ? 'F' : '-'), size: 18 })] })] }),
+          ];
+          if (showStrCol) {
+            cells.push(new TableCell({ borders: cellBorders, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: s.stream || '-', size: 18 })] })] }));
+          }
+          cells.push(new TableCell({ borders: cellBorders, children: [new Paragraph({ children: [new TextRun({ text: '', size: 18 })] })] }));
+          return new TableRow({ children: cells });
+        });
+
+        children.push(new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          rows: [headerRow, ...bodyRows],
+        }));
+
+        children.push(
+          new Paragraph({ spacing: { before: 600 }, children: [] }),
+          new Paragraph({
+            alignment: AlignmentType.CENTER,
+            children: [new TextRun({
+              text: 'Class Teacher: __________________     Deputy: __________________     Head Teacher: __________________',
+              size: 18,
+            })],
+          }),
+        );
+
+        const doc = new Document({
+          sections: [{
+            properties: { page: { size: A4_PAGE.size, margin: A4_PAGE.margin } },
+            children,
+          }],
+        });
+
+        const blob = await Packer.toBlob(doc);
+        saveAs(blob, `${fileName}_${new Date().toISOString().split('T')[0]}.docx`);
+      } catch (err) {
+        console.error(err);
+        toast.error('Failed to generate Word document: ' + err.message);
+        return;
+      }
     }
-    
+    toast.success(`Downloaded ${students.length} students`);
     setShowDownloadModal(false);
     setDownloadClass('');
     setDownloadStream('');
   };
 
-  // ===== VIEW RESULTS MODAL =====
-  const ResultsModal = () => {
-    if (!viewingPupilResults) return null;
-    
-    const getCompetencyLevel = (marks) => {
-      if (marks >= 80) return { level: 'Exceeding Expectation', color: 'bg-purple-100 text-purple-800' };
-      if (marks >= 60) return { level: 'Meeting Expectation', color: 'bg-green-100 text-green-800' };
-      if (marks >= 40) return { level: 'Approaching Expectation', color: 'bg-blue-100 text-blue-800' };
-      if (marks >= 20) return { level: 'Below Expectation', color: 'bg-yellow-100 text-yellow-800' };
-      return { level: 'Well Below Expectation', color: 'bg-red-100 text-red-800' };
-    };
-    
-    return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto p-4">
-        <div className="bg-white rounded-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-          <div className="sticky top-0 bg-white border-b border-gray-200 p-4 flex justify-between items-center">
-            <div>
-              <h2 className="text-xl font-bold text-gray-800">{viewingPupilResults.name}</h2>
-              <p className="text-sm text-gray-500">
-                Adm: {viewingPupilResults.admNo} • Class: {viewingPupilResults.class}
-                {viewingPupilResults.stream && ` • Stream: ${viewingPupilResults.stream}`}
-              </p>
-            </div>
-            <button onClick={() => { setShowResultsModal(false); setViewingPupilResults(null); setPupilResults([]); }} className="text-gray-500 hover:text-gray-700">
-              <FiX className="w-6 h-6" />
-            </button>
-          </div>
-          
-          <div className="p-6">
-            <div className="flex items-center gap-2 mb-4">
-              <FiBarChart2 className="text-blue-600 w-5 h-5" />
-              <h3 className="font-semibold text-gray-800">All Exam Results</h3>
-              <span className="text-sm text-gray-500 ml-2">({pupilResults.length} exams)</span>
-            </div>
-            
-            {loadingResults ? (
-              <div className="flex justify-center py-12">
-                <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-green-600"></div>
-              </div>
-            ) : pupilResults.length === 0 ? (
-              <div className="text-center py-12 bg-gray-50 rounded-lg">
-                <FiBookOpen className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                <p className="text-gray-500">No results recorded for this student yet</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {pupilResults.map((result, index) => {
-                  const competency = getCompetencyLevel(result.marks);
-                  return (
-                    <div key={result._id || index} className="bg-gray-50 rounded-lg p-4 border border-gray-200 hover:shadow-md transition-shadow">
-                      <div className="flex flex-wrap justify-between items-start gap-2">
-                        <div>
-                          <p className="font-medium text-gray-800">{result.subject || 'Subject'}</p>
-                          <p className="text-xs text-gray-500">
-                            {result.examName || 'Exam'} • {result.term || 'Term'} {result.year || ''}
-                          </p>
-                          {result.examType && (
-                            <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full mt-1 inline-block">
-                              {result.examType}
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-right">
-                          <p className="text-2xl font-bold text-blue-600">{result.marks || 0}%</p>
-                          <span className={`text-xs px-2 py-0.5 rounded-full ${competency.color}`}>
-                            {competency.level}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const DownloadModal = () => (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl p-6 w-full max-w-md">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-2xl font-bold text-gray-800">Download Class Lists</h2>
-          <button onClick={() => setShowDownloadModal(false)} className="text-gray-500 hover:text-gray-700">
-            <FiX className="w-6 h-6" />
-          </button>
-        </div>
-        
-        <div className="space-y-4">
-          <div>
-            <label className="block text-gray-700 font-medium mb-2">Download Format:</label>
-            <div className="flex gap-4">
-              <button
-                onClick={() => setDownloadFormat('excel')}
-                className={`flex-1 py-2 px-4 rounded-lg border-2 flex items-center justify-center gap-2 ${
-                  downloadFormat === 'excel' ? 'border-green-500 bg-green-50 text-green-700' : 'border-gray-300'
-                }`}
-              >
-                <FiFile className="w-4 h-4" /> EXCEL
-              </button>
-              <button
-                onClick={() => setDownloadFormat('word')}
-                className={`flex-1 py-2 px-4 rounded-lg border-2 flex items-center justify-center gap-2 ${
-                  downloadFormat === 'word' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300'
-                }`}
-              >
-                <FiFileText className="w-4 h-4" /> WORD
-              </button>
-            </div>
-          </div>
-          
-          <div>
-            <label className="block text-gray-700 font-medium mb-2">Class</label>
-            <select
-              value={downloadClass}
-              onChange={(e) => setDownloadClass(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">Select Class</option>
-              <option value="all">All Classes ({pupils.length} students)</option>
-              {sortClassesByOrder(classesWithStudents).map((className) => {
-                const classCount = pupils.filter(p => p.class === className).length;
-                return (
-                  <option key={className} value={className}>
-                    {className} ({classCount} students)
-                  </option>
-                );
-              })}
-            </select>
-          </div>
-          
-          {downloadClass && downloadClass !== 'all' && availableStreamsForDownload.length > 0 && (
-            <div>
-              <label className="block text-gray-700 font-medium mb-2">Stream (Optional)</label>
-              <select
-                value={downloadStream}
-                onChange={(e) => setDownloadStream(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="all">All Streams</option>
-                {availableStreamsForDownload.map(stream => (
-                  <option key={stream} value={stream}>{stream}</option>
-                ))}
-              </select>
-            </div>
-          )}
-        </div>
-        
-        <div className="flex space-x-3 mt-6">
-          <button onClick={() => setShowDownloadModal(false)} className="flex-1 bg-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-400">
-            CANCEL
-          </button>
-          <button onClick={handleDownloadSubmit} className="flex-1 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700">
-            DOWNLOAD SELECTED
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-
-  const StudentDetailModal = () => {
-    if (!viewingStudent) return null;
-    const previousClass = getPreviousClass(viewingStudent.class);
-    const nextClass = getNextClass(viewingStudent.class);
-    const isHighestClass = viewingStudent.class === highestClass;
-    
-    return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto">
-        <div className="bg-white rounded-xl w-full max-w-4xl m-4 max-h-[90vh] overflow-y-auto">
-          <div className="sticky top-0 bg-white border-b border-gray-200 p-4 flex justify-between items-center">
-            <div>
-              <h2 className="text-2xl font-bold text-gray-800">{viewingStudent.name}</h2>
-              <p className="text-sm text-gray-500">
-                Admission: {viewingStudent.admNo} • Gender: {viewingStudent.gender === 'Male' ? 'M' : (viewingStudent.gender === 'Female' ? 'F' : (viewingStudent.gender || 'N/A'))}
-                <br />Current: {viewingStudent.class}
-                {isHighestClass && (
-                  <span className="ml-2 text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">Graduating Class</span>
-                )}
-              </p>
-            </div>
-            <button onClick={() => setShowStudentDetail(false)} className="text-gray-500 hover:text-gray-700">
-              <FiX className="w-6 h-6" />
-            </button>
-          </div>
-          
-          <div className="p-6">
-            <div className="mb-6 bg-blue-50 rounded-lg p-4">
-              <h3 className="font-semibold text-gray-800 mb-2">Student Information</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm text-gray-500">Date of Birth</p>
-                  <p className="font-medium">{viewingStudent.dateOfBirth || 'N/A'}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">Birth Certificate</p>
-                  <p className="font-medium">{viewingStudent.birthCertNo || 'N/A'}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">Stream</p>
-                  <p className="font-medium">{viewingStudent.stream || 'N/A'}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">Parent Name</p>
-                  <p className="font-medium">{viewingStudent.parentName || 'N/A'}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">Parent Contact</p>
-                  <p className="font-medium">{viewingStudent.parentPhone || 'N/A'}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-500">Parent Email</p>
-                  <p className="font-medium">{viewingStudent.parentEmail || 'N/A'}</p>
-                </div>
-              </div>
-            </div>
-            
-            {/* ✅ Individual student actions */}
-            <div className="flex flex-wrap gap-2 pt-4 border-t">
-              <button
-                onClick={() => { setShowStudentDetail(false); handleEditStudent(viewingStudent); }}
-                className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-blue-700"
-              >
-                EDIT
-              </button>
-              <button
-                onClick={() => { setShowStudentDetail(false); handleTransferClick(viewingStudent); }}
-                className="bg-yellow-600 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-yellow-700"
-              >
-                TRANSFER
-              </button>
-              <button
-                onClick={() => { setShowStudentDetail(false); handleViewResults(viewingStudent); }}
-                className="bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-indigo-700 flex items-center gap-1"
-              >
-                <FiBarChart2 className="w-3 h-3" /> VIEW RESULTS
-              </button>
-              {previousClass && (
-                <button
-                  onClick={() => { setShowStudentDetail(false); handleDemoteStudent(viewingStudent); }}
-                  className="bg-orange-500 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-orange-600 flex items-center gap-1"
-                >
-                  <FiArrowDown className="w-3 h-3" /> DEMOTE
-                </button>
-              )}
-
-              {/* ✅ PROMOTE this student individually */}
-              {!isHighestClass && nextClass && nextClass !== 'graduate' && (
-                <button
-                  onClick={() => handlePromoteStudent(viewingStudent)}
-                  className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-green-700 flex items-center gap-1"
-                >
-                  <FiArrowRight className="w-3 h-3" /> PROMOTE TO {nextClass}
-                </button>
-              )}
-
-              {/* ✅ GRADUATE this student individually (if in highest class) */}
-              {isHighestClass && (
-                <button
-                  onClick={() => handleGraduateStudent(viewingStudent)}
-                  className="bg-purple-600 text-white px-3 py-1.5 rounded-lg text-xs hover:bg-purple-700 flex items-center gap-1"
-                >
-                  <FiAward className="w-3 h-3" /> GRADUATE
-                </button>
-              )}
-
-              <button
-                onClick={() => { setShowStudentDetail(false); handleDeleteStudent(viewingStudent._id); }}
-                className="text-red-600 hover:text-red-800 text-xs flex items-center gap-1 border border-red-300 px-3 py-1.5 rounded-lg"
-              >
-                <FiTrash2 className="w-3 h-3" /> DELETE
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // ✅ Confirmation modal for single-student promote / graduate
-  const StudentActionModal = () => {
-    if (!studentActionData) return null;
-    const { student, currentClass, nextClass } = studentActionData;
-    const isGraduate = studentActionType === 'graduate';
-
-    return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-2">
-        <div className="bg-white rounded-xl p-6 w-full max-w-md">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-bold text-gray-800">
-              {isGraduate ? 'Graduate Student' : 'Promote Student'}
-            </h2>
-            <button
-              onClick={() => { setShowStudentActionModal(false); setStudentActionData(null); }}
-              className="text-gray-500 hover:text-gray-700"
-            >
-              <FiX className="w-6 h-6" />
-            </button>
-          </div>
-
-          <div className={`mb-4 p-3 rounded-lg flex items-start gap-2 border ${
-            isGraduate ? 'bg-purple-50 border-purple-200' : 'bg-green-50 border-green-200'
-          }`}>
-            {isGraduate ? (
-              <FiAward className="w-5 h-5 text-purple-600 flex-shrink-0 mt-0.5" />
-            ) : (
-              <FiArrowRight className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
-            )}
-            <div className={`text-sm ${isGraduate ? 'text-purple-800' : 'text-green-800'}`}>
-              <p className="font-semibold">{student.name}</p>
-              <p>Admission: {student.admNo}</p>
-              <p>Current Class: <strong>{currentClass}</strong></p>
-              <p>
-                {isGraduate
-                  ? <>Will be moved to: <strong>Alumni</strong></>
-                  : <>Will be promoted to: <strong>{nextClass}</strong></>
-                }
-              </p>
-            </div>
-          </div>
-
-          <div className="bg-yellow-50 p-3 rounded-lg mb-4">
-            <p className="text-sm text-yellow-800">
-              <FiInfo className="inline mr-1" />
-              {isGraduate
-                ? 'This will mark the student as an alumnus and remove them from active student lists.'
-                : `This will move the student from ${currentClass} to ${nextClass}.`
-              }
-            </p>
-          </div>
-
-          <div className="flex flex-col md:flex-row gap-2 mt-2">
-            <button
-              onClick={confirmStudentAction}
-              className={`w-full md:flex-1 text-white px-4 py-2 rounded-lg ${
-                isGraduate ? 'bg-purple-600 hover:bg-purple-700' : 'bg-green-600 hover:bg-green-700'
-              }`}
-            >
-              {isGraduate ? 'CONFIRM GRADUATION' : 'CONFIRM PROMOTION'}
-            </button>
-            <button
-              onClick={() => { setShowStudentActionModal(false); setStudentActionData(null); }}
-              className="w-full md:flex-1 bg-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-400"
-            >
-              CANCEL
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const PromoteModal = () => {
-    if (!promoteClassData) return null;
-    
-    return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2">
-        <div className="bg-white rounded-xl p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl md:text-2xl font-bold text-gray-800">
-              {promoteAction === 'graduate' ? 'Graduate Class' : 'Promote Class'}
-            </h2>
-            <button onClick={() => setShowPromoteModal(false)} className="text-gray-500 hover:text-gray-700">
-              <FiX className="w-6 h-6" />
-            </button>
-          </div>
-          
-          <div className="mb-4">
-            <p className="text-gray-600">
-              {promoteAction === 'graduate' 
-                ? `${promoteClassData.className} → Graduate to Alumni`
-                : `${promoteClassData.className} → ${promoteClassData.nextClass}`}
-            </p>
-            {promoteAction === 'graduate' && (
-              <p className="text-sm text-purple-600 mt-1">
-                <FiAward className="inline mr-1" /> This action will move selected students to the Alumni section.
-              </p>
-            )}
-          </div>
-          
-          <div className="mb-4 flex justify-between items-center">
-            <p className="text-sm text-gray-500">Selected: {selectedStudents.length} of {promoteClassData.students.length} learners</p>
-            <button onClick={selectAllStudents} className="text-blue-600 text-sm hover:underline">
-              {selectedStudents.length === promoteClassData.students.length ? 'Deselect All' : 'Select All'}
-            </button>
-          </div>
-          
-          <div className="border rounded-lg overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-10">Select</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Adm</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Stream</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {promoteClassData.students.map(student => (
-                  <tr key={student._id} className="hover:bg-gray-50">
-                    <td className="px-3 py-2">
-                      <input
-                        type="checkbox"
-                        checked={selectedStudents.includes(student._id)}
-                        onChange={() => toggleStudentSelection(student._id)}
-                        className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                      />
-                    </td>
-                    <td className="px-3 py-2 text-sm">{student.admNo}</td>
-                    <td className="px-3 py-2 text-sm font-medium">{student.name}</td>
-                    <td className="px-3 py-2 text-sm">{student.stream || 'N/A'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          
-          <div className="flex flex-col md:flex-row gap-2 mt-6">
-            <button onClick={confirmPromotion} className="w-full md:flex-1 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700">
-              {promoteAction === 'graduate' ? 'GRADUATE SELECTED' : 'PROMOTE SELECTED'}
-            </button>
-            <button onClick={() => setShowPromoteModal(false)} className="w-full md:flex-1 bg-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-400">
-              CANCEL
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const TransferModal = () => {
-    if (!selectedPupil) return null;
-    
-    return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2">
-        <div className="bg-white rounded-xl p-6 w-full max-w-md">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl md:text-2xl font-bold text-gray-800">Transfer Learner</h2>
-            <button onClick={() => setShowTransferModal(false)} className="text-gray-500 hover:text-gray-700">
-              <FiX className="w-6 h-6" />
-            </button>
-          </div>
-          
-          <div className="mb-4 p-3 bg-yellow-50 rounded-lg flex items-start gap-2">
-            <FiAlertTriangle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
-            <p className="text-sm text-yellow-800">
-              Transferring: <strong>{selectedPupil.name}</strong> ({selectedPupil.admNo})
-            </p>
-          </div>
-          
-          <div className="space-y-4">
-            <div>
-              <label className="block text-gray-700 font-medium mb-2">Transfer Reason *</label>
-              <select
-                value={transferData.reason}
-                onChange={(e) => setTransferData({...transferData, reason: e.target.value})}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500"
-              >
-                <option value="">Select Reason</option>
-                <option value="Change of School">Change of School</option>
-                <option value="Family Relocation">Family Relocation</option>
-                <option value="Financial Reasons">Financial Reasons</option>
-                <option value="Academic Reasons">Academic Reasons</option>
-                <option value="Health Reasons">Health Reasons</option>
-                <option value="Other">Other</option>
-              </select>
-            </div>
-            
-            <div>
-              <label className="block text-gray-700 font-medium mb-2">Destination School (Optional)</label>
-              <input
-                type="text"
-                value={transferData.destinationSchool}
-                onChange={(e) => setTransferData({...transferData, destinationSchool: e.target.value})}
-                placeholder="Enter destination school name"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500"
-              />
-            </div>
-            
-            <div>
-              <label className="block text-gray-700 font-medium mb-2">Remarks (Optional)</label>
-              <textarea
-                value={transferData.remarks}
-                onChange={(e) => setTransferData({...transferData, remarks: e.target.value})}
-                placeholder="Additional remarks..."
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500"
-                rows="3"
-              />
-            </div>
-          </div>
-          
-          <div className="flex flex-col md:flex-row gap-2 mt-6">
-            <button onClick={handleTransferSubmit} className="w-full md:flex-1 bg-yellow-600 text-white px-4 py-2 rounded-lg hover:bg-yellow-700">
-              TRANSFER LEARNER
-            </button>
-            <button onClick={() => setShowTransferModal(false)} className="w-full md:flex-1 bg-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-400">
-              CANCEL
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const DemoteModal = () => {
-    if (!demoteData) return null;
-    
-    return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2">
-        <div className="bg-white rounded-xl p-6 w-full max-w-md">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl md:text-2xl font-bold text-gray-800">Demote Student</h2>
-            <button onClick={() => setShowDemoteModal(false)} className="text-gray-500 hover:text-gray-700">
-              <FiX className="w-6 h-6" />
-            </button>
-          </div>
-          
-          <div className="mb-4 p-3 bg-orange-50 rounded-lg flex items-start gap-2 border border-orange-200">
-            <FiAlertTriangle className="w-5 h-5 text-orange-600 flex-shrink-0 mt-0.5" />
-            <div className="text-sm text-orange-800">
-              <p className="font-semibold">{demoteData.student.name}</p>
-              <p>Current Class: <strong>{demoteData.currentClass}</strong></p>
-              <p>Will be demoted to: <strong>{demoteData.previousClass}</strong></p>
-            </div>
-          </div>
-          
-          <div className="space-y-4">
-            <div className="bg-yellow-50 p-3 rounded-lg">
-              <p className="text-sm text-yellow-800">
-                <FiInfo className="inline mr-1" /> 
-                Demoting a student will move them to the previous class in the academic sequence.
-              </p>
-            </div>
-          </div>
-          
-          <div className="flex flex-col md:flex-row gap-2 mt-6">
-            <button onClick={confirmDemote} className="w-full md:flex-1 bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700">
-              CONFIRM DEMOTION
-            </button>
-            <button onClick={() => setShowDemoteModal(false)} className="w-full md:flex-1 bg-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-400">
-              CANCEL
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   if (loading) {
     return (
-      <Layout title="All Students" subtitle="Manage and view all students">
+      <Layout title="All Students" subtitle="Manage students">
         <div className="flex justify-center items-center h-64">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
         </div>
@@ -1488,212 +1580,90 @@ const Pupils = () => {
   }
 
   return (
-    <Layout title="All Students" subtitle="Manage and view all students">
-      {/* School Info Banner */}
-      <div className="bg-gradient-to-r from-blue-50 to-green-50 rounded-xl p-4 mb-6 border border-blue-100">
-        <div className="flex flex-wrap justify-between items-center">
-          <div>
-            <h3 className="text-lg font-bold text-gray-800">
-              {schoolInfo.name || schoolInfo.schoolName || 'School Name'}
-            </h3>
-            <p className="text-sm text-gray-600">
-              {schoolInfo.motto || 'Excellence in Education'}
-            </p>
-            <div className="flex flex-wrap gap-3 mt-1 text-xs text-gray-500">
-              {schoolInfo.poBox && <span>📬 {schoolInfo.poBox}</span>}
-              {schoolInfo.phone && <span>📞 {schoolInfo.phone}</span>}
-              {schoolInfo.email && <span>✉️ {schoolInfo.email}</span>}
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <FiBookOpen className="text-blue-600 w-5 h-5" />
-            <span className="text-sm font-medium text-gray-700">
-              Classes: {classesWithStudents.length} • Highest: {highestClass || 'N/A'}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap justify-between items-center gap-3 mb-6">
-        <button onClick={() => setShowDownloadModal(true)} className="bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center justify-center gap-2 px-4 py-2 text-sm">
-          <FiDownload /> DOWNLOAD LISTS
+    <Layout title="All Students" subtitle="Manage students">
+      <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
+        <button onClick={() => setShowDownloadModal(true)}
+          className="bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 px-4 py-2 text-sm">
+          <FiDownload className="w-4 h-4" /> Download Lists
         </button>
-        <button onClick={() => setIsModalOpen(true)} className="btn-primary flex items-center justify-center gap-2 px-4 py-2 text-sm">
-          <FiUsers /> + ADD NEW STUDENT
+        <button onClick={() => setIsModalOpen(true)}
+          className="btn-primary flex items-center gap-2 px-4 py-2 text-sm">
+          <FiUsers className="w-4 h-4" /> Add Student
         </button>
       </div>
 
-      {/* Search and Filters */}
-      <div className="bg-white rounded-xl shadow-md p-4 mb-6">
-        <div className="flex flex-col md:flex-row gap-4 items-center">
-          <div className="w-full md:flex-1 min-w-[200px]">
-            <div className="relative">
-              <FiSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-              <input 
-                type="text" 
-                placeholder="Search students by name or admission..." 
-                value={searchTerm} 
-                onChange={(e) => setSearchTerm(e.target.value)} 
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" 
-              />
-            </div>
+      <div className="bg-white rounded-xl shadow-md p-4 mb-4">
+        <div className="flex flex-col md:flex-row gap-3">
+          <div className="flex-1 relative">
+            <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input type="text" placeholder="Search name or adm..."
+              value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm" />
           </div>
-          
-          {sortedClassesWithStudents.length > 0 && (
-            <select
-              value={selectedClass}
-              onChange={(e) => setSelectedClass(e.target.value)}
-              className="w-full md:w-auto px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-            >
-              <option value="all">All Classes</option>
-              {sortedClassesWithStudents.map(cls => (
-                <option key={cls} value={cls}>{cls}</option>
-              ))}
-            </select>
-          )}
-          
+          <select value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)}
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+            <option value="all">All Classes</option>
+            {sortedClassesWithStudents.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
           {selectedClass !== 'all' && availableStreams.length > 0 && (
-            <select
-              value={selectedStream}
-              onChange={(e) => setSelectedStream(e.target.value)}
-              className="w-full md:w-auto px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-            >
+            <select value={selectedStream} onChange={(e) => setSelectedStream(e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded-lg text-sm">
               <option value="">All Streams</option>
-              {availableStreams.map(stream => (
-                <option key={stream} value={stream}>{stream}</option>
-              ))}
+              {availableStreams.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           )}
-          
-          <div className="flex w-full md:w-auto gap-2">
-            <button 
-              onClick={() => { setSortBy('name'); setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc'); }} 
-              className="flex-1 md:flex-none px-3 py-1.5 text-sm bg-gray-100 rounded-lg hover:bg-gray-200"
-            >
-              Name {sortBy === 'name' && (sortOrder === 'asc' ? '↑' : '↓')}
-            </button>
-            <button 
-              onClick={() => { setSortBy('admission'); setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc'); }} 
-              className="flex-1 md:flex-none px-3 py-1.5 text-sm bg-gray-100 rounded-lg hover:bg-gray-200"
-            >
-              Adm {sortBy === 'admission' && (sortOrder === 'asc' ? '↑' : '↓')}
-            </button>
-          </div>
+          <button onClick={() => { setSortBy('name'); setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc'); }}
+            className="px-3 py-2 text-xs bg-gray-100 rounded-lg">
+            Name {sortBy === 'name' && (sortOrder === 'asc' ? '↑' : '↓')}
+          </button>
         </div>
-        
-        {(selectedClass !== 'all' || selectedStream) && (
-          <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-2 flex-wrap">
-            <span className="text-sm text-gray-500">Filters:</span>
-            {selectedClass !== 'all' && (
-              <span className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded-full">
-                Class: {selectedClass}
-              </span>
-            )}
-            {selectedStream && (
-              <span className="px-2 py-1 text-xs bg-green-100 text-green-700 rounded-full">
-                Stream: {selectedStream}
-              </span>
-            )}
-            <button 
-              onClick={() => { setSelectedClass('all'); setSelectedStream(''); setSearchTerm(''); }}
-              className="text-xs text-red-500 hover:text-red-700"
-            >
-              Clear all
-            </button>
-          </div>
-        )}
       </div>
 
-      {/* Class-wise Student Cards */}
-      {LEVEL_ORDER.map((level) => {
+      {LEVEL_ORDER.map(level => {
         const classesInLevel = groupedByLevel[level] || [];
         if (classesInLevel.length === 0) return null;
-        
         return (
-          <div key={level} className="mb-8">
-            <div className="bg-gradient-to-r from-blue-50 to-green-50 rounded-lg px-4 py-2 mb-4 border border-blue-200">
-              <h3 className="text-lg font-bold text-gray-700">
-                {level}
-                <span className="text-sm font-normal text-gray-500 ml-2">
-                  ({classesInLevel.reduce((total, cls) => total + (sortedGroupedPupils[cls]?.length || 0), 0)} students)
-                </span>
-              </h3>
-            </div>
-            
-            {classesInLevel.map((className) => {
+          <div key={level} className="mb-6">
+            <h3 className="text-sm font-bold text-gray-700 mb-2 px-1">{level}</h3>
+            {classesInLevel.map(className => {
               const classPupils = sortedGroupedPupils[className] || [];
               if (classPupils.length === 0) return null;
-              
-              const isHighestClass = className === highestClass;
-              
+              const isHighest = className === highestClass;
+
               return (
-                <div key={className} className="mb-6">
-                  <div className="flex flex-wrap justify-between items-center gap-2 mb-3">
-                    <h2 className="text-lg md:text-xl font-bold text-gray-800">
-                      {className} <span className="text-sm font-normal text-gray-500">({classPupils.length})</span>
-                      {isHighestClass && (
-                        <span className="ml-2 text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">
-                          Graduating Class
-                        </span>
-                      )}
-                    </h2>
-                    <div className="flex flex-wrap gap-2">
-                      {isHighestClass ? (
-                        <button 
-                          onClick={() => handleGraduateClass(className)}
-                          className="bg-purple-600 text-white px-3 py-1 rounded-lg text-xs hover:bg-purple-700 flex items-center gap-1"
-                        >
-                          <FiAward className="w-3 h-3" /> GRADUATE ALL
-                        </button>
-                      ) : (
-                        <button 
-                          onClick={() => handlePromoteClass(className)}
-                          className="bg-blue-600 text-white px-3 py-1 rounded-lg text-xs hover:bg-blue-700 flex items-center gap-1"
-                        >
-                          <FiArrowRight className="w-3 h-3" /> PROMOTE ALL
-                        </button>
-                      )}
-                    </div>
+                <div key={className} className="mb-4">
+                  <div className="flex justify-between items-center mb-2">
+                    <h4 className="text-base font-semibold text-gray-800">
+                      {className} <span className="text-xs text-gray-500 font-normal">({classPupils.length})</span>
+                      {isHighest && <span className="ml-2 text-[10px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">Graduating</span>}
+                    </h4>
+                    <button onClick={() => isHighest ? handleGraduateClass(className) : handlePromoteClass(className)}
+                      className={`text-xs px-3 py-1 rounded-lg text-white ${isHighest ? 'bg-purple-600 hover:bg-purple-700' : 'bg-blue-600 hover:bg-blue-700'}`}>
+                      {isHighest ? 'Graduate All' : 'Promote All'}
+                    </button>
                   </div>
-                  
-                  <div className={`grid ${responsiveGrid} gap-3`}>
-                    {classPupils.map((pupil) => (
-                      <div
-                        key={pupil._id}
-                        className={`bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow overflow-hidden cursor-pointer border ${
-                          isHighestClass ? 'border-purple-200' : 'border-gray-100'
-                        } p-3`}
-                        onClick={() => handleViewStudent(pupil)}
-                      >
+
+                  <div className={`grid ${responsiveGrid} gap-2`}>
+                    {classPupils.map(pupil => (
+                      <div key={pupil._id}
+                        className="bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow border border-gray-100 p-3 cursor-pointer"
+                        onClick={() => handleViewStudent(pupil)}>
                         <div className="flex justify-between items-start">
                           <div className="flex-1 min-w-0">
-                            <h3 className="text-sm font-bold text-gray-800 truncate">
-                              {pupil.name}
-                            </h3>
+                            <h3 className="text-sm font-bold text-gray-800 truncate">{pupil.name}</h3>
                             <p className="text-xs text-gray-500">
-                              Adm: {pupil.admNo}
-                            </p>
-                            <p className="text-xs text-gray-400 mt-1">
-                              {pupil.gender === 'Male' ? 'M' : (pupil.gender === 'Female' ? 'F' : (pupil.gender || 'N/A'))} 
+                              {pupil.admNo}
                               {pupil.stream && ` • ${pupil.stream}`}
                             </p>
                           </div>
-                          <div className="text-right flex-shrink-0 ml-2">
-                            <span className="text-xs bg-gray-100 px-2 py-0.5 rounded whitespace-nowrap">
-                              {pupil.class}
-                            </span>
-                            {isHighestClass && (
-                              <div className="mt-1">
-                                <span className="text-[8px] bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded whitespace-nowrap">
-                                  Graduating
-                                </span>
-                              </div>
-                            )}
-                            <button 
-                              onClick={(e) => { e.stopPropagation(); handleViewResults(pupil); }}
-                              className="mt-1 text-xs bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded flex items-center gap-0.5 hover:bg-indigo-200 transition-colors"
-                            >
-                              <FiEye className="w-2.5 h-2.5" /> Results
+                          <div className="flex gap-1 ml-2">
+                            <button onClick={(e) => { e.stopPropagation(); handleViewResults(pupil); }}
+                              className="p-1 text-indigo-600 hover:bg-indigo-50 rounded" title="Results">
+                              <FiEye className="w-3.5 h-3.5" />
+                            </button>
+                            <button onClick={(e) => { e.stopPropagation(); handleViewCareerInsights(pupil); }}
+                              className="p-1 text-purple-600 hover:bg-purple-50 rounded" title="Careers">
+                              <FiBriefcase className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         </div>
@@ -1709,37 +1679,80 @@ const Pupils = () => {
 
       {pupils.length === 0 && (
         <div className="bg-white rounded-xl shadow-md p-12 text-center">
-          <div className="flex flex-col items-center">
-            <div className="bg-gray-100 p-4 rounded-full mb-4"><FiUsers className="w-12 h-12 text-gray-400" /></div>
-            <h3 className="text-xl font-semibold text-gray-800 mb-2">No Students Yet</h3>
-            <p className="text-gray-500 mb-6">Click the "ADD NEW STUDENT" button to get started</p>
-            <button onClick={() => setIsModalOpen(true)} className="btn-primary">Add Your First Student</button>
-          </div>
+          <FiUsers className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+          <h3 className="text-lg font-semibold text-gray-800 mb-2">No Students Yet</h3>
+          <button onClick={() => setIsModalOpen(true)} className="btn-primary">Add First Student</button>
         </div>
       )}
 
-      <AddPupilModal 
-        isOpen={isModalOpen} 
-        onClose={() => setIsModalOpen(false)} 
-        onSave={handleAddPupil}
-        retainedData={retainedData}
-        onDataChange={saveRetainedData}
-      />
-      
-      <AddPupilModal 
-        isOpen={isEditModalOpen} 
-        onClose={() => { setIsEditModalOpen(false); setEditingPupil(null); }} 
-        onSave={handleUpdatePupil} 
-        editingPupil={editingPupil} 
-      />
-      
-      {showPromoteModal && <PromoteModal />}
-      {showTransferModal && <TransferModal />}
-      {showStudentDetail && <StudentDetailModal />}
-      {showDownloadModal && <DownloadModal />}
-      {showDemoteModal && <DemoteModal />}
-      {showResultsModal && <ResultsModal />}
-      {showStudentActionModal && <StudentActionModal />}
+      {/* Modals */}
+      <AddPupilModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)}
+        onSave={handleAddPupil} retainedData={retainedData} onDataChange={saveRetainedData} />
+
+      <AddPupilModal isOpen={isEditModalOpen}
+        onClose={() => { setIsEditModalOpen(false); setEditingPupil(null); }}
+        onSave={handleUpdatePupil} editingPupil={editingPupil} />
+
+      {showPromoteModal && (
+        <PromoteModal promoteClassData={promoteClassData} promoteAction={promoteAction}
+          selectedStudents={selectedStudents} onToggleStudent={toggleStudentSelection}
+          onSelectAll={selectAllStudents} onConfirm={confirmPromotion}
+          onClose={() => setShowPromoteModal(false)} />
+      )}
+
+      {showTransferModal && (
+        <TransferModal selectedPupil={selectedPupil} transferData={transferData}
+          setTransferData={setTransferData} onClose={() => setShowTransferModal(false)}
+          onSubmit={handleTransferSubmit} />
+      )}
+
+      {showStudentDetail && (
+        <StudentDetailModal viewingStudent={viewingStudent} highestClass={highestClass}
+          getPreviousClass={getPreviousClass} getNextClass={getNextClass}
+          onClose={() => setShowStudentDetail(false)}
+          onEditStudent={() => { setShowStudentDetail(false); handleEditStudent(viewingStudent); }}
+          onTransfer={() => { setShowStudentDetail(false); handleTransferClick(viewingStudent); }}
+          onViewResults={() => { setShowStudentDetail(false); handleViewResults(viewingStudent); }}
+          onViewCareerInsights={() => { setShowStudentDetail(false); handleViewCareerInsights(viewingStudent); }}
+          onDemote={() => { setShowStudentDetail(false); handleDemoteStudent(viewingStudent); }}
+          onPromote={() => handlePromoteStudent(viewingStudent)}
+          onGraduate={() => handleGraduateStudent(viewingStudent)}
+          onDelete={() => { setShowStudentDetail(false); handleDeleteStudent(viewingStudent._id); }} />
+      )}
+
+      {showDownloadModal && (
+        <DownloadModal pupils={pupils} classesWithStudents={classesWithStudents}
+          sortClassesByOrder={sortClassesByOrder} downloadFormat={downloadFormat}
+          setDownloadFormat={setDownloadFormat} downloadClass={downloadClass}
+          setDownloadClass={setDownloadClass} downloadStream={downloadStream}
+          setDownloadStream={setDownloadStream} availableStreamsForDownload={availableStreamsForDownload}
+          onClose={() => setShowDownloadModal(false)} onSubmit={handleDownloadSubmit} />
+      )}
+
+      {showDemoteModal && (
+        <DemoteModal demoteData={demoteData} onClose={() => setShowDemoteModal(false)}
+          onConfirm={confirmDemote} />
+      )}
+
+      {showResultsModal && (
+        <ResultsModal viewingPupilResults={viewingPupilResults} pupilResults={pupilResults}
+          loadingResults={loadingResults}
+          onClose={() => { setShowResultsModal(false); setViewingPupilResults(null); setPupilResults([]); }} />
+      )}
+
+      {showStudentActionModal && (
+        <StudentActionModal studentActionData={studentActionData}
+          studentActionType={studentActionType}
+          onClose={() => { setShowStudentActionModal(false); setStudentActionData(null); }}
+          onConfirm={confirmStudentAction} />
+      )}
+
+      {showCareerModal && (
+        <CareerInsightsModal viewingCareerPupil={viewingCareerPupil}
+          careerInsights={careerInsights} careerAnalysisMeta={careerAnalysisMeta}
+          loadingCareers={loadingCareers}
+          onClose={() => { setShowCareerModal(false); setViewingCareerPupil(null); setCareerInsights([]); }} />
+      )}
     </Layout>
   );
 };

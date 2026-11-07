@@ -1,243 +1,184 @@
+// src/pages/Login.jsx
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import api from '../services/api';
 import toast from 'react-hot-toast';
-import { 
-  FiAward, FiUserCheck, FiUsers, FiMail, FiLock, 
-  FiUserPlus, FiAlertCircle, FiKey, FiArrowLeft, FiHash
+import {
+  FiAward, FiUserCheck, FiUsers, FiMail, FiLock,
+  FiKey, FiArrowLeft, FiHash, FiUser, FiBookOpen, FiChevronRight, FiAlertCircle
 } from 'react-icons/fi';
 
 // ===== AI Device Detection Hook =====
 const useDeviceDetection = () => {
   const [deviceInfo, setDeviceInfo] = useState({
-    type: 'desktop',
-    isMobile: false,
-    isTablet: false,
-    isDesktop: true,
-    viewportWidth: 0,
-    viewportHeight: 0,
-    pixelRatio: 1
+    isMobile: false, isTablet: false, isDesktop: true
   });
 
   useEffect(() => {
     const detectDevice = () => {
       const width = window.innerWidth;
-      const height = window.innerHeight;
-      const pixelRatio = window.devicePixelRatio || 1;
-      
       const isMobile = width < 768;
       const isTablet = width >= 768 && width < 1024;
-      const isDesktop = !isMobile && !isTablet;
-      
-      let type = 'desktop';
-      if (isMobile) type = 'mobile';
-      else if (isTablet) type = 'tablet';
-      
-      setDeviceInfo({
-        type,
-        isMobile,
-        isTablet,
-        isDesktop,
-        viewportWidth: width,
-        viewportHeight: height,
-        pixelRatio
-      });
+      setDeviceInfo({ isMobile, isTablet, isDesktop: !isMobile && !isTablet });
     };
-
     detectDevice();
     window.addEventListener('resize', detectDevice);
-    
     return () => window.removeEventListener('resize', detectDevice);
   }, []);
 
   return deviceInfo;
 };
 
-// ===== AI Responsive Helper =====
-const useResponsiveClasses = (deviceInfo) => {
-  return {
-    containerPadding: deviceInfo.isMobile ? 'p-4' : 'p-8',
-    headingSize: deviceInfo.isMobile ? 'text-2xl' : 'text-3xl',
-    buttonSize: deviceInfo.isMobile ? 'py-2.5 text-sm' : 'py-2',
-    cardPadding: deviceInfo.isMobile ? 'p-3' : 'p-4',
-    gridCols: deviceInfo.isMobile ? 'grid-cols-1' : 'grid-cols-2',
-    iconSize: deviceInfo.isMobile ? 'w-6 h-6' : 'w-8 h-8',
-    logoSize: deviceInfo.isMobile ? 'w-8 h-8' : 'w-10 h-10'
-  };
-};
-
 const Login = () => {
-  // AI Device Detection
   const deviceInfo = useDeviceDetection();
-  const responsive = useResponsiveClasses(deviceInfo);
-  
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [selectedRole, setSelectedRole] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [verificationCode, setVerificationCode] = useState('');
-  
-  // Admin registration state
-  const [showRegistration, setShowRegistration] = useState(false);
-  const [registrationStep, setRegistrationStep] = useState('form');
-  const [regData, setRegData] = useState({
-    schoolName: '',
-    schoolEmail: '',
-    schoolCode: '',
-    phoneNumber: '',
-    address: '',
-    website: '',
-    adminName: '',
-    adminPhone: ''
-  });
-  
   const navigate = useNavigate();
-  const { 
-    login, 
-    completeLogin, 
-    resendAdminCode,
-    sendVerificationCode, 
-    signup, 
-    loginStep, 
+
+  const {
+    login,
+    completeLogin,
+    loginStep,
     setLoginStep,
     tempLoginData,
-    loading: authLoading,
     user,
-    isAuthenticated
+    isAuthenticated,
+    getHomeRoute,
+    setSession,           // 👈 new — see AuthContext diff below
   } = useAuth();
 
-  // Redirect if already logged in
+  // Main State
+  const [portal, setPortal] = useState('');
+  const [schoolCode, setSchoolCode] = useState('');
+  const [identifier, setIdentifier] = useState('');
+  const [password, setPassword] = useState('');
+  const [parentPupilRole, setParentPupilRole] = useState('pupil');
+
+  // Verification State
+  const [loading, setLoading] = useState(false);
+  const [verificationCode, setVerificationCode] = useState('');
+
+  // Parent/Pupil Portal Status State
+  const [allowParentPupil, setAllowParentPupil] = useState(true);
+  const [checkingSchool, setCheckingSchool] = useState(false);
+
+  // Redirect if already logged in (safety net)
   useEffect(() => {
     if (user && isAuthenticated) {
-      if (user.role === 'admin') {
-        navigate('/admin/dashboard', { replace: true });
-      } else if (user.role === 'teacher') {
-        navigate('/teacher/dashboard', { replace: true });
+      const home = getHomeRoute();
+      if (home && home !== '/login') {
+        navigate(home, { replace: true });
       }
     }
-  }, [user, isAuthenticated, navigate]);
+  }, [user, isAuthenticated, navigate, getHomeRoute]);
 
-  // ===== PORTAL SELECTION HANDLERS =====
-  const handleSelectAdminPortal = () => {
-    setSelectedRole('admin');
-    setEmail('');
-    setPassword('');
-  };
+  // Check if the Parent/Pupil portal is enabled for this school
+  useEffect(() => {
+    const checkPortalStatus = async () => {
+      if (schoolCode.length >= 4) {
+        setCheckingSchool(true);
+        try {
+          const res = await api.get(`/school/lookup/${schoolCode}`);
+          if (res.data && res.data.success) {
+            setAllowParentPupil(res.data.allowParentPupilPortal !== false);
+          } else {
+            setAllowParentPupil(true);
+          }
+        } catch (e) {
+          setAllowParentPupil(true);
+        } finally {
+          setCheckingSchool(false);
+        }
+      }
+    };
 
-  const handleSelectTeacherPortal = () => {
-    setSelectedRole('teacher');
-    setEmail('');
+    const timer = setTimeout(checkPortalStatus, 500);
+    return () => clearTimeout(timer);
+  }, [schoolCode]);
+
+  // ===== HANDLERS =====
+  const handleSelectPortal = (selectedPortal) => {
+    setPortal(selectedPortal);
+    setSchoolCode('');
+    setIdentifier('');
     setPassword('');
+    setParentPupilRole('pupil');
   };
 
   const handleBackToPortals = () => {
-    setSelectedRole('');
-    setEmail('');
+    setPortal('');
+    setSchoolCode('');
+    setIdentifier('');
     setPassword('');
   };
 
-  // ===== REGISTRATION HANDLERS =====
-  const handleRegChange = (e) => {
-    const { name, value } = e.target;
-    setRegData(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleSendVerification = async () => {
-    if (!regData.schoolName.trim()) {
-      toast.error('Please enter school name');
-      return;
-    }
-    if (!regData.schoolEmail.trim()) {
-      toast.error('Please enter school email');
-      return;
-    }
-    if (!regData.schoolCode.trim() || regData.schoolCode.length < 6) {
-      toast.error('School code must be at least 6 characters');
-      return;
-    }
-    if (!regData.adminName.trim()) {
-      toast.error('Please enter administrator name');
-      return;
-    }
-    
-    setLoading(true);
-    try {
-      const result = await sendVerificationCode(regData.schoolEmail, regData.schoolName);
-      if (result.success) {
-        // Toast already shown by AuthContext.sendVerificationCode
-        setRegistrationStep('verification');
-      } else {
-        toast.error(result.message || 'Failed to send verification code');
-      }
-    } catch (error) {
-      toast.error('Error sending verification code');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleVerifyAndSignUp = async () => {
-    if (!verificationCode || verificationCode.length !== 6) {
-      toast.error('Please enter the 6-digit verification code');
-      return;
-    }
-    
-    setLoading(true);
-    try {
-      const result = await signup(regData, verificationCode);
-      if (result.success) {
-        // Toast already shown by AuthContext.signup
-        navigate('/admin/dashboard');
-      } else {
-        toast.error(result.message || 'Verification failed');
-      }
-    } catch (error) {
-      toast.error('Sign up failed. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // ===== LOGIN HANDLERS =====
   const handleLoginSubmit = async (e) => {
     e.preventDefault();
-    
-    if (!selectedRole) {
-      toast.error('Please select a role first');
-      return;
+
+    if (portal === 'parent_pupil' && !allowParentPupil && schoolCode.length >= 4) {
+      return toast.error('Parent/Pupil portal is currently disabled for this school.');
     }
-    if (!email || !password) {
-      toast.error('Please fill in all fields');
+
+    if (!schoolCode || !identifier) {
+      toast.error('Please fill in all required fields');
       return;
     }
 
     setLoading(true);
     try {
-      const result = await login(email, password, selectedRole);
-      
-      if (result.success) {
-        if (result.requiresVerification) {
-          // Toast for "code sent" already shown by AuthContext.login
+      // ── ADMIN ─────────────────────────────────────────────
+      if (portal === 'admin') {
+        const result = await login(`${schoolCode}-${identifier}`, password, 'admin');
+
+        if (result?.requiresVerification) {
           setLoginStep('verification');
-        } else {
-          // ✅ REMOVED: toast.success('Login successful!') — no success toast for teacher login
-          const userData = result.user;
-          if (!userData) {
-            setLoading(false);
-            return;
-          }
-          if (userData.role === 'admin') {
-            navigate('/admin/dashboard', { replace: true });
-          } else if (userData.role === 'teacher') {
-            navigate('/teacher/dashboard', { replace: true });
-          }
+        } else if (result?.user) {
+          // Effect will navigate, but do it explicitly too
+          const home = getHomeRoute();
+          navigate(home && home !== '/login' ? home : '/login', { replace: true });
         }
       }
-      // ✅ REMOVED: toast.error(result.message || 'Login failed')
-      // No error toast when email/password is wrong — silent failure
+      // ── TEACHER ───────────────────────────────────────────
+      else if (portal === 'teacher') {
+        const result = await login(`${schoolCode}-${identifier}`, password, 'teacher');
+        if (result?.user) {
+          const home = getHomeRoute();
+          navigate(home && home !== '/login' ? home : '/login', { replace: true });
+        }
+      }
+      // ── PARENT / PUPIL ────────────────────────────────────
+      else if (portal === 'parent_pupil') {
+        // Backend endpoint expects `email` to carry the AdmNo and `loginType`
+        // to be 'parent' or 'pupil'. We call the API directly, then push the
+        // session into AuthContext so state + auth header + idle timers all
+        // update correctly. That's what makes the redirect actually work.
+        const res = await api.post('/auth/login', {
+          schoolCode,
+          email: identifier,
+          password,
+          loginType: parentPupilRole,
+        });
+
+        if (res.data?.token && res.data?.user) {
+          // setSession sets localStorage, Authorization header, and context user
+          setSession(res.data.token, res.data.user);
+
+          // Derive home route from the returned role so it's resilient even if
+          // getHomeRoute hasn't re-run with fresh state yet.
+          const role = res.data.user.role;
+          const home =
+            role === 'parent' ? '/parent/dashboard' :
+            role === 'pupil'  ? '/pupil/dashboard'  :
+            getHomeRoute();
+
+          toast.success('Login successful');
+          navigate(home || '/login', { replace: true });
+        } else {
+          toast.error(res.data?.message || 'Login failed');
+        }
+      }
     } catch (error) {
-      // ✅ REMOVED: toast.error('Login failed. Please try again.')
-      // Silent catch — no toast on network error either
+      console.error('Login submit error:', error);
+      toast.error(error.response?.data?.message || 'Login failed');
     } finally {
       setLoading(false);
     }
@@ -245,502 +186,290 @@ const Login = () => {
 
   const handleCompleteLogin = async () => {
     if (!verificationCode || verificationCode.length !== 6) {
-      toast.error('Please enter the 6-digit verification code');
+      toast.error('Please enter the 6-digit code');
       return;
     }
-    
+
     setLoading(true);
     try {
       const result = await completeLogin(verificationCode);
-      if (result.success) {
-        // ✅ REMOVED: toast.success('Login successful!') — no success toast for admin verify
-        const role = result.user.role;
-        if (role === 'admin') {
-          navigate('/admin/dashboard', { replace: true });
-        } else if (role === 'teacher') {
-          navigate('/teacher/dashboard', { replace: true });
-        }
+      if (result?.success) {
+        const home = getHomeRoute();
+        navigate(home && home !== '/login' ? home : '/login', { replace: true });
       }
-      // ✅ REMOVED: toast.error(result.message || 'Verification failed')
-      // No error toast on wrong verification code
-    } catch (error) {
-      // ✅ REMOVED: toast.error('Login verification failed. Please try again.')
-      // Silent catch
-    } finally {
-      setLoading(false);
       setVerificationCode('');
-    }
-  };
-
-  // ============ HANDLE RESEND CODE ============
-  const handleResendCode = async () => {
-    const email = tempLoginData?.email;
-    
-    if (!email) {
-      toast.error('No email found. Please try logging in again.');
-      return;
-    }
-    
-    setLoading(true);
-    
-    try {
-      const result = await resendAdminCode(email);
-      
-      if (result.success) {
-        // Toast already shown by AuthContext.resendAdminCode
-        setVerificationCode('');
-        
-        setTimeout(() => {
-          const input = document.querySelector('input[type="text"]');
-          if (input) input.focus();
-        }, 100);
-      }
     } catch (error) {
-      console.error('Unexpected error in handleResendCode:', error);
-      // ✅ REMOVED: toast.error('An unexpected error occurred. Please try again.')
+      toast.error(error.response?.data?.message || 'Verification failed');
     } finally {
       setLoading(false);
     }
   };
 
-  // ============ VERIFICATION STEP (Admin Only) ============
+  // Determine button color based on selected portal
+  const getButtonColor = () => {
+    if (portal === 'admin') return 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 focus:ring-emerald-500';
+    if (portal === 'teacher') return 'bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 focus:ring-blue-500';
+    return 'bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 focus:ring-purple-500';
+  };
+
+  // ============ VERIFICATION SCREEN ============
   if (loginStep === 'verification') {
     return (
-      <div className={`min-h-screen bg-gradient-to-br from-green-50 to-blue-100 flex items-center justify-center ${deviceInfo.isMobile ? 'p-3' : 'p-4'}`}>
-        <div className={`bg-white rounded-2xl shadow-xl max-w-md w-full ${responsive.containerPadding}`}>
+      <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-8">
           <div className="text-center mb-6">
-            <div className="flex justify-center mb-3">
-              <div className="bg-gradient-to-r from-green-600 to-blue-600 p-3 rounded-full">
-                <FiKey className={`${deviceInfo.isMobile ? 'w-8 h-8' : 'w-10 h-10'} text-white`} />
-              </div>
+            <div className="bg-gradient-to-r from-green-600 to-blue-600 p-3 rounded-full inline-block mb-3">
+              <FiKey className="w-8 h-8 text-white" />
             </div>
-            <h1 className={`${responsive.headingSize} font-bold text-gray-800 mb-2`}>Verify Login</h1>
+            <h1 className="text-2xl font-bold text-gray-800 mb-2">Verify Login</h1>
             <p className="text-gray-600 text-sm">
-              We've sent a 6-digit verification code to<br />
-              <span className="font-semibold text-green-600">{tempLoginData?.email}</span>
-            </p>
-            <p className="text-xs text-gray-400 mt-1">
-              Code expires in 15 minutes
+              We sent a code to <span className="font-semibold text-green-600">{tempLoginData?.email}</span>
             </p>
           </div>
-          
-          <div className="space-y-5">
-            <div>
-              <label className="block text-gray-700 font-medium mb-2 text-center">Verification Code</label>
-              <input
-                type="text"
-                value={verificationCode}
-                onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ''))}
-                maxLength="6"
-                className={`w-full text-center ${deviceInfo.isMobile ? 'text-xl' : 'text-2xl'} tracking-widest px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500`}
-                placeholder="000000"
-                autoFocus
-              />
-              <p className="text-xs text-gray-400 text-center mt-1">
-                Enter the 6-digit code sent to your email
-              </p>
-            </div>
-            
+
+          <div className="space-y-4">
+            <input
+              type="text"
+              value={verificationCode}
+              onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              maxLength="6"
+              className="w-full text-center text-2xl tracking-widest px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+              placeholder="000000"
+              autoFocus
+            />
+
             <button
               onClick={handleCompleteLogin}
               disabled={loading || verificationCode.length !== 6}
-              className={`w-full bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 text-white rounded-lg font-semibold transition-colors disabled:opacity-50 ${responsive.buttonSize}`}
+              className="w-full bg-green-600 text-white py-2 rounded-lg font-semibold hover:bg-green-700 disabled:opacity-50"
             >
               {loading ? 'Verifying...' : 'Verify & Login'}
             </button>
-            
-            <div className="flex justify-between text-sm">
-              <button
-                onClick={() => {
-                  setLoginStep('credentials');
-                  setVerificationCode('');
-                }}
-                className="text-gray-500 hover:text-gray-700 flex items-center gap-1"
-                disabled={loading}
-              >
-                <FiArrowLeft className="w-4 h-4" /> Back to Login
-              </button>
-              <button
-                onClick={handleResendCode}
-                disabled={loading}
-                className="text-green-600 hover:text-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-              >
-                <FiKey className="w-4 h-4" />
-                {loading ? 'Sending...' : 'Resend Code'}
-              </button>
-            </div>
-          </div>
-          
-          <div className="mt-6 pt-4 border-t border-gray-200 text-center">
-            <p className="text-[10px] text-gray-400 leading-relaxed">
-              Fusion XE CBE System: Transforming Learning Through Technology. Developed by Stancylus Kalong'o | Contact: 0746919850
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
-  // ============ REGISTRATION VERIFICATION STEP ============
-  if (registrationStep === 'verification') {
-    return (
-      <div className={`min-h-screen bg-gradient-to-br from-green-50 to-blue-100 flex items-center justify-center ${deviceInfo.isMobile ? 'p-3' : 'p-4'}`}>
-        <div className={`bg-white rounded-2xl shadow-xl max-w-md w-full ${responsive.containerPadding}`}>
-          <div className="text-center mb-6">
-            <div className="flex justify-center mb-3">
-              <div className="bg-gradient-to-r from-green-600 to-blue-600 p-3 rounded-full">
-                <FiMail className={`${deviceInfo.isMobile ? 'w-8 h-8' : 'w-10 h-10'} text-white`} />
-              </div>
-            </div>
-            <h1 className={`${responsive.headingSize} font-bold text-gray-800 mb-2`}>Verify Your Email</h1>
-            <p className="text-gray-600 text-sm">
-              We've sent a 6-digit verification code to<br />
-              <span className="font-semibold text-green-600">{regData.schoolEmail}</span>
-            </p>
-          </div>
-          
-          <div className="space-y-5">
-            <div>
-              <label className="block text-gray-700 font-medium mb-2 text-center">Verification Code</label>
-              <input
-                type="text"
-                value={verificationCode}
-                onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, ''))}
-                maxLength="6"
-                className={`w-full text-center ${deviceInfo.isMobile ? 'text-xl' : 'text-2xl'} tracking-widest px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500`}
-                placeholder="000000"
-                autoFocus
-              />
-            </div>
-            
-            <button
-              onClick={handleVerifyAndSignUp}
-              disabled={loading || verificationCode.length !== 6}
-              className={`w-full bg-gradient-to-r from-green-600 to-blue-600 text-white rounded-lg hover:from-green-700 hover:to-blue-700 transition-colors disabled:opacity-50 font-semibold ${responsive.buttonSize}`}
-            >
-              {loading ? 'Verifying...' : 'Verify & Register'}
-            </button>
-            
-            <div className="flex justify-between text-sm">
-              <button
-                onClick={() => {
-                  setRegistrationStep('form');
-                  setVerificationCode('');
-                }}
-                className="text-gray-500 hover:text-gray-700 flex items-center gap-1"
-              >
-                <FiArrowLeft className="w-4 h-4" /> Back to Form
+            <div className="flex justify-between text-sm pt-2">
+              <button onClick={() => setLoginStep('credentials')} className="text-gray-500 hover:text-gray-700 flex items-center gap-1">
+                <FiArrowLeft className="w-4 h-4" /> Back
               </button>
-              <button
-                onClick={handleSendVerification}
-                className="text-green-600 hover:text-green-700"
-              >
+              <button onClick={() => {
+                toast.success('Please check your email or wait a moment before requesting a new code.');
+              }} className="text-green-600 hover:text-green-700">
                 Resend Code
               </button>
             </div>
           </div>
-          
-          <div className="mt-6 pt-4 border-t border-gray-200 text-center">
-            <p className="text-[10px] text-gray-400 leading-relaxed">
-              Fusion XE CBE System: Transforming Learning Through Technology. Developed by Stancylus Kalong'o | Contact: 0746919850
-            </p>
-          </div>
         </div>
       </div>
     );
   }
 
-  // ============ REGISTRATION FORM ============
-  if (showRegistration) {
-    return (
-      <div className={`min-h-screen bg-gradient-to-br from-green-50 to-blue-100 flex items-center justify-center ${deviceInfo.isMobile ? 'p-3' : 'p-4'}`}>
-        <div className={`bg-white rounded-2xl shadow-xl max-w-md w-full ${responsive.containerPadding}`}>
-          <div className="text-center mb-6">
-            <div className="flex justify-center mb-3">
-              <div className="bg-gradient-to-r from-green-600 to-blue-600 p-3 rounded-full">
-                <FiUserPlus className={`${deviceInfo.isMobile ? 'w-8 h-8' : 'w-10 h-10'} text-white`} />
-              </div>
-            </div>
-            <h1 className={`${responsive.headingSize} font-bold text-gray-800 mb-2`}>Register New School</h1>
-            <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-gray-600`}>Create an account to start using CBE System</p>
-          </div>
-          
-          <div className={`space-y-3 ${deviceInfo.isMobile ? 'max-h-[50vh]' : 'max-h-[60vh]'} overflow-y-auto pr-2`}>
-            <div className="bg-blue-50 rounded-lg p-3">
-              <h3 className={`font-semibold text-blue-800 mb-2 flex items-center gap-2 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>
-                <FiAward className="w-4 h-4" /> School Information
-              </h3>
-              <div className="space-y-2">
-                <div>
-                  <label className={`block text-gray-700 ${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} font-medium mb-0.5`}>School Name *</label>
-                  <input
-                    type="text"
-                    name="schoolName"
-                    value={regData.schoolName}
-                    onChange={handleRegChange}
-                    placeholder="Enter school name"
-                    className={`w-full px-3 py-1.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 ${deviceInfo.isMobile ? 'text-sm' : ''}`}
-                  />
-                </div>
-                <div>
-                  <label className={`block text-gray-700 ${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} font-medium mb-0.5`}>School Email *</label>
-                  <input
-                    type="email"
-                    name="schoolEmail"
-                    value={regData.schoolEmail}
-                    onChange={handleRegChange}
-                    placeholder="school@example.com"
-                    className={`w-full px-3 py-1.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 ${deviceInfo.isMobile ? 'text-sm' : ''}`}
-                  />
-                </div>
-                <div>
-                  <label className={`block text-gray-700 ${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} font-medium mb-0.5`}>School Code (Password) *</label>
-                  <input
-                    type="text"
-                    name="schoolCode"
-                    value={regData.schoolCode}
-                    onChange={handleRegChange}
-                    placeholder="6+ characters"
-                    className={`w-full px-3 py-1.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 ${deviceInfo.isMobile ? 'text-sm' : ''}`}
-                  />
-                  <p className={`${deviceInfo.isMobile ? 'text-[8px]' : 'text-[10px]'} text-gray-400 mt-0.5`}>This will be your admin login password</p>
-                </div>
-              </div>
-            </div>
-            
-            <div className="bg-green-50 rounded-lg p-3">
-              <h3 className={`font-semibold text-green-800 mb-2 flex items-center gap-2 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>
-                <FiUserCheck className="w-4 h-4" /> Administrator
-              </h3>
-              <div className="space-y-2">
-                <div>
-                  <label className={`block text-gray-700 ${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} font-medium mb-0.5`}>Administrator Name *</label>
-                  <input
-                    type="text"
-                    name="adminName"
-                    value={regData.adminName}
-                    onChange={handleRegChange}
-                    placeholder="Full name"
-                    className={`w-full px-3 py-1.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 ${deviceInfo.isMobile ? 'text-sm' : ''}`}
-                  />
-                </div>
-                <div>
-                  <label className={`block text-gray-700 ${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} font-medium mb-0.5`}>Phone (Optional)</label>
-                  <input
-                    type="tel"
-                    name="adminPhone"
-                    value={regData.adminPhone}
-                    onChange={handleRegChange}
-                    placeholder="Contact number"
-                    className={`w-full px-3 py-1.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 ${deviceInfo.isMobile ? 'text-sm' : ''}`}
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-          
-          <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'gap-3'} pt-4`}>
-            <button
-              onClick={() => {
-                setShowRegistration(false);
-                setRegistrationStep('form');
-                setVerificationCode('');
-              }}
-              className={`${deviceInfo.isMobile ? 'w-full' : 'flex-1'} bg-gray-300 hover:bg-gray-400 text-gray-700 py-2 rounded-lg transition-colors ${deviceInfo.isMobile ? 'text-sm' : ''}`}
-            >
-              Back
-            </button>
-            <button
-              onClick={handleSendVerification}
-              disabled={loading}
-              className={`${deviceInfo.isMobile ? 'w-full' : 'flex-1'} bg-gradient-to-r from-green-600 to-blue-600 text-white py-2 rounded-lg hover:from-green-700 hover:to-blue-700 transition-colors disabled:opacity-50 font-semibold ${deviceInfo.isMobile ? 'text-sm' : ''}`}
-            >
-              {loading ? 'Sending...' : 'Send Verification Code'}
-            </button>
-          </div>
-          
-          <div className="mt-6 pt-4 border-t border-gray-200 text-center">
-            <p className="text-[10px] text-gray-400 leading-relaxed">
-              Fusion XE CBE System: Transforming Learning Through Technology. Developed by Stancylus Kalong'o | Contact: 0746919850
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // ============ MAIN LOGIN - PORTAL SELECTION ============
+  // ============ MAIN LOGIN SCREEN ============
   return (
-    <div className={`min-h-screen bg-gradient-to-br from-green-50 to-blue-100 flex items-center justify-center ${deviceInfo.isMobile ? 'p-3' : 'p-4'}`}>
-      <div className={`bg-white rounded-2xl shadow-xl max-w-md w-full ${responsive.containerPadding}`}>
-        
-        <div className="text-center mb-6">
-          <div className="flex justify-center mb-3">
-            <div className="bg-gradient-to-r from-green-600 to-blue-600 p-3 rounded-full">
-              <FiAward className={`${responsive.logoSize} text-white`} />
-            </div>
+    <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 md:p-8">
+
+        {/* Header */}
+        <div className="text-center mb-8">
+          <div className="bg-gradient-to-r from-green-600 to-blue-600 p-3 rounded-full inline-block mb-3 shadow-lg">
+            <FiAward className="w-10 h-10 text-white" />
           </div>
-          <h1 className={`${responsive.headingSize} font-bold text-gray-800 mb-1`}>CBE System</h1>
-          <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-gray-500`}>Competency Based Education</p>
+          <h1 className="text-3xl font-bold text-gray-800 mb-1">CBE System</h1>
+          <p className="text-sm text-gray-500">Competency Based Education</p>
         </div>
-        
-        {!selectedRole && (
-          <div className={`grid ${responsive.gridCols} gap-4 mb-6`}>
+
+        {/* Portal Selection */}
+        {!portal && (
+          <div className="space-y-4">
+            <h2 className="text-center text-gray-600 font-medium mb-5">Select your portal</h2>
+
+            {/* School Admin Card */}
             <button
-              onClick={handleSelectAdminPortal}
-              className="p-4 rounded-xl border-2 border-gray-200 hover:border-green-300 hover:bg-green-50 transition-all hover:shadow-md"
+              onClick={() => handleSelectPortal('admin')}
+              className="w-full p-1 rounded-2xl bg-gradient-to-r from-emerald-400 to-teal-500 shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200"
             >
-              <div className="text-center">
-                <div className="text-gray-500 mb-2">
-                  <FiUserCheck className={`${responsive.iconSize} mx-auto`} />
+              <div className="bg-white rounded-xl p-4 flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="bg-emerald-50 p-3 rounded-full">
+                    <FiUserCheck className="w-6 h-6 text-emerald-600" />
+                  </div>
+                  <div className="text-left">
+                    <div className="font-bold text-gray-800 text-lg">School Admin</div>
+                    <div className="text-xs text-gray-500">Manage school & bursar access</div>
+                  </div>
                 </div>
-                <div className={`${deviceInfo.isMobile ? 'text-sm' : 'text-base'} font-semibold text-gray-800`}>Admin Portal</div>
+                <FiChevronRight className="text-gray-300 w-5 h-5" />
               </div>
             </button>
-            
+
+            {/* Teacher Card */}
             <button
-              onClick={handleSelectTeacherPortal}
-              className="p-4 rounded-xl border-2 border-gray-200 hover:border-blue-300 hover:bg-blue-50 transition-all hover:shadow-md"
+              onClick={() => handleSelectPortal('teacher')}
+              className="w-full p-1 rounded-2xl bg-gradient-to-r from-blue-400 to-indigo-500 shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200"
             >
-              <div className="text-center">
-                <div className="text-gray-500 mb-2">
-                  <FiUsers className={`${responsive.iconSize} mx-auto`} />
+              <div className="bg-white rounded-xl p-4 flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="bg-blue-50 p-3 rounded-full">
+                    <FiUsers className="w-6 h-6 text-blue-600" />
+                  </div>
+                  <div className="text-left">
+                    <div className="font-bold text-gray-800 text-lg">Teacher</div>
+                    <div className="text-xs text-gray-500">Access classes & record skills</div>
+                  </div>
                 </div>
-                <div className={`${deviceInfo.isMobile ? 'text-sm' : 'text-base'} font-semibold text-gray-800`}>Teacher Portal</div>
+                <FiChevronRight className="text-gray-300 w-5 h-5" />
+              </div>
+            </button>
+
+            {/* Parent / Pupil Card */}
+            <button
+              onClick={() => handleSelectPortal('parent_pupil')}
+              className="w-full p-1 rounded-2xl bg-gradient-to-r from-purple-400 to-pink-500 shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200"
+            >
+              <div className="bg-white rounded-xl p-4 flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="bg-purple-50 p-3 rounded-full">
+                    <FiBookOpen className="w-6 h-6 text-purple-600" />
+                  </div>
+                  <div className="text-left">
+                    <div className="font-bold text-gray-800 text-lg">Parent / Pupil</div>
+                    <div className="text-xs text-gray-500">View results & reports</div>
+                  </div>
+                </div>
+                <FiChevronRight className="text-gray-300 w-5 h-5" />
               </div>
             </button>
           </div>
         )}
 
-        {selectedRole === 'admin' && (
-          <form onSubmit={handleLoginSubmit} className="space-y-4">
-            <div className="text-center mb-4">
-              <h2 className="text-lg font-bold text-green-600">Admin Login</h2>
-            </div>
-            
-            <div>
-              <label className={`block text-gray-700 font-medium ${deviceInfo.isMobile ? 'text-sm' : 'text-base'} mb-1`}>Email Address</label>
-              <div className="relative">
-                <FiMail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className={`w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 ${deviceInfo.isMobile ? 'text-base' : ''}`}
-                  placeholder="Enter your email"
-                  required
-                />
-              </div>
-            </div>
-            
-            <div>
-              <label className={`block text-gray-700 font-medium ${deviceInfo.isMobile ? 'text-sm' : 'text-base'} mb-1`}>Password</label>
-              <div className="relative">
-                <FiLock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className={`w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 ${deviceInfo.isMobile ? 'text-base' : ''}`}
-                  placeholder="Enter your password"
-                  required
-                />
-              </div>
-            </div>
-            
-            <div className="flex gap-3 pt-2">
-              <button
-                type="button"
-                onClick={handleBackToPortals}
-                className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 py-2 rounded-lg transition-colors text-sm font-medium"
-              >
-                Back
-              </button>
-              <button
-                type="submit"
-                disabled={loading}
-                className="flex-1 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white rounded-lg font-semibold transition-colors disabled:opacity-50 py-2"
-              >
-                {loading ? 'Processing...' : 'Login as Admin'}
-              </button>
-            </div>
-            
-            <div className="mt-3 text-center">
-              <button
-                onClick={() => {
-                  setShowRegistration(true);
-                  setSelectedRole('');
-                }}
-                className="text-green-600 hover:text-green-700 text-sm font-medium flex items-center justify-center gap-1 mx-auto transition-colors"
-              >
-                <FiUserPlus className="w-4 h-4" />
-                Register New School
-              </button>
-            </div>
-          </form>
-        )}
+        {/* Login Form */}
+        {portal && (
+          <form onSubmit={handleLoginSubmit} className="space-y-4 animate-fade-in">
+            <button
+              type="button"
+              onClick={handleBackToPortals}
+              className="text-sm text-gray-500 flex items-center gap-1 mb-3 hover:text-gray-800 transition-colors"
+            >
+              <FiArrowLeft /> Back to Portals
+            </button>
 
-        {selectedRole === 'teacher' && (
-          <form onSubmit={handleLoginSubmit} className="space-y-4">
-            <div className="text-center mb-4">
-              <h2 className="text-lg font-bold text-blue-600">Teacher Login</h2>
-            </div>
-            
+            <h2 className="text-xl font-bold text-gray-800 mb-4">
+              {portal === 'admin' ? 'School Admin Login' : portal === 'teacher' ? 'Teacher Login' : 'Parent / Pupil Login'}
+            </h2>
+
+            {/* School Code */}
             <div>
-              <label className={`block text-gray-700 font-medium ${deviceInfo.isMobile ? 'text-sm' : 'text-base'} mb-1`}>Email Address</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">School Code</label>
               <div className="relative">
-                <FiMail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className={`w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${deviceInfo.isMobile ? 'text-base' : ''}`}
-                  placeholder="Enter your email"
-                  required
-                />
-              </div>
-            </div>
-            
-            <div>
-              <label className={`block text-gray-700 font-medium ${deviceInfo.isMobile ? 'text-sm' : 'text-base'} mb-1`}>TSC Number</label>
-              <div className="relative">
-                <FiHash className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                <FiHash className="absolute left-3 top-3 text-gray-400" />
                 <input
                   type="text"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className={`w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${deviceInfo.isMobile ? 'text-base' : ''}`}
-                  placeholder="Enter your TSC number"
+                  value={schoolCode}
+                  onChange={(e) => setSchoolCode(e.target.value)}
+                  placeholder="1001"
+                  className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all"
                   required
                 />
               </div>
-              <p className="text-xs text-gray-400 mt-1">
-                Use your TSC number as your password
-              </p>
             </div>
-            
-            <div className="flex gap-3 pt-2">
-              <button
-                type="button"
-                onClick={handleBackToPortals}
-                className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 py-2 rounded-lg transition-colors text-sm font-medium"
-              >
-                Back
-              </button>
-              <button
-                type="submit"
-                disabled={loading}
-                className="flex-1 bg-gradient-to-br from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white rounded-lg font-semibold transition-colors disabled:opacity-50 py-2"
-              >
-                {loading ? 'Processing...' : 'Login as Teacher'}
-              </button>
+
+            {/* Parent/Pupil disabled warning */}
+            {portal === 'parent_pupil' && !allowParentPupil && schoolCode.length >= 4 && (
+              <div className="bg-red-50 border border-red-200 text-red-600 p-3 rounded-lg flex items-start gap-2 text-sm">
+                <FiAlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                <p>The Parent/Pupil portal has been disabled for this school by the Super Admin. You cannot log in.</p>
+              </div>
+            )}
+
+            {/* Identifier */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {portal === 'parent_pupil'
+                  ? (parentPupilRole === 'pupil' ? 'Admission Number' : 'Admission Number (of your child)')
+                  : 'Email Address'}
+              </label>
+              <div className="relative">
+                {portal === 'parent_pupil' ? (
+                  <FiUser className="absolute left-3 top-3 text-gray-400" />
+                ) : (
+                  <FiMail className="absolute left-3 top-3 text-gray-400" />
+                )}
+                <input
+                  type={portal === 'parent_pupil' ? 'text' : 'email'}
+                  value={identifier}
+                  onChange={(e) => setIdentifier(e.target.value)}
+                  placeholder={portal === 'parent_pupil' ? '4502' : 'admin@school.com'}
+                  className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all"
+                  required
+                />
+              </div>
+              {portal === 'parent_pupil' && parentPupilRole === 'parent' && (
+                <p className="text-[11px] text-gray-500 mt-1">
+                  Enter any one child's admission number — you'll see all your children after login.
+                </p>
+              )}
             </div>
+
+            {/* Password */}
+            {portal !== 'admin' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {portal === 'teacher'
+                    ? 'TSC Number'
+                    : parentPupilRole === 'parent'
+                      ? 'Parent ID No'
+                      : 'Birth Cert No'}
+                </label>
+                <div className="relative">
+                  <FiLock className="absolute left-3 top-3 text-gray-400" />
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Enter your password"
+                    className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all"
+                    required
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Role Toggle for Parent/Pupil */}
+            {portal === 'parent_pupil' && (
+              <div className="flex gap-6 text-sm mb-2 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                <label className="flex items-center gap-2 cursor-pointer font-medium text-gray-700">
+                  <input
+                    type="radio"
+                    checked={parentPupilRole === 'pupil'}
+                    onChange={() => setParentPupilRole('pupil')}
+                    className="w-4 h-4 text-purple-600 focus:ring-purple-500"
+                  /> Pupil
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer font-medium text-gray-700">
+                  <input
+                    type="radio"
+                    checked={parentPupilRole === 'parent'}
+                    onChange={() => setParentPupilRole('parent')}
+                    className="w-4 h-4 text-purple-600 focus:ring-purple-500"
+                  /> Parent
+                </label>
+              </div>
+            )}
+
+            {/* Submit */}
+            <button
+              type="submit"
+              disabled={loading || (portal === 'parent_pupil' && !allowParentPupil && schoolCode.length >= 4)}
+              className={`w-full text-white py-3 rounded-lg font-semibold transition-all mt-4 disabled:opacity-50 shadow-md ${getButtonColor()}`}
+            >
+              {loading ? 'Processing...' : portal === 'admin' ? 'Send Secure Code' : 'Login'}
+            </button>
           </form>
         )}
 
-        <div className="mt-6 pt-4 border-t border-gray-200 text-center">
-          <p className={`${deviceInfo.isMobile ? 'text-[8px]' : 'text-[10px]'} text-gray-400 leading-relaxed`}>
-            Fusion XE CBE System: Transforming Learning Through Technology. Developed by Stancylus Kalong'o | Contact: 0746919850
+        {/* Footer */}
+        <div className="mt-8 pt-4 border-t border-gray-200 text-center">
+          <p className="text-[10px] text-gray-400 leading-relaxed">
+            Fusion XE CBE System: Transforming Learning Through Technology.<br />
+            Developed by Stancylus Kalong'o | Contact: 0746919850
           </p>
         </div>
       </div>

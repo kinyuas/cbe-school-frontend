@@ -1,35 +1,55 @@
-import React, { useState, useEffect } from 'react';
+// src/components/common/Sidebar.jsx
+import React, { useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { 
-  FiHome, 
-  FiUsers, 
-  FiBookOpen, 
-  FiCalendar, 
+import {
+  FiHome,
+  FiUsers,
+  FiBookOpen,
+  FiCalendar,
   FiBarChart2,
   FiUserCheck,
   FiBell,
   FiLogOut,
   FiRefreshCw,
-  FiFileText,
   FiEdit3,
-  FiUsers as FiAlumni,
   FiSettings,
   FiAward,
   FiDollarSign,
-  FiMenu,
-  FiX
+  FiX,
+  FiTarget,
+  FiHeart,
 } from 'react-icons/fi';
+
+// ============================================================
+// ROLE → DISPLAY LABEL MAPS
+// ============================================================
+const MENU_LABELS = {
+  admin: 'ADMIN MENU',
+  teacher: 'TEACHER MENU',
+  bursar: 'BURSAR MENU',
+  parent: 'PARENT MENU',
+  pupil: 'PUPIL MENU',
+};
+
+const ROLE_LABELS = {
+  admin: 'Administrator',
+  teacher: 'Teacher',
+  bursar: 'Bursar',
+  parent: 'Parent / Guardian',
+  pupil: 'Pupil',
+};
+
+const PORTAL_TITLES = {
+  admin: 'School Manager',
+  teacher: 'Teacher Portal',
+  bursar: 'Bursar Portal',
+  parent: 'Parent Portal',
+  pupil: 'Pupil Portal',
+};
 
 const Sidebar = ({ isMobile, isOpen, onClose }) => {
   const { user, logout } = useAuth();
-
-  // Close sidebar on route change on mobile
-  useEffect(() => {
-    if (isMobile && isOpen) {
-      // We'll close it when route changes via the NavLink onClick
-    }
-  }, [isMobile, isOpen]);
 
   // Close sidebar when clicking outside on mobile
   useEffect(() => {
@@ -41,66 +61,136 @@ const Sidebar = ({ isMobile, isOpen, onClose }) => {
         }
       }
     };
-    
+
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isMobile, isOpen, onClose]);
 
+  // ============================================================
+  // MENUS PER ROLE
+  // ============================================================
   const adminMenu = [
     { path: '/admin/dashboard', icon: FiHome, label: 'Dashboard' },
     { path: '/admin/pupils', icon: FiUsers, label: 'Students' },
-    { path: '/admin/transferred-learners', icon: FiRefreshCw, label: 'Transferred Students' },
     { path: '/admin/teachers', icon: FiUserCheck, label: 'Teachers' },
-    { path: '/admin/exams', icon: FiFileText, label: 'Schedule Exams' },
+
+    // ✅ COMBINED: Events & Exams (single nav item, single page with tabs)
+    { path: '/admin/events-exams', icon: FiCalendar, label: 'Events & Exams' },
+
+    // ✅ COMBINED: Transferred / Alumni (single nav item, single page with tabs)
+    { path: '/admin/transferred-alumni', icon: FiRefreshCw, label: 'Transferred / Alumni' },
+
     { path: '/admin/modify-results', icon: FiEdit3, label: 'Modify Results' },
     { path: '/admin/reports', icon: FiBarChart2, label: 'Reports/Results' },
-    { path: '/admin/alumni', icon: FiAlumni, label: 'Alumni' },
-    { path: '/admin/events', icon: FiCalendar, label: 'Events' },
-    { path: '/admin/fees', icon: FiDollarSign, label: 'Fees' },
+    // { path: '/admin/fees', icon: FiDollarSign, label: 'Fees' },
     { path: '/admin/settings', icon: FiSettings, label: 'Settings' },
   ];
 
   const teacherMenu = [
     { path: '/teacher/dashboard', icon: FiHome, label: 'Dashboard' },
-    { path: '/teacher/students', icon: FiUsers, label: 'Students' },
+    { path: '/teacher/students', icon: FiUsers, label: 'My Students' },
     { path: '/teacher/results', icon: FiBookOpen, label: 'Update Results' },
     { path: '/teacher/performance', icon: FiBarChart2, label: 'Performance' },
     { path: '/teacher/announcements', icon: FiBell, label: 'Exams/Events' },
+
+    // 👇 Consolidated Hubs
+    { path: '/teacher/parent-hub', icon: FiHeart, label: 'Parent Collaboration' },
+    { path: '/teacher/pupil-hub', icon: FiTarget, label: 'Pupil Learning' },
   ];
 
-  const menuItems = user?.role === 'admin' ? adminMenu : teacherMenu;
+  const bursarMenu = [
+    { path: '/bursar/fees', icon: FiDollarSign, label: 'Fees' },
+  ];
 
-  // Mobile sidebar with overlay
+  const parentMenu = [
+    { path: '/parent/dashboard', icon: FiHome, label: 'Dashboard' },
+  ];
+
+  const pupilMenu = [
+    { path: '/pupil/dashboard', icon: FiHome, label: 'My Learning Journey' },
+  ];
+
+  // ============================================================
+  // PICK MENU + LABELS BY ROLE
+  // ============================================================
+  const menuItems =
+    user?.role === 'admin'
+      ? adminMenu
+      : user?.role === 'bursar'
+      ? bursarMenu
+      : user?.role === 'parent'
+      ? parentMenu
+      : user?.role === 'pupil'
+      ? pupilMenu
+      : teacherMenu;
+
+  const menuLabel = MENU_LABELS[user?.role] || 'MENU';
+  const roleLabel = ROLE_LABELS[user?.role] || 'User';
+  const portalTitle = PORTAL_TITLES[user?.role] || 'Portal';
+
+  // ============================================================
+  // NAV LINK ACTIVE RESOLVER
+  // Extends active-state detection to legacy URLs for combined routes,
+  // so the sidebar highlight stays correct during redirects.
+  // ============================================================
+  const isPathActive = (isActive, itemPath) => {
+    if (isActive) return true;
+
+    // Combined Events/Exams — treat legacy URLs as active
+    if (itemPath === '/admin/events-exams') {
+      const legacy = ['/admin/events', '/admin/exams'];
+      return legacy.some(
+        (p) =>
+          window.location.pathname === p ||
+          window.location.pathname.startsWith(p + '/')
+      );
+    }
+
+    // Combined Transferred/Alumni — treat legacy URLs as active
+    if (itemPath === '/admin/transferred-alumni') {
+      const legacy = ['/admin/transferred-learners', '/admin/alumni'];
+      return legacy.some(
+        (p) =>
+          window.location.pathname === p ||
+          window.location.pathname.startsWith(p + '/')
+      );
+    }
+
+    return false;
+  };
+
+  // ============================================================
+  // MOBILE SIDEBAR
+  // ============================================================
   if (isMobile) {
     return (
       <>
-        {/* Overlay */}
         {isOpen && (
-          <div 
+          <div
             className="fixed inset-0 bg-black/50 z-40"
             onClick={onClose}
           />
         )}
 
-        {/* Sidebar */}
-        <aside 
+        <aside
           id="sidebar"
           className={`fixed top-0 left-0 h-full w-72 bg-gradient-to-b from-blue-900 via-blue-800 to-green-800 text-white z-50 transform transition-transform duration-300 ease-in-out shadow-2xl ${
             isOpen ? 'translate-x-0' : '-translate-x-full'
           }`}
         >
-          {/* Logo Section */}
+          {/* Logo */}
           <div className="p-4 border-b border-blue-700/50">
             <div className="flex items-center gap-2">
               <div className="bg-gradient-to-r from-green-500 to-blue-500 rounded-lg p-1.5 shadow-lg flex-shrink-0">
                 <FiAward className="w-4 h-4 text-white" />
               </div>
               <div className="min-w-0">
-                <h2 className="text-sm font-bold tracking-tight text-white truncate">School Manager</h2>
+                <h2 className="text-sm font-bold tracking-tight text-white truncate">
+                  {portalTitle}
+                </h2>
                 <p className="text-[8px] text-blue-200">CBE Education System</p>
               </div>
             </div>
-            {/* Close button inside sidebar for mobile */}
             <button
               onClick={onClose}
               className="absolute top-3 right-3 p-1.5 hover:bg-white/10 rounded-lg transition-colors"
@@ -108,12 +198,12 @@ const Sidebar = ({ isMobile, isOpen, onClose }) => {
               <FiX className="w-4 h-4 text-blue-300" />
             </button>
           </div>
-          
-          {/* Navigation Menu */}
+
+          {/* Menu */}
           <nav className="flex-1 py-3 overflow-y-auto h-[calc(100vh-120px)]">
             <div className="px-3 mb-2">
               <p className="text-[8px] text-blue-300 uppercase tracking-wider font-semibold">
-                {user?.role === 'admin' ? 'ADMIN MENU' : 'TEACHER MENU'}
+                {menuLabel}
               </p>
             </div>
             {menuItems.map((item) => (
@@ -123,7 +213,7 @@ const Sidebar = ({ isMobile, isOpen, onClose }) => {
                 onClick={onClose}
                 className={({ isActive }) =>
                   `flex items-center gap-3 px-3 py-2.5 mx-1.5 rounded-lg transition-all duration-200 ${
-                    isActive
+                    isPathActive(isActive, item.path)
                       ? 'bg-gradient-to-r from-green-600 to-blue-600 text-white shadow-lg'
                       : 'text-blue-100 hover:bg-white/10 hover:text-white'
                   }`
@@ -135,7 +225,7 @@ const Sidebar = ({ isMobile, isOpen, onClose }) => {
             ))}
           </nav>
 
-          {/* User Info & Logout */}
+          {/* User info */}
           <div className="p-3 border-t border-blue-700/50">
             <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-blue-800/40 backdrop-blur-sm border border-blue-700/30">
               <div className="w-6 h-6 rounded-full bg-gradient-to-r from-green-500 to-blue-500 flex items-center justify-center shadow-md flex-shrink-0">
@@ -144,10 +234,10 @@ const Sidebar = ({ isMobile, isOpen, onClose }) => {
                 </span>
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-[10px] font-medium truncate text-white">{user?.name || 'School Admin'}</p>
-                <p className="text-[8px] text-blue-300 capitalize">
-                  {user?.role === 'admin' ? 'Admin' : 'Teacher'}
+                <p className="text-[10px] font-medium truncate text-white">
+                  {user?.name || 'User'}
                 </p>
+                <p className="text-[8px] text-blue-300">{roleLabel}</p>
               </div>
               <button
                 onClick={logout}
@@ -163,27 +253,31 @@ const Sidebar = ({ isMobile, isOpen, onClose }) => {
     );
   }
 
-  // Desktop: Full sidebar
+  // ============================================================
+  // DESKTOP SIDEBAR
+  // ============================================================
   return (
     <aside className="w-64 bg-gradient-to-b from-blue-900 via-blue-800 to-green-800 text-white min-h-screen flex flex-col shadow-xl flex-shrink-0">
-      {/* Logo Section */}
+      {/* Logo */}
       <div className="p-5 border-b border-blue-700/50">
         <div className="flex items-center gap-2 mb-2">
           <div className="bg-gradient-to-r from-green-500 to-blue-500 rounded-lg p-1.5 shadow-lg flex-shrink-0">
             <FiAward className="w-5 h-5 text-white" />
           </div>
           <div className="min-w-0">
-            <h2 className="text-lg font-bold tracking-tight text-white truncate">School Manager</h2>
+            <h2 className="text-lg font-bold tracking-tight text-white truncate">
+              {portalTitle}
+            </h2>
             <p className="text-[10px] text-blue-200">CBE Education System</p>
           </div>
         </div>
       </div>
-      
-      {/* Navigation Menu */}
+
+      {/* Menu */}
       <nav className="flex-1 py-4 overflow-y-auto">
         <div className="px-4 mb-3">
           <p className="text-[10px] text-blue-300 uppercase tracking-wider font-semibold">
-            {user?.role === 'admin' ? 'ADMIN MENU' : 'TEACHER MENU'}
+            {menuLabel}
           </p>
         </div>
         {menuItems.map((item) => (
@@ -192,7 +286,7 @@ const Sidebar = ({ isMobile, isOpen, onClose }) => {
             to={item.path}
             className={({ isActive }) =>
               `flex items-center gap-3 px-4 py-2.5 mx-2 rounded-lg transition-all duration-200 ${
-                isActive
+                isPathActive(isActive, item.path)
                   ? 'bg-gradient-to-r from-green-600 to-blue-600 text-white shadow-lg'
                   : 'text-blue-100 hover:bg-white/10 hover:text-white'
               }`
@@ -204,7 +298,7 @@ const Sidebar = ({ isMobile, isOpen, onClose }) => {
         ))}
       </nav>
 
-      {/* User Info & Logout */}
+      {/* User info */}
       <div className="p-4 border-t border-blue-700/50">
         <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-blue-800/40 backdrop-blur-sm border border-blue-700/30">
           <div className="w-7 h-7 rounded-full bg-gradient-to-r from-green-500 to-blue-500 flex items-center justify-center shadow-md flex-shrink-0">
@@ -213,10 +307,10 @@ const Sidebar = ({ isMobile, isOpen, onClose }) => {
             </span>
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-medium truncate text-white">{user?.name || 'School Admin'}</p>
-            <p className="text-[9px] text-blue-300 capitalize">
-              {user?.role === 'admin' ? 'Administrator' : 'Teacher'}
+            <p className="text-xs font-medium truncate text-white">
+              {user?.name || 'User'}
             </p>
+            <p className="text-[9px] text-blue-300">{roleLabel}</p>
           </div>
           <button
             onClick={logout}

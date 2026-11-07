@@ -609,7 +609,7 @@ const Alumni = () => {
       <ReturnModal />
 
       {/* AI Responsive CSS - No visible device info */}
-      <style jsx>{`
+      <style>{`
         @media (max-width: 768px) {
           .alumni-card {
             padding: 12px !important;

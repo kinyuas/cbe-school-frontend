@@ -1,39 +1,55 @@
+// src/components/common/Header.jsx
 import React from 'react';
-import { FiMenu, FiRefreshCw } from 'react-icons/fi';
+import { FiMenu } from 'react-icons/fi';
 import { useAuth } from '../../context/AuthContext';
 
-const Header = ({ title, subtitle, isMobile, onMenuToggle, isSidebarOpen }) => {
+// ============================================================
+// ROLE → DISPLAY LABEL
+// ============================================================
+const ROLE_LABELS = {
+  admin: 'Administrator',
+  teacher: 'Teacher',
+  bursar: 'Bursar',
+};
+
+const Header = ({ title, subtitle, isMobile, onMenuToggle }) => {
   const { user } = useAuth();
+
+  const roleLabel = ROLE_LABELS[user?.role] || 'User';
 
   return (
     <header className="bg-white shadow-sm border-b border-gray-200 flex-shrink-0">
-      <div className="flex items-center justify-between px-4 py-3">
-        {/* Left side - Hamburger + Title */}
-        <div className="flex items-center gap-3 min-w-0 flex-1">
+      <div className="flex items-start justify-between px-4 py-3 gap-2">
+        {/* Left side */}
+        <div className="flex items-start gap-3 min-w-0 flex-1">
           {isMobile && (
             <button
               onClick={onMenuToggle}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0"
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0 mt-0.5"
               aria-label="Toggle menu"
             >
               <FiMenu className="w-5 h-5 text-gray-700" />
             </button>
           )}
-          <div className="min-w-0">
-            <h1 className="text-lg font-semibold text-gray-800 truncate">
+          <div className="min-w-0 flex-1">
+            {/* 
+              FIX: Removed 'truncate'. 
+              Added 'whitespace-normal break-words leading-snug' 
+              so long titles wrap instead of being cut off.
+            */}
+            <h1 className="text-lg font-semibold text-gray-800 whitespace-normal break-words leading-snug">
               {title || 'Dashboard'}
             </h1>
             {subtitle && (
-              <p className="text-xs text-gray-500 truncate">
+              <p className="text-xs text-gray-500 whitespace-normal break-words mt-0.5">
                 {subtitle}
               </p>
             )}
           </div>
         </div>
 
-        {/* Right side - User info and actions */}
+        {/* Right side */}
         <div className="flex items-center gap-3 flex-shrink-0">
-          {/* User info - hidden on mobile to save space */}
           {!isMobile && user && (
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-full bg-gradient-to-r from-green-500 to-blue-500 flex items-center justify-center shadow-md">
@@ -42,8 +58,10 @@ const Header = ({ title, subtitle, isMobile, onMenuToggle, isSidebarOpen }) => {
                 </span>
               </div>
               <div className="hidden md:block">
-                <p className="text-sm font-medium text-gray-800">{user?.name || 'User'}</p>
-                <p className="text-xs text-gray-500 capitalize">{user?.role || ''}</p>
+                <p className="text-sm font-medium text-gray-800">
+                  {user?.name || 'User'}
+                </p>
+                <p className="text-xs text-gray-500">{roleLabel}</p>
               </div>
             </div>
           )}

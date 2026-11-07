@@ -1,24 +1,34 @@
 // src/components/modals/AddPupilModal.jsx
 import React, { useState, useEffect } from 'react';
-import { FiX, FiUser, FiHash, FiCalendar, FiMail, FiPhone, FiBookOpen, FiUsers, FiAward } from 'react-icons/fi';
+import {
+  FiX, FiUser, FiHash, FiBookOpen, FiUsers, FiAward, FiPhone, FiKey
+} from 'react-icons/fi';
 import toast from 'react-hot-toast';
 import api from '../../services/api';
 
-const AddPupilModal = ({ isOpen, onClose, onSave, editingPupil = null }) => {
-  const [formData, setFormData] = useState({
-    name: '',
-    class: '',
-    admNo: '',
-    birthCertNo: '',
-    gender: '',
-    parentName: '',
-    parentPhone: '',
-    parentEmail: '',
-    dateOfBirth: '',
-    stream: '',
-    previousClass: ''
-  });
-  
+// Blank form shape — used both for init & reset
+const EMPTY_FORM = {
+  name: '',
+  class: '',
+  admNo: '',
+  birthCertNumber: '',
+  gender: '',
+  parentName: '',
+  parentPhone: '',
+  parentIdNumber: '',
+  stream: '',
+};
+
+const AddPupilModal = ({
+  isOpen,
+  onClose,
+  onSave,
+  editingPupil = null,
+  retainedData = null,
+  onDataChange = null,
+}) => {
+  const [formData, setFormData] = useState(EMPTY_FORM);
+
   const [availableClasses, setAvailableClasses] = useState([]);
   const [availableStreams, setAvailableStreams] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -35,33 +45,43 @@ const AddPupilModal = ({ isOpen, onClose, onSave, editingPupil = null }) => {
   useEffect(() => {
     if (editingPupil && isOpen) {
       loadPupilData();
+    } else if (!editingPupil && isOpen && retainedData) {
+      // Hydrate from retained data (Add mode) — used when a previous
+      // submission failed & admin doesn't want to re-type.
+      setFormData((prev) => ({
+        ...prev,
+        ...Object.fromEntries(
+          Object.entries(retainedData).filter(([k, v]) =>
+            Object.prototype.hasOwnProperty.call(EMPTY_FORM, k) && v !== undefined && v !== null
+          )
+        ),
+      }));
+      if (retainedData.class) {
+        loadStreamsForClass(retainedData.class);
+      }
     }
   }, [editingPupil, isOpen]);
 
   const loadSchoolDataFromAPI = async () => {
     setLoadingData(true);
     try {
-      console.log('Loading school data from API for AddPupilModal...');
       const response = await api.get('/school/settings');
-      
+
       if (response.data.success && response.data.data) {
         const school = response.data.data;
-        console.log('School data from API:', school);
-        
-        // Get active classes from database
+
         const activeClasses = (school.classes || [])
-          .filter(c => c.isActive !== false)
-          .map(c => c.name);
-        
+          .filter((c) => c.isActive !== false)
+          .map((c) => c.name);
+
         setAvailableClasses(activeClasses);
-        console.log('Available classes from database:', activeClasses);
-        
+
         // If a class is selected, load its streams
-        if (formData.class) {
-          const classData = (school.classes || []).find(c => c.name === formData.class);
+        const currentClass = formData.class || editingPupil?.class;
+        if (currentClass) {
+          const classData = (school.classes || []).find((c) => c.name === currentClass);
           if (classData && classData.streams) {
             setAvailableStreams(classData.streams);
-            console.log(`Streams for ${formData.class}:`, classData.streams);
           }
         }
       } else {
@@ -76,25 +96,25 @@ const AddPupilModal = ({ isOpen, onClose, onSave, editingPupil = null }) => {
   };
 
   const loadPupilData = () => {
-    if (editingPupil) {
-      setFormData({
-        name: editingPupil.name || '',
-        class: editingPupil.class || '',
-        admNo: editingPupil.admNo || '',
-        birthCertNo: editingPupil.birthCertNo || '',
-        gender: editingPupil.gender || '',
-        parentName: editingPupil.parentName || '',
-        parentPhone: editingPupil.parentPhone || '',
-        parentEmail: editingPupil.parentEmail || '',
-        dateOfBirth: editingPupil.dateOfBirth || '',
-        stream: editingPupil.stream || '',
-        previousClass: editingPupil.previousClass || ''
-      });
-      
-      // Load streams for the selected class
-      if (editingPupil.class) {
-        loadStreamsForClass(editingPupil.class);
-      }
+    if (!editingPupil) return;
+
+    // Support both new (birthCertNumber) & legacy (birthCertNo) field names
+    const hydrated = {
+      name: editingPupil.name || '',
+      class: editingPupil.class || '',
+      admNo: editingPupil.admNo || '',
+      birthCertNumber:
+        editingPupil.birthCertNumber || editingPupil.birthCertNo || '',
+      gender: editingPupil.gender || '',
+      parentName: editingPupil.parentName || '',
+      parentPhone: editingPupil.parentPhone || '',
+      parentIdNumber: editingPupil.parentIdNumber || '',
+      stream: editingPupil.stream || '',
+    };
+    setFormData(hydrated);
+
+    if (hydrated.class) {
+      loadStreamsForClass(hydrated.class);
     }
   };
 
@@ -103,7 +123,7 @@ const AddPupilModal = ({ isOpen, onClose, onSave, editingPupil = null }) => {
       const response = await api.get('/school/settings');
       if (response.data.success && response.data.data) {
         const school = response.data.data;
-        const classData = (school.classes || []).find(c => c.name === className);
+        const classData = (school.classes || []).find((c) => c.name === className);
         if (classData && classData.streams) {
           setAvailableStreams(classData.streams);
         } else {
@@ -118,82 +138,69 @@ const AddPupilModal = ({ isOpen, onClose, onSave, editingPupil = null }) => {
 
   const handleChange = async (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-    
+    const next = { ...formData, [name]: value };
+
     // Load streams when class changes
     if (name === 'class') {
+      next.stream = '';
+      setFormData(next);
       await loadStreamsForClass(value);
-      setFormData(prev => ({ ...prev, stream: '' }));
+    } else {
+      setFormData(next);
+    }
+
+    // Bubble up to parent for retained-data persistence (Add mode only)
+    if (!editingPupil && typeof onDataChange === 'function') {
+      onDataChange(next);
     }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    // Validation
-    if (!formData.name.trim()) {
-      toast.error('Please enter student name');
-      return;
+
+    // ── Core validation (required for backend model) ──
+    if (!formData.name.trim()) return toast.error('Please enter student name');
+    if (!formData.class) return toast.error('Please select a class');
+    if (!formData.admNo.trim()) return toast.error('Please enter admission number');
+    if (!formData.gender) return toast.error('Please select gender');
+
+    // ── Optional parent fields: warn only if partially filled ──
+    // (No hard requirement — schools may not use the Parent/Pupil portal.)
+    if (formData.parentIdNumber.trim() && !formData.parentName.trim()) {
+      return toast.error('Please provide parent name if parent ID is set');
     }
-    if (!formData.class) {
-      toast.error('Please select a class');
-      return;
+    if (formData.parentPhone.trim() && !formData.parentName.trim()) {
+      return toast.error('Please provide parent name if parent phone is set');
     }
-    if (!formData.admNo.trim()) {
-      toast.error('Please enter admission number');
-      return;
-    }
-    if (!formData.birthCertNo.trim()) {
-      toast.error('Please enter birth certificate number');
-      return;
-    }
-    if (!formData.gender) {
-      toast.error('Please select gender');
-      return;
-    }
-    if (!formData.parentName.trim()) {
-      toast.error('Please enter parent name');
-      return;
-    }
-    if (!formData.parentPhone.trim()) {
-      toast.error('Please enter parent phone number');
-      return;
-    }
-    
+
     setLoading(true);
-    
+
     try {
-      // Prepare data for saving
+      // ✨ Normalise payload to match backend Pupil model
       const pupilData = {
-        ...formData,
-        schoolId: localStorage.getItem('schoolId') || '',
-        status: 'active'
+        name: formData.name.trim(),
+        admNo: formData.admNo.trim(),
+        class: formData.class,
+        stream: formData.stream || '',
+        gender: formData.gender || 'Male',
+        birthCertNumber: (formData.birthCertNumber || '').trim(),
+        parentName: (formData.parentName || '').trim(),
+        parentPhone: (formData.parentPhone || '').trim(),
+        parentIdNumber: (formData.parentIdNumber || '').trim(),
       };
-      
+
       await onSave(pupilData);
       handleClose();
     } catch (error) {
       console.error('Error saving pupil:', error);
-      toast.error('Failed to save pupil');
+      toast.error(error?.response?.data?.message || 'Failed to save pupil');
     } finally {
       setLoading(false);
     }
   };
 
   const handleClose = () => {
-    setFormData({
-      name: '',
-      class: '',
-      admNo: '',
-      birthCertNo: '',
-      gender: '',
-      parentName: '',
-      parentPhone: '',
-      parentEmail: '',
-      dateOfBirth: '',
-      stream: '',
-      previousClass: ''
-    });
+    setFormData(EMPTY_FORM);
     setAvailableStreams([]);
     onClose();
   };
@@ -211,7 +218,7 @@ const AddPupilModal = ({ isOpen, onClose, onSave, editingPupil = null }) => {
             <FiX className="w-6 h-6" />
           </button>
         </div>
-        
+
         {loadingData ? (
           <div className="flex justify-center items-center h-64">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
@@ -238,12 +245,10 @@ const AddPupilModal = ({ isOpen, onClose, onSave, editingPupil = null }) => {
                   />
                 </div>
               </div>
-              
+
               {/* Class Selection */}
               <div>
-                <label className="block text-gray-700 font-medium mb-2">
-                  Class *
-                </label>
+                <label className="block text-gray-700 font-medium mb-2">Class *</label>
                 <div className="relative">
                   <FiBookOpen className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
                   <select
@@ -254,19 +259,17 @@ const AddPupilModal = ({ isOpen, onClose, onSave, editingPupil = null }) => {
                     required
                   >
                     <option value="">Select Class</option>
-                    {availableClasses.map(cls => (
+                    {availableClasses.map((cls) => (
                       <option key={cls} value={cls}>{cls}</option>
                     ))}
                   </select>
                 </div>
               </div>
-              
-              {/* Stream (if available) */}
+
+              {/* Stream (only if class has streams) */}
               {availableStreams.length > 0 && (
                 <div>
-                  <label className="block text-gray-700 font-medium mb-2">
-                    Stream
-                  </label>
+                  <label className="block text-gray-700 font-medium mb-2">Stream</label>
                   <div className="relative">
                     <FiUsers className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
                     <select
@@ -276,14 +279,14 @@ const AddPupilModal = ({ isOpen, onClose, onSave, editingPupil = null }) => {
                       className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                     >
                       <option value="">Select Stream</option>
-                      {availableStreams.map(stream => (
+                      {availableStreams.map((stream) => (
                         <option key={stream} value={stream}>{stream}</option>
                       ))}
                     </select>
                   </div>
                 </div>
               )}
-              
+
               {/* Admission Number */}
               <div>
                 <label className="block text-gray-700 font-medium mb-2">
@@ -302,31 +305,28 @@ const AddPupilModal = ({ isOpen, onClose, onSave, editingPupil = null }) => {
                   />
                 </div>
               </div>
-              
-              {/* Birth Certificate Number */}
+
+              {/* Birth Certificate Number (used as pupil login password) */}
               <div>
                 <label className="block text-gray-700 font-medium mb-2">
-                  Birth Certificate Number *
+                  Birth Certificate Number
                 </label>
                 <div className="relative">
                   <FiAward className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
                   <input
                     type="text"
-                    name="birthCertNo"
-                    value={formData.birthCertNo}
+                    name="birthCertNumber"
+                    value={formData.birthCertNumber}
                     onChange={handleChange}
-                    placeholder="Enter birth certificate number"
+                    placeholder="Optional — used for pupil portal login"
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    required
                   />
                 </div>
               </div>
-              
+
               {/* Gender */}
               <div>
-                <label className="block text-gray-700 font-medium mb-2">
-                  Gender *
-                </label>
+                <label className="block text-gray-700 font-medium mb-2">Gender *</label>
                 <div className="relative">
                   <FiUsers className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
                   <select
@@ -339,14 +339,24 @@ const AddPupilModal = ({ isOpen, onClose, onSave, editingPupil = null }) => {
                     <option value="">Select Gender</option>
                     <option value="Male">Male</option>
                     <option value="Female">Female</option>
+                    <option value="Other">Other</option>
                   </select>
                 </div>
               </div>
-              
+
+              {/* ───────── PARENT SECTION ───────── */}
+              <div className="md:col-span-2 mt-2">
+                <div className="border-t pt-3">
+                  <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">
+                    Parent / Guardian <span className="text-gray-400 font-normal normal-case">(optional)</span>
+                  </h3>
+                </div>
+              </div>
+
               {/* Parent Name */}
               <div className="md:col-span-2">
                 <label className="block text-gray-700 font-medium mb-2">
-                  Parent Name *
+                  Parent Name
                 </label>
                 <div className="relative">
                   <FiUser className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
@@ -357,15 +367,14 @@ const AddPupilModal = ({ isOpen, onClose, onSave, editingPupil = null }) => {
                     onChange={handleChange}
                     placeholder="Enter parent/guardian full name"
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    required
                   />
                 </div>
               </div>
-              
-              {/* Parent Phone Number */}
+
+              {/* Parent Phone */}
               <div>
                 <label className="block text-gray-700 font-medium mb-2">
-                  Parent Phone Number *
+                  Parent Phone Number
                 </label>
                 <div className="relative">
                   <FiPhone className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
@@ -376,68 +385,32 @@ const AddPupilModal = ({ isOpen, onClose, onSave, editingPupil = null }) => {
                     onChange={handleChange}
                     placeholder="e.g., 0712345678"
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    required
                   />
                 </div>
               </div>
-              
-              {/* Parent Email (Optional) */}
+
+              {/* Parent ID Number (login credential) */}
               <div>
                 <label className="block text-gray-700 font-medium mb-2">
-                  Parent Email (Optional)
+                  Parent ID Number
                 </label>
                 <div className="relative">
-                  <FiMail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                  <FiKey className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
                   <input
-                    type="email"
-                    name="parentEmail"
-                    value={formData.parentEmail}
+                    type="text"
+                    name="parentIdNumber"
+                    value={formData.parentIdNumber}
                     onChange={handleChange}
-                    placeholder="parent@example.com"
+                    placeholder="National ID / Passport"
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
-              </div>
-              
-              {/* Date of Birth (Optional) */}
-              <div>
-                <label className="block text-gray-700 font-medium mb-2">
-                  Date of Birth (Optional)
-                </label>
-                <div className="relative">
-                  <FiCalendar className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-                  <input
-                    type="date"
-                    name="dateOfBirth"
-                    value={formData.dateOfBirth}
-                    onChange={handleChange}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-              </div>
-              
-              {/* Previous Class (Optional - for transfers/promotions) */}
-              <div>
-                <label className="block text-gray-700 font-medium mb-2">
-                  Previous Class (Optional)
-                </label>
-                <div className="relative">
-                  <FiBookOpen className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-                  <select
-                    name="previousClass"
-                    value={formData.previousClass}
-                    onChange={handleChange}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                  >
-                    <option value="">Select Previous Class</option>
-                    {availableClasses.map(cls => (
-                      <option key={cls} value={cls}>{cls}</option>
-                    ))}
-                  </select>
-                </div>
+                <p className="text-[11px] text-gray-500 mt-1">
+                  Used by the parent to log into the Parent Portal.
+                </p>
               </div>
             </div>
-            
+
             {/* Form Actions */}
             <div className="flex space-x-3 mt-6 pt-4 border-t">
               <button

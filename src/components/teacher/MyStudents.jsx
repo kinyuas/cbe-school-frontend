@@ -1,25 +1,21 @@
-// src/components/admin/MyStudents.jsx
+// src/components/teacher/MyStudents.jsx
 import React, { useState, useEffect } from 'react';
 import Layout from '../common/Layout';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
+import { useAuth } from '../../context/AuthContext';
 import { 
   FiSearch, FiArrowUp, FiArrowDown, FiUsers, FiDownload, 
   FiFile, FiFileText, FiFilter, FiX, FiMonitor, FiSmartphone, 
-  FiTablet, FiUserCheck
+  FiTablet, FiUserCheck, FiBriefcase, FiTarget, FiTrendingUp,
+  FiZap, FiAlertCircle, FiCheckCircle, FiInfo, FiCompass
 } from 'react-icons/fi';
 
 // ===== AI Device Detection Hook =====
 const useDeviceDetection = () => {
   const [deviceInfo, setDeviceInfo] = useState({
-    type: 'desktop',
-    isMobile: false,
-    isTablet: false,
-    isDesktop: true,
-    viewportWidth: 0,
-    viewportHeight: 0,
-    pixelRatio: 1,
-    isTouchDevice: false
+    type: 'desktop', isMobile: false, isTablet: false, isDesktop: true,
+    viewportWidth: 0, viewportHeight: 0, pixelRatio: 1, isTouchDevice: false
   });
 
   useEffect(() => {
@@ -38,21 +34,11 @@ const useDeviceDetection = () => {
       if (isMobile) type = 'mobile';
       else if (isTablet) type = 'tablet';
       
-      setDeviceInfo({
-        type,
-        isMobile,
-        isTablet,
-        isDesktop,
-        viewportWidth: width,
-        viewportHeight: height,
-        pixelRatio,
-        isTouchDevice
-      });
+      setDeviceInfo({ type, isMobile, isTablet, isDesktop, viewportWidth: width, viewportHeight: height, pixelRatio, isTouchDevice });
     };
 
     detectDevice();
     window.addEventListener('resize', detectDevice);
-    
     return () => window.removeEventListener('resize', detectDevice);
   }, []);
 
@@ -71,39 +57,290 @@ const useResponsiveClasses = (deviceInfo) => {
   };
 };
 
+// ─── EXACT ADMIN AI LOGIC & DATABASE ─────────────────────────────
+const SKILL_BOOST = {
+  'Sports':              { field: 'Sports & Recreation',         boost: 12 },
+  'Music':               { field: 'Creative Arts',               boost: 12 },
+  'Drama':               { field: 'Creative Arts',               boost: 10 },
+  'Art & Design':        { field: 'Creative Arts',               boost: 10 },
+  'Leadership':          { field: 'Business & Economics',        boost: 10 },
+  'ICT':                 { field: 'ICT & Engineering',           boost: 15 },
+  'Agriculture':         { field: 'Agriculture & Environment',   boost: 10 },
+  'Home Science':        { field: 'Creative Arts',               boost: 8  },
+  'Debate':              { field: 'Law & Humanities',            boost: 10 },
+  'Community Service':   { field: 'Education & Social Sciences', boost: 8  },
+  'Technical/Practical': { field: 'ICT & Engineering',           boost: 12 }
+};
+
+const CAREER_DB = [
+  { name: 'Medicine & Surgery (MBChB)', field: 'Medicine & Health Sciences', icon: '🩺', subjects: ['Biology', 'Chemistry'], minAvg: 75 },
+  { name: 'Pharmacy', field: 'Medicine & Health Sciences', icon: '💊', subjects: ['Biology', 'Chemistry'], minAvg: 70 },
+  { name: 'Nursing', field: 'Medicine & Health Sciences', icon: '🏥', subjects: ['Biology', 'Chemistry'], minAvg: 65 },
+  { name: 'Computer Science', field: 'ICT & Engineering', icon: '💻', subjects: ['Mathematics', 'Physics'], minAvg: 65 },
+  { name: 'Software Engineering', field: 'ICT & Engineering', icon: '🖥️', subjects: ['Mathematics', 'Physics'], minAvg: 65 },
+  { name: 'Electrical Engineering', field: 'ICT & Engineering', icon: '⚡', subjects: ['Mathematics', 'Physics'], minAvg: 68 },
+  { name: 'Civil Engineering', field: 'ICT & Engineering', icon: '🏗️', subjects: ['Mathematics', 'Physics'], minAvg: 68 },
+  { name: 'Mechanical Engineering', field: 'ICT & Engineering', icon: '⚙️', subjects: ['Mathematics', 'Physics'], minAvg: 68 },
+  { name: 'Agriculture', field: 'Agriculture & Environment', icon: '🌾', subjects: ['Biology', 'Agriculture'], minAvg: 58 },
+  { name: 'Environmental Science', field: 'Agriculture & Environment', icon: '🌍', subjects: ['Biology', 'Geography'], minAvg: 58 },
+  { name: 'Statistics', field: 'Business & Economics', icon: '📉', subjects: ['Mathematics'], minAvg: 65 },
+  { name: 'Actuarial Science', field: 'Business & Economics', icon: '📈', subjects: ['Mathematics'], minAvg: 70 },
+  { name: 'Architecture', field: 'Built Environment', icon: '🏛️', subjects: ['Mathematics', 'Art & Design'], minAvg: 65 },
+  { name: 'Law (LLB)', field: 'Law & Humanities', icon: '⚖️', subjects: ['English', 'Kiswahili', 'History'], minAvg: 70 },
+  { name: 'Commerce (BCom)', field: 'Business & Economics', icon: '📊', subjects: ['Mathematics', 'Business Studies'], minAvg: 60 },
+  { name: 'Business Administration', field: 'Business & Economics', icon: '💼', subjects: ['Mathematics', 'Business Studies'], minAvg: 60 },
+  { name: 'Education (B.Ed)', field: 'Education & Social Sciences', icon: '👩‍🏫', subjects: ['English', 'Mathematics'], minAvg: 55 },
+  { name: 'Journalism & Media', field: 'Media & Communication', icon: '🎙️', subjects: ['English', 'Kiswahili'], minAvg: 60 },
+  { name: 'Psychology', field: 'Education & Social Sciences', icon: '🧠', subjects: ['Biology', 'English'], minAvg: 60 },
+  { name: 'Fine Art & Design', field: 'Creative Arts', icon: '🎨', subjects: ['Art & Design', 'English'], minAvg: 55 },
+  { name: 'Music & Performing Arts', field: 'Creative Arts', icon: '🎼', subjects: ['Music', 'English'], minAvg: 55 },
+  { name: 'Theatre Arts & Film', field: 'Creative Arts', icon: '🎬', subjects: ['English', 'Literature'], minAvg: 55 },
+  { name: 'Sports Science', field: 'Sports & Recreation', icon: '🏅', subjects: ['Physical Education', 'Biology'], minAvg: 55 },
+  { name: 'Fashion & Textile Design', field: 'Creative Arts', icon: '👗', subjects: ['Art & Design', 'Home Science'], minAvg: 55 }
+];
+
+const normalizeSubject = (s) => (s || '').toString().toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+const getSkillName = (s) => (s?.skill || s?.skillName || '').trim();
+
+const analyzeCareer = (results, options = {}) => {
+  const { skills = [] } = options;
+
+  if (!results || results.length === 0) {
+    return { insights: [], avgScore: 0, skillsUsed: skills };
+  }
+
+  const bySubject = {};
+  results.forEach(r => {
+    const s = (r.subject || '').trim();
+    if (!s) return;
+    if (!bySubject[s]) bySubject[s] = [];
+    bySubject[s].push(Number(r.marks) || 0);
+  });
+
+  const subjectAvg = {};
+  Object.entries(bySubject).forEach(([subj, marks]) => {
+    subjectAvg[subj] = marks.reduce((a, b) => a + b, 0) / marks.length;
+  });
+
+  const subjectKeys = Object.keys(subjectAvg);
+  const avgScore = subjectKeys.length > 0
+    ? subjectKeys.reduce((sum, k) => sum + subjectAvg[k], 0) / subjectKeys.length
+    : 0;
+
+  const getScore = (target) => {
+    const t = normalizeSubject(target);
+    for (const key of subjectKeys) {
+      const n = normalizeSubject(key);
+      if (n === t || n.includes(t) || t.includes(n)) return subjectAvg[key];
+    }
+    return null;
+  };
+
+  const skillBoosts = skills.map(sk => {
+    const b = SKILL_BOOST[sk.category];
+    if (!b) return null;
+    const multiplier = {
+      'Beginner': 0.3, 'Developing': 0.5, 'Proficient': 0.7,
+      'Advanced': 1.0, 'Exceptional': 1.3
+    }[sk.proficiency] || 0.5;
+    return { field: b.field, boost: b.boost * multiplier, skill: sk };
+  }).filter(Boolean);
+
+  const scored = CAREER_DB.map(career => {
+    let subjScore = 0, subjCount = 0;
+    const matchedSubjects = [];
+
+    career.subjects.forEach(s => {
+      const sc = getScore(s);
+      if (sc !== null) {
+        subjScore += sc;
+        subjCount++;
+        matchedSubjects.push({ name: s, score: sc });
+      }
+    });
+
+    const rawAcademic = subjCount > 0 ? subjScore / subjCount : 0;
+    const requiredCount = career.subjects.length;
+    const coverageFactor = requiredCount > 0 ? (subjCount / requiredCount) : 0;
+    const academicScore = rawAcademic * coverageFactor;
+
+    let skillBoost = 0;
+    const matchedSkillsForField = [];
+    skillBoosts.forEach(sb => {
+      if (sb.field === career.field) {
+        skillBoost += sb.boost;
+        matchedSkillsForField.push(sb.skill);
+      }
+    });
+
+    const finalScore = Math.min(100, academicScore + skillBoost);
+    const meetsMin = avgScore >= career.minAvg;
+
+    return {
+      ...career,
+      matchScore: Math.round(finalScore),
+      meetsMin,
+      academicScore: Math.round(academicScore),
+      skillBoost: Math.round(skillBoost),
+      matchedSubjects,
+      matchedSkillsForField,
+      coveragePercent: Math.round(coverageFactor * 100),
+    };
+  });
+
+  const top3 = scored
+    .sort((a, b) => b.matchScore - a.matchScore)
+    .slice(0, 3)
+    .map(c => {
+      const parts = [];
+
+      if (c.matchedSubjects.length > 0) {
+        const subjList = c.matchedSubjects
+          .slice(0, 2)
+          .map(m => `${m.name} (${Math.round(m.score)}%)`)
+          .join(', ');
+        parts.push(`Strong in ${subjList}`);
+      }
+
+      if (c.matchedSkillsForField.length > 0) {
+        const names = c.matchedSkillsForField
+          .slice(0, 2)
+          .map(sk => getSkillName(sk))
+          .filter(Boolean);
+        if (names.length > 0) parts.push(`Talent in ${names.join(' & ')}`);
+      }
+
+      if (c.coveragePercent < 100 && c.matchedSubjects.length > 0) {
+        parts.push(`(${c.coveragePercent}% subjects)`);
+      }
+
+      const reason = parts.length > 0 ? parts.join(' • ') : 'Matches overall performance';
+      return { ...c, reason };
+    });
+
+  return { insights: top3, avgScore: Math.round(avgScore), skillsUsed: skills };
+};
+
+// ─── EXACT UI MODAL FROM ADMIN ───
+const CareerInsightsModal = ({ viewingCareerPupil, careerInsights, careerAnalysisMeta, loadingCareers, onClose }) => {
+  if (!viewingCareerPupil) return null;
+
+  const medals = ['🥇', '🥈', '🥉'];
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto p-3">
+      <div className="bg-white rounded-xl w-full max-w-xl max-h-[90vh] overflow-y-auto shadow-2xl">
+        <div className="sticky top-0 z-10 bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-4 flex justify-between items-center rounded-t-xl">
+          <div>
+            <h2 className="text-base font-bold flex items-center gap-2">
+              <FiBriefcase className="w-5 h-5" />
+              AI Career & Talent Insights
+            </h2>
+            <p className="text-xs text-white/80 mt-0.5">
+              {viewingCareerPupil.name} • {viewingCareerPupil.class}
+              {viewingCareerPupil.stream && ` • ${viewingCareerPupil.stream}`}
+            </p>
+          </div>
+          <button onClick={onClose} className="text-white hover:bg-white/20 p-1.5 rounded-lg">
+            <FiX className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-4">
+          {loadingCareers ? (
+            <div className="flex flex-col items-center justify-center py-16">
+              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-600"></div>
+              <p className="mt-3 text-sm text-gray-600">Analysing results & talents...</p>
+            </div>
+          ) : careerInsights.length === 0 ? (
+            <div className="text-center py-12 bg-gray-50 rounded-lg">
+              <FiBriefcase className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+              <p className="text-sm text-gray-500">Not enough data to suggest careers</p>
+              <p className="text-xs text-gray-400 mt-1">Add exam results and skills first</p>
+            </div>
+          ) : (
+            <>
+              <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-2.5 mb-3 text-center flex justify-between items-center">
+                <div>
+                  <p className="text-xs font-bold text-indigo-900 uppercase">Academic Avg Score</p>
+                  <p className="text-xl font-bold text-indigo-700">{careerAnalysisMeta.avgScore}%</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs font-bold text-indigo-900 uppercase">Talents Analysed</p>
+                  <p className="text-xl font-bold text-indigo-700">{careerAnalysisMeta.skillsUsed?.length || 0}</p>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                {careerInsights.map((c, i) => (
+                  <div key={i} className="flex items-center gap-3 border border-gray-200 rounded-lg p-3 hover:shadow-md transition-shadow bg-white">
+                    <span className="text-2xl flex-shrink-0">{medals[i]}</span>
+                    <span className="text-2xl flex-shrink-0">{c.icon}</span>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-bold text-gray-800 text-sm truncate">{c.name}</h3>
+                      <p className="text-[10px] text-gray-500 truncate">{c.field}</p>
+                      <p className="text-[11px] text-indigo-600 mt-0.5 truncate font-medium bg-indigo-50/50 px-1.5 py-0.5 rounded inline-block">✓ {c.reason}</p>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <p className="text-xl font-bold text-indigo-600">{c.matchScore}%</p>
+                      <p className="text-[9px] text-gray-400">match</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <p className="text-[10px] text-gray-400 text-center mt-3">
+                Suggestions are indicative. Consider the learner's interests too.
+              </p>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const MyStudents = () => {
   const deviceInfo = useDeviceDetection();
   const responsive = useResponsiveClasses(deviceInfo);
+  
+  const { user } = useAuth();
   
   const [students, setStudents] = useState([]);
   const [filteredStudents, setFilteredStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [sortBy, setSortBy] = useState('name');
+  
+  const [sortBy, setSortBy] = useState('admNo');
   const [sortOrder, setSortOrder] = useState('asc');
   
-  // Filter states
+  const [teacherProfile, setTeacherProfile] = useState(null);
+
   const [selectedClass, setSelectedClass] = useState('');
   const [selectedStream, setSelectedStream] = useState('');
   const [availableClasses, setAvailableClasses] = useState([]);
   const [availableStreams, setAvailableStreams] = useState([]);
   
-  // Download states
   const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [downloadFormat, setDownloadFormat] = useState('excel');
   const [downloadClass, setDownloadClass] = useState('');
   const [downloadStream, setDownloadStream] = useState('');
-  const [downloadStreams, setDownloadStreams] = useState([]); // streams for the download class
-  const [schoolInfo, setSchoolInfo] = useState({ name: '', motto: '', phone: '', email: '', poBox: '' });
+  const [downloadStreams, setDownloadStreams] = useState([]);
+  const [schoolInfo, setSchoolInfo] = useState({ name: '', motto: '', phone: '', email: '', poBox: '', schoolLogo: '' });
+
+  const [showCareerModal, setShowCareerModal] = useState(false);
+  const [viewingCareerStudent, setViewingCareerStudent] = useState(null);
+  const [careerInsights, setCareerInsights] = useState([]);
+  const [careerAnalysisMeta, setCareerAnalysisMeta] = useState({ avgScore: 0, skillsUsed: [] });
+  const [loadingCareers, setLoadingCareers] = useState(false);
 
   useEffect(() => {
-    fetchStudents();
+    fetchData();
     loadSchoolInfo();
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     filterAndSortStudents();
-    // eslint-disable-next-line
   }, [searchTerm, sortBy, sortOrder, students, selectedClass, selectedStream]);
 
   const loadSchoolInfo = () => {
@@ -116,7 +353,8 @@ const MyStudents = () => {
           motto: school.motto || 'Excellence in Education',
           phone: school.phone || school.phoneNumber || '+254 XXX XXX XXX',
           email: school.email || school.schoolEmail || 'info@school.ac.ke',
-          poBox: school.poBox || school.address || 'P.O. Box 00000'
+          poBox: school.poBox || school.address || 'P.O. Box 00000',
+          schoolLogo: school.schoolLogo || school.logo || ''
         });
       }
     } catch (error) {
@@ -124,38 +362,50 @@ const MyStudents = () => {
     }
   };
 
-  const fetchStudents = async () => {
+  const fetchData = async () => {
+    setLoading(true);
     try {
-      const response = await api.get('/pupils');
-      
-      let studentsData = [];
-      if (response.data && response.data.success) {
-        studentsData = response.data.data || [];
-      } else if (Array.isArray(response.data)) {
-        studentsData = response.data;
-      } else if (response.data && Array.isArray(response.data.data)) {
-        studentsData = response.data.data;
+      let learners = [];
+      let myProfile = null;
+
+      await Promise.all([
+        api.get('/pupils').then(res => {
+          if (res.data && res.data.success) learners = res.data.data || [];
+          else if (Array.isArray(res.data)) learners = res.data;
+        }).catch(err => console.error('Pupils error:', err)),
+        api.get('/teachers').then(res => {
+          if (res.data?.success) {
+            myProfile = (res.data.data || []).find(t => t.email === user?.email);
+          }
+        }).catch(err => console.error('Teacher Profile error:', err))
+      ]);
+
+      // Default to teacher's assigned class but keep all learners in state
+      if (myProfile && myProfile.classAssigned) {
+        setTeacherProfile(myProfile);
+        setSelectedClass(myProfile.classAssigned);
+        setSelectedStream(myProfile.streamAssigned || '');
       }
       
-      setStudents(studentsData);
-      setFilteredStudents(studentsData);
+      // We no longer filter the learners array, so the teacher can filter to other classes
+      setStudents(learners);
+      setFilteredStudents(learners);
       
-      const classes = [...new Set(studentsData.map(s => s.class).filter(Boolean))];
+      // Populate the class dropdown with ALL classes in the school
+      const classes = [...new Set(learners.map(s => s.class).filter(Boolean))];
       setAvailableClasses(classes);
       
     } catch (error) {
       console.error('Error fetching students:', error);
       toast.error('Error fetching students');
-      setStudents([]);
-      setFilteredStudents([]);
     } finally {
       setLoading(false);
     }
   };
 
-  // Update streams when class changes (for the filter bar)
   useEffect(() => {
     if (selectedClass) {
+      // Get streams for the currently selected class (whether it's the teacher's or not)
       const studentsInClass = students.filter(s => s.class === selectedClass);
       const streams = [...new Set(studentsInClass.map(s => s.stream).filter(Boolean))];
       setAvailableStreams(streams);
@@ -166,13 +416,12 @@ const MyStudents = () => {
     }
   }, [selectedClass, students]);
 
-  // Update streams when download class changes (for the download modal)
   useEffect(() => {
     if (downloadClass && downloadClass !== 'all') {
       const studentsInClass = students.filter(s => s.class === downloadClass);
       const streams = [...new Set(studentsInClass.map(s => s.stream).filter(Boolean))];
       setDownloadStreams(streams);
-      setDownloadStream('all'); // default to all streams so the whole class is included
+      setDownloadStream('all');
     } else {
       setDownloadStreams([]);
       setDownloadStream('all');
@@ -225,10 +474,37 @@ const MyStudents = () => {
     }
   };
 
-  // ===== WORD DOWNLOAD HTML =====
+  const generateCareerInsights = async (student) => {
+    setLoadingCareers(true);
+    try {
+      const [resultsRes, skillsRes] = await Promise.all([
+        api.get(`/results/pupil/${student._id}`),
+        api.get(`/skills/pupil/${student._id}`)
+      ]);
+
+      const results = resultsRes.data?.success ? (resultsRes.data.data || []) : [];
+      const skills = skillsRes.data?.success ? (skillsRes.data.data || []) : [];
+
+      const analysis = analyzeCareer(results, { skills });
+
+      setCareerInsights(analysis.insights);
+      setCareerAnalysisMeta({ avgScore: analysis.avgScore, skillsUsed: analysis.skillsUsed });
+    } catch (error) {
+      console.error('Error generating career insights:', error);
+      toast.error('Could not fetch results or skills for analysis');
+    } finally {
+      setLoadingCareers(false);
+    }
+  };
+
+  const handleViewCareerInsights = async (student) => {
+    setViewingCareerStudent(student);
+    setShowCareerModal(true);
+    setCareerInsights([]);
+    await generateCareerInsights(student);
+  };
+
   const generateWordHTML = (studentsToDownload, className, streamName, schoolData) => {
-    // Only include the stream column when no specific stream was selected
-    // (i.e. when we're downloading the whole class or all streams of a class).
     const includeStreamColumn = !(streamName && streamName !== 'all');
     const titleText = `${className}${streamName && streamName !== 'all' ? ` - ${streamName}` : ''} Student List`;
     
@@ -247,6 +523,10 @@ const MyStudents = () => {
       ? '<th style="border: 1px solid #000; padding: 8px 4px; text-align: center; background-color: #f2f2f2;">STREAM</th>'
       : '';
 
+    const logoHtml = schoolData.schoolLogo 
+      ? `<img src="${schoolData.schoolLogo}" alt="Logo" style="max-height: 80px; max-width: 80px; margin-bottom: 10px;" />` 
+      : '';
+
     return `<!DOCTYPE html>
 <html>
 <head>
@@ -256,6 +536,7 @@ const MyStudents = () => {
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: 'Times New Roman', 'Arial', serif; margin: 0; padding: 20px; background: white; }
     .header { text-align: center; width: 100%; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 2px solid #000; }
+    .school-logo { margin-bottom: 10px; }
     .school-name { font-size: 24px; font-weight: bold; text-transform: uppercase; margin-bottom: 5px; }
     .motto { font-size: 12px; font-style: italic; margin-bottom: 8px; }
     .address { font-size: 10px; margin-bottom: 10px; }
@@ -270,6 +551,7 @@ const MyStudents = () => {
 </head>
 <body>
   <div class="header">
+    ${logoHtml}
     <div class="school-name">${schoolData.name}</div>
     <div class="motto">"${schoolData.motto}"</div>
     <div class="address">${schoolData.poBox} | Tel: ${schoolData.phone} | Email: ${schoolData.email}</div>
@@ -313,7 +595,6 @@ const MyStudents = () => {
 </html>`;
   };
 
-  // ===== HANDLE DOWNLOAD =====
   const handleDownload = () => {
     if (!downloadClass) {
       toast.error('Please select a class to download');
@@ -325,9 +606,7 @@ const MyStudents = () => {
     if (downloadClass === 'all') {
       studentsToDownload = students;
     } else {
-      // ✅ Always include the whole class across all streams by default
       studentsToDownload = students.filter(s => s.class === downloadClass);
-      // Only narrow down if a specific stream is chosen
       if (downloadStream && downloadStream !== 'all') {
         studentsToDownload = studentsToDownload.filter(s => s.stream === downloadStream);
       }
@@ -338,7 +617,6 @@ const MyStudents = () => {
       return;
     }
     
-    // Include stream column if the download spans multiple streams or all classes
     const includeStreamColumn = !(downloadStream && downloadStream !== 'all');
     
     const fileName = `${downloadClass}${downloadStream && downloadStream !== 'all' ? `_${downloadStream}` : ''}_students`;
@@ -401,19 +679,15 @@ const MyStudents = () => {
     setDownloadStream('');
   };
 
-  // Group students by class after filtering and sorting
   const groupedStudents = filteredStudents.reduce((acc, student) => {
     const className = student.class || 'Unassigned';
-    if (!acc[className]) {
-      acc[className] = [];
-    }
+    if (!acc[className]) acc[className] = [];
     acc[className].push(student);
     return acc;
   }, {});
 
   const totalStudents = filteredStudents.length;
 
-  // Download Modal Component
   const DownloadModal = () => (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className={`bg-white rounded-xl ${deviceInfo.isMobile ? 'p-4 mx-4 w-full max-w-sm' : 'p-6 w-full max-w-md'}`}>
@@ -471,7 +745,6 @@ const MyStudents = () => {
             </select>
           </div>
           
-          {/* ✅ Stream dropdown only shows when the class actually has streams */}
           {downloadClass && downloadClass !== 'all' && downloadStreams.length > 0 && (
             <div>
               <label className="block text-gray-700 font-medium mb-2">
@@ -489,9 +762,6 @@ const MyStudents = () => {
                   <option key={stream} value={stream}>{stream}</option>
                 ))}
               </select>
-              <p className="text-[10px] text-gray-400 mt-1">
-                Leave as "All Streams" to download every learner in the class.
-              </p>
             </div>
           )}
         </div>
@@ -525,7 +795,7 @@ const MyStudents = () => {
   }
 
   return (
-    <Layout title="My Learners" subtitle="CBE - View and manage all learners">
+    <Layout title="My Learners" subtitle="CBE - View and manage learners">
       
       {/* Search, Filter and Download Bar */}
       <div className={`bg-white rounded-xl shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-4'} mb-6`}>
@@ -715,6 +985,27 @@ const MyStudents = () => {
                           <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
                             {student.class || 'Unassigned'}
                           </span>
+                          <button
+                            onClick={() => handleViewCareerInsights(student)}
+                            className="text-xs bg-gradient-to-r from-purple-100 to-pink-100 text-purple-700 px-2.5 py-1 rounded-lg flex items-center gap-1 hover:from-purple-200 hover:to-pink-200 transition-colors font-medium"
+                            title="AI Career Insights"
+                          >
+                            <FiBriefcase className="w-3 h-3" /> Careers
+                          </button>
+                        </div>
+                      )}
+                      {deviceInfo.isMobile && (
+                        <div className="flex flex-wrap gap-2 mt-1">
+                          <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+                            {student.class || 'Unassigned'}
+                          </span>
+                          <button
+                            onClick={() => handleViewCareerInsights(student)}
+                            className="text-[10px] bg-gradient-to-r from-purple-100 to-pink-100 text-purple-700 px-2 py-0.5 rounded flex items-center gap-1 hover:from-purple-200 hover:to-pink-200 transition-colors font-medium"
+                            title="AI Career Insights"
+                          >
+                            <FiBriefcase className="w-2.5 h-2.5" /> Careers
+                          </button>
                         </div>
                       )}
                     </div>
@@ -727,8 +1018,17 @@ const MyStudents = () => {
       )}
       
       {showDownloadModal && <DownloadModal />}
+      {showCareerModal && (
+        <CareerInsightsModal 
+          viewingCareerPupil={viewingCareerStudent}
+          careerInsights={careerInsights}
+          careerAnalysisMeta={careerAnalysisMeta}
+          loadingCareers={loadingCareers}
+          onClose={() => { setShowCareerModal(false); setViewingCareerStudent(null); setCareerInsights([]); }}
+        />
+      )}
 
-      <style jsx>{`
+      <style>{`
         @media (max-width: 768px) {
           .mobile-view .p-4 { padding: 12px !important; }
           .mobile-view .gap-4 { gap: 12px !important; }
@@ -738,6 +1038,12 @@ const MyStudents = () => {
           .tablet-view .grid-cols-2 { grid-template-columns: repeat(2, 1fr) !important; }
         }
         .responsive-wrapper { transition: all 0.3s ease; }
+        .line-clamp-2 {
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
       `}</style>
     </Layout>
   );

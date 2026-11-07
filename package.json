@@ -3,6 +3,8 @@
     "version": "1.0.0",
     "private": true,
     "dependencies": {
+        "@capacitor/android": "^8.6.0",
+        "@capacitor/core": "^8.6.0",
         "axios": "^1.16.1",
         "docx": "^8.5.0",
         "file-saver": "^2.0.5",
@@ -21,6 +23,7 @@
         "start": "react-scripts start"
     },
     "devDependencies": {
+        "@capacitor/cli": "^8.6.0",
         "autoprefixer": "^10.4.16",
         "postcss": "^8.4.32",
         "react-scripts": "5.0.1",

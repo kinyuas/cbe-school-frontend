@@ -1,1160 +1,1228 @@
 // src/components/admin/SchoolSettings.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Layout from '../common/Layout';
 import api from '../../services/api';
-import { FiSave, FiPlus, FiTrash2, FiEdit2, FiX, FiCheck, FiInfo, FiRefreshCw, FiBookOpen, FiUsers, FiMonitor, FiSmartphone, FiTablet, FiServer } from 'react-icons/fi';
+import { compressImage } from '../../utils/imageCompress';
+import {
+  FiSave, FiPlus, FiTrash2, FiX, FiCheck, FiRefreshCw,
+  FiBookOpen, FiUserPlus, FiMail, FiPhone, FiAward, FiTarget,
+  FiFileText, FiImage, FiUpload, FiInfo, FiEye
+} from 'react-icons/fi';
 import toast from 'react-hot-toast';
 
-// AI Device Detection Hook
+/* ============================================================
+   Device detection
+   ============================================================ */
 const useDeviceDetection = () => {
   const [deviceInfo, setDeviceInfo] = useState({
-    type: 'desktop',
-    screenWidth: 0,
-    screenHeight: 0,
-    isMobile: false,
-    isTablet: false,
-    isDesktop: true,
-    os: 'unknown',
-    browser: 'unknown',
-    pixelRatio: 1,
-    viewportWidth: 0,
-    viewportHeight: 0
+    type: 'desktop', isMobile: false, isTablet: false, isDesktop: true,
+    viewportWidth: 0, viewportHeight: 0
   });
-
   useEffect(() => {
-    const detectDevice = () => {
+    const detect = () => {
       const ua = navigator.userAgent;
-      const width = window.innerWidth;
-      const height = window.innerHeight;
-      const pixelRatio = window.devicePixelRatio || 1;
-      
-      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua) || width < 768;
-      const isTablet = /iPad|Android(?!.*Mobile)|Tablet/i.test(ua) || (width >= 768 && width < 1024);
-      const isDesktop = !isMobile && !isTablet;
-      
-      let os = 'unknown';
-      if (/Windows/i.test(ua)) os = 'windows';
-      else if (/Mac OS X/i.test(ua)) os = 'macos';
-      else if (/Linux/i.test(ua)) os = 'linux';
-      else if (/Android/i.test(ua)) os = 'android';
-      else if (/iOS|iPhone|iPad/i.test(ua)) os = 'ios';
-      
-      let browser = 'unknown';
-      if (/Chrome/i.test(ua) && !/Edge/i.test(ua)) browser = 'chrome';
-      else if (/Firefox/i.test(ua)) browser = 'firefox';
-      else if (/Safari/i.test(ua) && !/Chrome/i.test(ua)) browser = 'safari';
-      else if (/Edge/i.test(ua)) browser = 'edge';
-      else if (/Opera|OPR/i.test(ua)) browser = 'opera';
-      
-      let type = 'desktop';
-      if (isMobile) type = 'mobile';
-      else if (isTablet) type = 'tablet';
-      
+      const w = window.innerWidth;
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua) || w < 768;
+      const isTablet = /iPad|Android(?!.*Mobile)|Tablet/i.test(ua) || (w >= 768 && w < 1024);
       setDeviceInfo({
-        type,
-        screenWidth: window.screen.width,
-        screenHeight: window.screen.height,
-        isMobile,
-        isTablet,
-        isDesktop,
-        os,
-        browser,
-        pixelRatio,
-        viewportWidth: width,
-        viewportHeight: height
+        type: isMobile ? 'mobile' : isTablet ? 'tablet' : 'desktop',
+        isMobile, isTablet, isDesktop: !isMobile && !isTablet,
+        viewportWidth: w, viewportHeight: window.innerHeight
       });
     };
-
-    detectDevice();
-    window.addEventListener('resize', detectDevice);
-    
-    return () => window.removeEventListener('resize', detectDevice);
+    detect();
+    window.addEventListener('resize', detect);
+    return () => window.removeEventListener('resize', detect);
   }, []);
-
   return deviceInfo;
 };
 
-// AI Responsive Component Wrapper
-const ResponsiveWrapper = ({ children, deviceInfo, className = '' }) => {
-  const getResponsiveClass = () => {
-    if (deviceInfo.isMobile) return 'mobile-view';
-    if (deviceInfo.isTablet) return 'tablet-view';
-    return 'desktop-view';
-  };
+const Card = ({ title, icon, children, deviceInfo, accent = 'text-green-600' }) => (
+  <div className="bg-white rounded-xl shadow-md p-5 mb-5">
+    <h2 className={`font-bold text-gray-800 mb-4 flex items-center gap-2 ${deviceInfo.isMobile ? 'text-base' : 'text-lg'}`}>
+      <span className={accent}>{icon}</span> {title}
+    </h2>
+    {children}
+  </div>
+);
 
-  return (
-    <div className={`responsive-wrapper ${getResponsiveClass()} ${className}`}>
-      {children}
-    </div>
-  );
+/* ============================================================
+   Static class catalogue
+   ============================================================ */
+const CBE_LEVELS = {
+  'Early Years Education': ['Play Group', 'Pre-Primary 1', 'Pre-Primary 2'],
+  'Lower Primary': ['Grade 1', 'Grade 2', 'Grade 3'],
+  'Upper Primary': ['Grade 4', 'Grade 5', 'Grade 6'],
+  'Junior Secondary': ['Grade 7', 'Grade 8', 'Grade 9'],
+  'Senior Secondary': ['Grade 10', 'Grade 11', 'Grade 12'],
 };
+const LEVEL_ORDER = Object.keys(CBE_LEVELS);
+const ALL_CBE_CLASSES = LEVEL_ORDER.flatMap((l) => CBE_LEVELS[l]);
+const CLASS_ORDER = ALL_CBE_CLASSES;
 
+/* ============================================================
+   MAIN
+   ============================================================ */
 const SchoolSettings = () => {
-  // AI Device Detection
   const deviceInfo = useDeviceDetection();
-  
-  const [schoolInfo, setSchoolInfo] = useState({
-    name: '',
-    email: '',
-    phone: '',
-    address: '',
-    motto: '',
-    logo: '',
-    website: '',
-    maxStreamsPerClass: 1,
-    classes: []
-  });
+  const logoInputRef = useRef(null);
 
+  const [schoolInfo, setSchoolInfo] = useState({
+    name: '', email: '', phone: '', address: '', motto: '',
+    logo: '', website: '', maxStreamsPerClass: 1, classes: []
+  });
   const [newClassName, setNewClassName] = useState('');
   const [showAddClass, setShowAddClass] = useState(false);
   const [streamNames, setStreamNames] = useState({});
   const [maxStreams, setMaxStreams] = useState(1);
   const [loading, setLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSavingLogo, setIsSavingLogo] = useState(false);
   const [isLoadingPupils, setIsLoadingPupils] = useState(false);
-  const [selectedCbeClasses, setSelectedCbeClasses] = useState([]);
-  const [showDeviceInfo, setShowDeviceInfo] = useState(false);
 
-  // ===== COMPLETE CBE CLASS ORDER (Lowest to Highest) =====
-  const CLASS_ORDER = [
-    // Early Years Education (Lowest)
-    'Play Group',
-    'Pre-Primary 1',
-    'Pre-Primary 2',
-    // Lower Primary
-    'Grade 1',
-    'Grade 2',
-    'Grade 3',
-    // Upper Primary
-    'Grade 4',
-    'Grade 5',
-    'Grade 6',
-    // Junior Secondary
-    'Grade 7',
-    'Grade 8',
-    'Grade 9',
-    // Senior Secondary (Highest)
-    'Grade 10',
-    'Grade 11',
-    'Grade 12'
-  ];
+  // Bursar
+  const [bursar, setBursar] = useState(null);
+  const [feesControl, setFeesControl] = useState({ controlledBy: 'admin', adminWriteAccess: true });
+  const [showBursarForm, setShowBursarForm] = useState(false);
+  const [bursarForm, setBursarForm] = useState({ name: '', email: '', phone: '', password: '', code: '' });
+  const [bursarStep, setBursarStep] = useState('form');
+  const [bursarLoading, setBursarLoading] = useState(false);
+  const [showBursarPassword, setShowBursarPassword] = useState(false);
 
-  // CBE Standard Classes with their levels and descriptions
-  const cbeClasses = [
-    // Early Years Education
-    { 
-      name: 'Play Group', 
-      level: 'Early Years Education',
-      description: 'Early Years Education - Play Group (3-4 years)',
-      order: 0
-    },
-    { 
-      name: 'Pre-Primary 1', 
-      level: 'Early Years Education',
-      description: 'Early Years Education - Level 1 (4-5 years)',
-      order: 1
-    },
-    { 
-      name: 'Pre-Primary 2', 
-      level: 'Early Years Education',
-      description: 'Early Years Education - Level 2 (5-6 years)',
-      order: 2
-    },
-    // Lower Primary
-    { 
-      name: 'Grade 1', 
-      level: 'Lower Primary',
-      description: 'Lower Primary - Grade 1 (6-7 years)',
-      order: 3
-    },
-    { 
-      name: 'Grade 2', 
-      level: 'Lower Primary',
-      description: 'Lower Primary - Grade 2 (7-8 years)',
-      order: 4
-    },
-    { 
-      name: 'Grade 3', 
-      level: 'Lower Primary',
-      description: 'Lower Primary - Grade 3 (8-9 years)',
-      order: 5
-    },
-    // Upper Primary
-    { 
-      name: 'Grade 4', 
-      level: 'Upper Primary',
-      description: 'Upper Primary - Grade 4 (9-10 years)',
-      order: 6
-    },
-    { 
-      name: 'Grade 5', 
-      level: 'Upper Primary',
-      description: 'Upper Primary - Grade 5 (10-11 years)',
-      order: 7
-    },
-    { 
-      name: 'Grade 6', 
-      level: 'Upper Primary',
-      description: 'Upper Primary - Grade 6 (11-12 years)',
-      order: 8
-    },
-    // Junior Secondary
-    { 
-      name: 'Grade 7', 
-      level: 'Junior Secondary',
-      description: 'Junior Secondary - Grade 7 (12-13 years)',
-      order: 9
-    },
-    { 
-      name: 'Grade 8', 
-      level: 'Junior Secondary',
-      description: 'Junior Secondary - Grade 8 (13-14 years)',
-      order: 10
-    },
-    { 
-      name: 'Grade 9', 
-      level: 'Junior Secondary',
-      description: 'Junior Secondary - Grade 9 (14-15 years)',
-      order: 11
-    },
-    // Senior Secondary
-    { 
-      name: 'Grade 10', 
-      level: 'Senior Secondary',
-      description: 'Senior Secondary - Grade 10 (15-16 years)',
-      order: 12
-    },
-    { 
-      name: 'Grade 11', 
-      level: 'Senior Secondary',
-      description: 'Senior Secondary - Grade 11 (16-17 years)',
-      order: 13
-    },
-    { 
-      name: 'Grade 12', 
-      level: 'Senior Secondary',
-      description: 'Senior Secondary - Grade 12 (17-18 years)',
-      order: 14
-    }
-  ];
+  // Skills config
+  const [skillsConfig, setSkillsConfig] = useState({
+    categories: [], proficiencyLevels: [],
+    requireEvidenceNotes: false, allowTeacherDelete: true
+  });
+  const [newCategory, setNewCategory] = useState('');
+  const [newProficiency, setNewProficiency] = useState({ name: '', rank: '' });
 
-  // Group CBE classes by level in order
-  const cbeLevels = {
-    'Early Years Education': ['Play Group', 'Pre-Primary 1', 'Pre-Primary 2'],
-    'Lower Primary': ['Grade 1', 'Grade 2', 'Grade 3'],
-    'Upper Primary': ['Grade 4', 'Grade 5', 'Grade 6'],
-    'Junior Secondary': ['Grade 7', 'Grade 8', 'Grade 9'],
-    'Senior Secondary': ['Grade 10', 'Grade 11', 'Grade 12']
+  // AI weighting
+  const [aiWeighting, setAiWeighting] = useState({
+    academic: 60, skills: 30, interests: 10, dynamicEnabled: false
+  });
+
+  // Career mapping
+  const [careerMapping, setCareerMapping] = useState([]);
+
+  // Report card config
+  const [reportCardConfig, setReportCardConfig] = useState({
+    showFeesOnReportCard: false,
+    showFeesOnClassReport: false,
+    showFeesOnStreamReport: false,
+    showFeesOnCombinedReport: false,
+    whoCanEnableFees: 'admin'
+  });
+
+  const getClassOrder = (name) => {
+    const i = CLASS_ORDER.indexOf(name);
+    return i === -1 ? 999 : i;
   };
+  const sortClassesByOrder = (arr) =>
+    [...arr].sort((a, b) => getClassOrder(a.name) - getClassOrder(b.name));
 
-  // Level order for display (lowest to highest)
-  const LEVEL_ORDER = [
-    'Early Years Education',
-    'Lower Primary',
-    'Upper Primary',
-    'Junior Secondary',
-    'Senior Secondary'
-  ];
+  const activeClasses = sortClassesByOrder(schoolInfo.classes.filter((c) => c.isActive));
+  const inactiveClasses = sortClassesByOrder(schoolInfo.classes.filter((c) => !c.isActive));
 
-  // Get the order of a class (returns -1 if not found)
-  const getClassOrder = (className) => {
-    const index = CLASS_ORDER.indexOf(className);
-    return index !== -1 ? index : 999; // Unknown classes go to the end
-  };
+  useEffect(() => { loadSchoolData(); }, []);
 
-  // Sort classes by their order (lowest to highest)
-  const sortClassesByOrder = (classes) => {
-    return [...classes].sort((a, b) => {
-      const orderA = getClassOrder(a.name);
-      const orderB = getClassOrder(b.name);
-      return orderA - orderB;
-    });
-  };
-
-  // Get sorted active classes
-  const getSortedActiveClasses = () => {
-    const active = schoolInfo.classes.filter(c => c.isActive);
-    return sortClassesByOrder(active);
-  };
-
-  // Get sorted inactive classes
-  const getSortedInactiveClasses = () => {
-    const inactive = schoolInfo.classes.filter(c => !c.isActive);
-    return sortClassesByOrder(inactive);
-  };
-
-  useEffect(() => {
-    loadSchoolData();
-  }, []);
-
-  // AI Responsive Logging
-  useEffect(() => {
-    console.log('AI Device Detection:', {
-      deviceType: deviceInfo.type,
-      screenSize: `${deviceInfo.screenWidth}x${deviceInfo.screenHeight}`,
-      viewport: `${deviceInfo.viewportWidth}x${deviceInfo.viewportHeight}`,
-      os: deviceInfo.os,
-      browser: deviceInfo.browser,
-      pixelRatio: deviceInfo.pixelRatio,
-      isMobile: deviceInfo.isMobile,
-      isTablet: deviceInfo.isTablet
-    });
-  }, [deviceInfo]);
-
+  /* ============================================================
+     LOAD
+     ============================================================ */
   const loadSchoolData = async () => {
     setLoading(true);
     try {
-      console.log('Loading school data from database...');
-      
-      const response = await api.get('/school/settings');
-      console.log('API Response:', response.data);
-      
-      if (response.data.success && response.data.data) {
-        const school = response.data.data;
-        console.log('School data from database:', school);
-        
-        let classes = school.classes || [];
-        if (classes.length > 0 && typeof classes[0] === 'string') {
-          classes = classes.map(name => ({
-            name: name,
-            streams: [],
-            isActive: true
-          }));
+      const res = await api.get('/school/settings');
+      if (res.data.success && res.data.data) {
+        const s = res.data.data;
+        let classes = s.classes || [];
+        if (classes.length && typeof classes[0] === 'string') {
+          classes = classes.map((name) => ({ name, streams: [], isActive: true }));
         }
-        
-        const mappedSchoolInfo = {
-          name: school.schoolName || school.name || '',
-          email: school.schoolEmail || school.email || '',
-          phone: school.phoneNumber || school.phone || '',
-          address: school.address || '',
-          motto: school.motto || '',
-          logo: school.schoolLogo || '',
-          website: school.website || '',
-          maxStreamsPerClass: school.maxStreamsPerClass || 1,
-          classes: classes
-        };
-        
-        setSchoolInfo(mappedSchoolInfo);
-        setMaxStreams(school.maxStreamsPerClass || 1);
-        
-        // Load streams from database
-        const savedStreams = {};
-        if (classes && classes.length > 0) {
-          classes.forEach(cls => {
-            savedStreams[cls.name] = cls.streams || [];
-          });
-          console.log('Loaded streams from database:', savedStreams);
-        }
-        setStreamNames(savedStreams);
-        
-        // Check which CBE classes are already added
-        const existingClassNames = classes.map(c => c.name);
-        const selected = cbeClasses
-          .filter(c => existingClassNames.includes(c.name))
-          .map(c => c.name);
-        setSelectedCbeClasses(selected);
-        
-      } else {
-        toast.error('Failed to load school data from database');
+
+        setSchoolInfo({
+          name: s.schoolName || s.name || '',
+          email: s.schoolEmail || s.email || '',
+          phone: s.phoneNumber || s.phone || '',
+          address: s.address || '',
+          motto: s.motto || '',
+          logo: s.schoolLogo || '',
+          website: s.website || '',
+          maxStreamsPerClass: s.maxStreamsPerClass || 1,
+          classes,
+        });
+        setMaxStreams(s.maxStreamsPerClass || 1);
+
+        const streams = {};
+        classes.forEach((c) => { streams[c.name] = c.streams || []; });
+        setStreamNames(streams);
+
+        setBursar(s.bursar || null);
+        setFeesControl(s.feesControl || { controlledBy: 'admin', adminWriteAccess: true });
+
+        if (s.skillsConfig) setSkillsConfig({
+          categories: s.skillsConfig.categories || [],
+          proficiencyLevels: s.skillsConfig.proficiencyLevels || [],
+          requireEvidenceNotes: !!s.skillsConfig.requireEvidenceNotes,
+          allowTeacherDelete: s.skillsConfig.allowTeacherDelete !== false
+        });
+
+        if (s.aiWeighting) setAiWeighting({
+          academic: s.aiWeighting.academic ?? 60,
+          skills: s.aiWeighting.skills ?? 30,
+          interests: s.aiWeighting.interests ?? 10,
+          dynamicEnabled: !!s.aiWeighting.dynamicEnabled
+        });
+
+        setCareerMapping(s.careerPathwayMapping || []);
+
+        if (s.reportCardConfig) setReportCardConfig({
+          showFeesOnReportCard: !!s.reportCardConfig.showFeesOnReportCard,
+          showFeesOnClassReport: !!s.reportCardConfig.showFeesOnClassReport,
+          showFeesOnStreamReport: !!s.reportCardConfig.showFeesOnStreamReport,
+          showFeesOnCombinedReport: !!s.reportCardConfig.showFeesOnCombinedReport,
+          whoCanEnableFees: s.reportCardConfig.whoCanEnableFees || 'admin'
+        });
       }
-    } catch (error) {
-      console.error('Error loading school data from database:', error);
-      toast.error('Failed to load school data. Please try again.');
-    } finally {
-      setLoading(false);
-    }
+    } catch (e) {
+      console.error(e);
+      toast.error('Failed to load school data');
+    } finally { setLoading(false); }
   };
 
-  // Load actual streams from pupil data in database
-  const loadStreamsFromPupils = async () => {
-    setIsLoadingPupils(true);
-    try {
-      console.log('Loading streams from pupil data in database...');
-      const response = await api.get('/pupils');
-      
-      if (response.data.success && response.data.data) {
-        const pupils = response.data.data;
-        console.log('Pupils data from database:', pupils);
-        
-        const classStreamMap = {};
-        pupils.forEach(pupil => {
-          if (pupil.class && pupil.stream) {
-            if (!classStreamMap[pupil.class]) {
-              classStreamMap[pupil.class] = new Set();
-            }
-            classStreamMap[pupil.class].add(pupil.stream);
-          }
-        });
-        
-        const updatedStreams = { ...streamNames };
-        let hasUpdates = false;
-        
-        Object.keys(classStreamMap).forEach(className => {
-          const streams = Array.from(classStreamMap[className]);
-          if (streams.length > 0) {
-            updatedStreams[className] = streams;
-            hasUpdates = true;
-            console.log(`Found streams for ${className} in database:`, streams);
-          }
-        });
-        
-        if (hasUpdates) {
-          setStreamNames(updatedStreams);
-          
-          setSchoolInfo(prev => ({
-            ...prev,
-            classes: prev.classes.map(cls => ({
-              ...cls,
-              streams: updatedStreams[cls.name] || []
-            }))
-          }));
-          
-          toast.success('Loaded streams from pupil data in database');
-        } else {
-          toast.info('No streams found in pupil data');
-        }
-      }
-    } catch (error) {
-      console.error('Error loading streams from pupils:', error);
-      toast.error('Failed to load streams from pupils');
-    } finally {
-      setIsLoadingPupils(false);
-    }
-  };
-
-  const handleSchoolInfoChange = (e) => {
+  /* ============================================================
+     SCHOOL INFO HANDLERS
+     ============================================================ */
+  const handleChange = (e) => {
     const { name, value } = e.target;
-    setSchoolInfo(prev => ({ ...prev, [name]: value }));
+    setSchoolInfo((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleMaxStreamsChange = (e) => {
-    const value = parseInt(e.target.value);
-    setMaxStreams(value);
-    setSchoolInfo(prev => ({ ...prev, maxStreamsPerClass: value }));
-  };
+  /* ---------- LOGO UPLOAD ---------- */
+  const handleLogoUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-  const handleStreamChange = (className, streamIndex, value) => {
-    setStreamNames(prev => {
-      const updatedStreams = [...(prev[className] || [])];
-      updatedStreams[streamIndex] = value;
-      return { ...prev, [className]: updatedStreams };
-    });
-  };
-
-  const addStream = (className) => {
-    const currentStreams = streamNames[className] || [];
-    if (currentStreams.length >= maxStreams) {
-      toast.error(`Maximum ${maxStreams} stream(s) allowed per class`);
+    if (!file.type.startsWith('image/')) {
+      toast.error('Select an image (PNG, JPG)');
       return;
     }
-    
-    setStreamNames(prev => ({
-      ...prev,
-      [className]: [...(prev[className] || []), '']
-    }));
-  };
 
-  const removeStream = (className, streamIndex) => {
-    setStreamNames(prev => ({
-      ...prev,
-      [className]: (prev[className] || []).filter((_, i) => i !== streamIndex)
-    }));
-  };
+    const t = toast.loading('Processing logo...');
+    try {
+      const compressed = await compressImage(file, {
+        maxWidth: 400, maxHeight: 400, quality: 0.85, maxBytes: 400 * 1024
+      });
 
-  const updateClassStreams = (className) => {
-    const streams = streamNames[className] || [];
-    const validStreams = streams.filter(s => s.trim() !== '');
-    
-    setSchoolInfo(prev => ({
-      ...prev,
-      classes: prev.classes.map(cls => 
-        cls.name === className 
-          ? { ...cls, streams: validStreams }
-          : cls
-      )
-    }));
-    
-    toast.success(`Streams for ${className} updated locally. Click SAVE to save to database.`);
-  };
+      setSchoolInfo((prev) => ({ ...prev, logo: compressed }));
 
-  const toggleClassActive = (className) => {
-    setSchoolInfo(prev => ({
-      ...prev,
-      classes: prev.classes.map(cls =>
-        cls.name === className
-          ? { ...cls, isActive: !cls.isActive }
-          : cls
-      )
-    }));
-  };
-
-  const addCbeClasses = (classNames) => {
-    const newClasses = [];
-    const existingNames = schoolInfo.classes.map(c => c.name);
-    
-    classNames.forEach(name => {
-      if (!existingNames.includes(name)) {
-        const cbeClass = cbeClasses.find(c => c.name === name);
-        if (cbeClass) {
-          newClasses.push({
-            name: cbeClass.name,
-            streams: [],
-            isActive: true
-          });
-          setStreamNames(prev => ({
-            ...prev,
-            [cbeClass.name]: []
-          }));
-        }
+      setIsSavingLogo(true);
+      const res = await api.put('/school/logo', { schoolLogo: compressed });
+      if (res.data.success) {
+        toast.success(`Logo saved (${Math.round(compressed.length / 1024)} KB)`, { id: t });
+      } else {
+        toast.error(res.data.message || 'Failed to save logo', { id: t });
       }
-    });
-    
-    if (newClasses.length > 0) {
-      // Sort new classes by order before adding
-      const sortedNewClasses = sortClassesByOrder(newClasses);
-      setSchoolInfo(prev => ({
-        ...prev,
-        classes: sortClassesByOrder([...prev.classes, ...sortedNewClasses])
-      }));
-      setSelectedCbeClasses([...selectedCbeClasses, ...classNames]);
-      toast.success(`${newClasses.length} CBE class(es) added successfully! Add streams and save.`);
-    } else {
-      toast.info('Selected classes are already added');
+    } catch (err) {
+      console.error(err);
+      toast.error(err.message || 'Failed to process image', { id: t });
+    } finally {
+      setIsSavingLogo(false);
+      if (logoInputRef.current) logoInputRef.current.value = '';
     }
+  };
+
+  const removeLogo = async () => {
+    if (!window.confirm('Remove the school logo?')) return;
+    setSchoolInfo((prev) => ({ ...prev, logo: '' }));
+    try {
+      const res = await api.put('/school/logo', { schoolLogo: null });
+      if (res.data.success) toast.success('Logo removed');
+    } catch { toast.error('Failed to remove logo'); }
+  };
+
+  /* ---------- MAX STREAMS ---------- */
+  const handleMaxStreams = (e) => {
+    const v = parseInt(e.target.value);
+    setMaxStreams(v);
+    setSchoolInfo((prev) => ({ ...prev, maxStreamsPerClass: v }));
+  };
+
+  /* ---------- STREAM HELPERS ---------- */
+  // 🆕 If maxStreams === 1 and user tries to add a stream, auto-bump the cap
+  const addStream = (cls) => {
+    const curr = streamNames[cls] || [];
+    let cap = maxStreams;
+
+    if (cap < 2) {
+      const ok = window.confirm(
+        `You currently have only ${cap} stream allowed per class.\n\n` +
+        `Enable streams (raise limit to 2+)?`
+      );
+      if (!ok) return;
+      cap = Math.max(2, curr.length + 1);
+      setMaxStreams(cap);
+      setSchoolInfo((prev) => ({ ...prev, maxStreamsPerClass: cap }));
+      toast.success(`Streams enabled — limit is now ${cap}`);
+    }
+
+    if (curr.length >= cap) {
+      toast.error(`Max ${cap} stream(s). Raise the limit to add more.`);
+      return;
+    }
+    setStreamNames((prev) => ({ ...prev, [cls]: [...curr, ''] }));
+  };
+
+  const removeStream = (cls, idx) => {
+    setStreamNames((prev) => ({ ...prev, [cls]: (prev[cls] || []).filter((_, i) => i !== idx) }));
+  };
+
+  const updateStream = (cls, idx, val) => {
+    setStreamNames((prev) => {
+      const arr = [...(prev[cls] || [])];
+      arr[idx] = val;
+      return { ...prev, [cls]: arr };
+    });
+  };
+
+  /* ---------- CLASS TOGGLE ---------- */
+  const toggleClassActive = (name) => {
+    setSchoolInfo((prev) => ({
+      ...prev,
+      classes: prev.classes.map((c) =>
+        c.name === name ? { ...c, isActive: !c.isActive } : c
+      ),
+    }));
+  };
+
+  const addClass = (name) => {
+    const exists = schoolInfo.classes.some((c) => c.name === name);
+    if (exists) {
+      setSchoolInfo((prev) => ({
+        ...prev,
+        classes: prev.classes.map((c) =>
+          c.name === name ? { ...c, isActive: true } : c
+        ),
+      }));
+      return;
+    }
+    const cls = { name, streams: [], isActive: true };
+    setSchoolInfo((prev) => ({
+      ...prev,
+      classes: sortClassesByOrder([...prev.classes, cls]),
+    }));
+    setStreamNames((prev) => ({ ...prev, [name]: [] }));
+  };
+
+  const removeClass = (name) => {
+    if (!window.confirm(`Remove "${name}" completely?`)) return;
+    setSchoolInfo((prev) => ({
+      ...prev,
+      classes: prev.classes.filter((c) => c.name !== name),
+    }));
+    setStreamNames((prev) => {
+      const next = { ...prev };
+      delete next[name];
+      return next;
+    });
   };
 
   const addCustomClass = () => {
-    if (!newClassName.trim()) {
-      toast.error('Please enter a class name');
-      return;
-    }
-    
-    if (schoolInfo.classes.some(c => c.name === newClassName.trim())) {
-      toast.error('Class already exists');
-      return;
-    }
-    
-    const newClass = {
-      name: newClassName.trim(),
-      streams: [],
-      isActive: true
-    };
-    
-    setSchoolInfo(prev => ({
-      ...prev,
-      classes: sortClassesByOrder([...prev.classes, newClass])
-    }));
-    
-    setStreamNames(prev => ({
-      ...prev,
-      [newClassName.trim()]: []
-    }));
-    
+    const name = newClassName.trim();
+    if (!name) return toast.error('Enter class name');
+    if (schoolInfo.classes.some((c) => c.name === name)) return toast.error('Already exists');
+    addClass(name);
     setNewClassName('');
     setShowAddClass(false);
-    toast.success(`Class "${newClassName.trim()}" added. Click SAVE to save to database.`);
   };
 
-  const removeCustomClass = (className) => {
-    const isCbeClass = cbeClasses.some(c => c.name === className);
-    if (isCbeClass) {
-      setSelectedCbeClasses(prev => prev.filter(name => name !== className));
-    }
-    
-    if (window.confirm(`Remove "${className}"? This action cannot be undone.`)) {
-      setSchoolInfo(prev => ({
-        ...prev,
-        classes: prev.classes.filter(cls => cls.name !== className)
-      }));
-      
-      setStreamNames(prev => {
-        const newStreams = { ...prev };
-        delete newStreams[className];
-        return newStreams;
-      });
-      
-      toast.success(`Class "${className}" removed. Click SAVE to save to database.`);
-    }
-  };
-
+  /* ============================================================
+     SAVE SETTINGS
+     ============================================================ */
   const saveSettings = async () => {
-    if (!schoolInfo.name.trim()) {
-      toast.error('School name is required');
-      return;
-    }
-    
+    if (!schoolInfo.name.trim()) return toast.error('School name is required');
     setIsSaving(true);
-    
     try {
-      const finalClasses = schoolInfo.classes.map(cls => ({
-        name: cls.name,
-        streams: streamNames[cls.name]?.filter(s => s.trim() !== '') || [],
-        isActive: cls.isActive !== false
+      const finalClasses = schoolInfo.classes.map((c) => ({
+        name: c.name,
+        streams: (streamNames[c.name] || [])
+          .map((s) => String(s || '').trim())
+          .filter(Boolean),
+        isActive: c.isActive !== false,
       }));
-      
-      console.log('Saving to database:', finalClasses);
-      
-      const updatedSchoolInfo = {
+
+      // 🆕 Auto-bump maxStreams if any class exceeds it
+      const largestStreamCount = Math.max(0, ...finalClasses.map((c) => c.streams.length));
+      const effectiveMax = Math.max(maxStreams, largestStreamCount);
+
+      const payload = {
         name: schoolInfo.name,
         phoneNumber: schoolInfo.phone,
         address: schoolInfo.address,
         website: schoolInfo.website,
         motto: schoolInfo.motto,
-        maxStreamsPerClass: maxStreams,
-        classes: finalClasses
+        maxStreamsPerClass: effectiveMax,
+        classes: finalClasses,
       };
-      
-      const response = await api.put('/school/settings', updatedSchoolInfo);
-      console.log('API save response:', response.data);
-      
-      if (response.data.success) {
-        toast.success('School settings saved to database successfully!');
+
+      const res = await api.put('/school/settings', payload);
+      if (res.data.success) {
+        if (effectiveMax !== maxStreams) {
+          toast.success(`Settings saved — stream limit auto-raised to ${effectiveMax}`);
+        } else {
+          toast.success('Settings saved');
+        }
         await loadSchoolData();
       } else {
-        throw new Error('API save failed');
+        toast.error(res.data.message || 'Save failed');
       }
-      
-    } catch (error) {
-      console.error('Error saving settings to database:', error);
-      toast.error('Failed to save settings to database. Please try again.');
-    } finally {
-      setIsSaving(false);
-    }
+    } catch (e) {
+      console.error(e);
+      toast.error(e.response?.data?.message || 'Failed to save settings');
+    } finally { setIsSaving(false); }
   };
 
-  // Get sorted classes
-  const activeClasses = getSortedActiveClasses();
-  const inactiveClasses = getSortedInactiveClasses();
+  /* ============================================================
+     BURSAR (unchanged logic)
+     ============================================================ */
+  const sendBursarCode = async () => {
+    if (!bursarForm.name.trim()) return toast.error('Name required');
+    if (!/^\S+@\S+\.\S+$/.test(bursarForm.email)) return toast.error('Valid email required');
+    if (!bursarForm.phone.trim()) return toast.error('Phone required');
+    if (!/^\d{6}$/.test(bursarForm.password)) return toast.error('Password must be 6 digits');
 
-  // Get classes grouped by CBE level
-  const getClassesByLevel = (level) => {
-    return cbeClasses.filter(c => c.level === level);
+    setBursarLoading(true);
+    try {
+      const res = await api.post('/school/bursar/send-code', {
+        name: bursarForm.name, email: bursarForm.email,
+        phone: bursarForm.phone, password: bursarForm.password,
+      });
+      if (res.data.success) {
+        toast.success('Verification code sent');
+        setBursarStep('verify');
+      } else toast.error(res.data.message || 'Failed to send code');
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Error sending code');
+    } finally { setBursarLoading(false); }
   };
 
-  // AI Responsive Grid Layout
-  const getGridLayout = () => {
-    if (deviceInfo.isMobile) return 'grid-cols-1';
-    if (deviceInfo.isTablet) return 'grid-cols-2 md:grid-cols-2';
-    return 'grid-cols-1 md:grid-cols-2 lg:grid-cols-5';
+  const registerBursar = async () => {
+    if (!bursarForm.code || bursarForm.code.length !== 6) return toast.error('Enter 6-digit code');
+    setBursarLoading(true);
+    try {
+      const res = await api.post('/school/bursar/register', { code: bursarForm.code });
+      if (res.data.success) {
+        toast.success('Bursar registered');
+        setShowBursarForm(false);
+        setBursarStep('form');
+        setBursarForm({ name: '', email: '', phone: '', password: '', code: '' });
+        await loadSchoolData();
+      } else toast.error(res.data.message || 'Registration failed');
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Error registering bursar');
+    } finally { setBursarLoading(false); }
   };
 
-  // AI Responsive Button Size
-  const getButtonSize = () => {
-    if (deviceInfo.isMobile) return 'px-6 py-3 text-base';
-    if (deviceInfo.isTablet) return 'px-5 py-2.5 text-sm';
-    return 'px-4 py-2 text-sm';
+  const toggleBursarStatus = async () => {
+    if (!bursar) return;
+    const next = bursar.status === 'active' ? 'inactive' : 'active';
+    if (!window.confirm(`${next === 'active' ? 'Reactivate' : 'Deactivate'} bursar?`)) return;
+    try {
+      const res = await api.patch('/school/bursar/status', { status: next });
+      if (res.data.success) { toast.success(`Bursar ${next}`); await loadSchoolData(); }
+    } catch { toast.error('Failed to update status'); }
   };
+
+  const deleteBursar = async () => {
+    if (!window.confirm('Delete bursar account?')) return;
+    try {
+      const res = await api.delete('/school/bursar');
+      if (res.data.success) { toast.success('Bursar deleted'); await loadSchoolData(); }
+    } catch { toast.error('Failed to delete bursar'); }
+  };
+
+  const transferFees = async () => {
+    if (!window.confirm('Transfer fees control to Admin?')) return;
+    try {
+      const res = await api.post('/school/bursar/transfer-fees-to-admin');
+      if (res.data.success) { toast.success('Transferred to Admin'); await loadSchoolData(); }
+    } catch { toast.error('Failed to transfer'); }
+  };
+
+  /* ============================================================
+     SKILLS CONFIG
+     ============================================================ */
+  const addSkillCategory = () => {
+    if (!newCategory.trim()) return toast.error('Enter category');
+    if (skillsConfig.categories.some((c) => c.name.toLowerCase() === newCategory.trim().toLowerCase()))
+      return toast.error('Already exists');
+    setSkillsConfig((prev) => ({
+      ...prev,
+      categories: [...prev.categories, { name: newCategory.trim(), active: true, order: prev.categories.length + 1 }],
+    }));
+    setNewCategory('');
+  };
+
+  const removeSkillCategory = (idx) => setSkillsConfig((prev) => ({
+    ...prev, categories: prev.categories.filter((_, i) => i !== idx),
+  }));
+
+  const addProficiency = () => {
+    if (!newProficiency.name.trim()) return toast.error('Enter level name');
+    if (skillsConfig.proficiencyLevels.some((l) => l.name.toLowerCase() === newProficiency.name.trim().toLowerCase()))
+      return toast.error('Already exists');
+    const rank = newProficiency.rank ? parseInt(newProficiency.rank) : skillsConfig.proficiencyLevels.length + 1;
+    const updated = [...skillsConfig.proficiencyLevels, { name: newProficiency.name.trim(), rank, active: true }]
+      .sort((a, b) => a.rank - b.rank);
+    setSkillsConfig((prev) => ({ ...prev, proficiencyLevels: updated }));
+    setNewProficiency({ name: '', rank: '' });
+  };
+
+  const removeProficiency = (idx) => setSkillsConfig((prev) => ({
+    ...prev, proficiencyLevels: prev.proficiencyLevels.filter((_, i) => i !== idx),
+  }));
+
+  const saveSkillsConfig = async () => {
+    try {
+      const res = await api.put('/school/skills-config', skillsConfig);
+      if (res.data.success) {
+        toast.success('Skills config saved');
+        await loadSchoolData();
+      }
+    } catch { toast.error('Failed to save skills config'); }
+  };
+
+  /* ============================================================
+     AI WEIGHTING & CAREER MAPPING
+     ============================================================ */
+  const saveAiWeighting = async () => {
+    const total = aiWeighting.academic + aiWeighting.skills + aiWeighting.interests;
+    if (total !== 100) return toast.error(`Weights must total 100% (currently ${total}%)`);
+    try {
+      const res = await api.put('/school/ai-weighting', aiWeighting);
+      if (res.data.success) toast.success('AI weighting saved');
+    } catch (e) { toast.error(e.response?.data?.message || 'Failed to save'); }
+  };
+
+  const addCareerMapping = () => {
+    if (!skillsConfig.categories.length) return toast.error('Add skill categories first');
+    setCareerMapping((prev) => [...prev, { categoryName: skillsConfig.categories[0].name, careerClusters: [] }]);
+  };
+
+  const updateCareerMapping = (idx, field, val) => {
+    setCareerMapping((prev) => prev.map((it, i) => {
+      if (i !== idx) return it;
+      if (field === 'categoryName') return { ...it, categoryName: val };
+      if (field === 'careerClusters') return { ...it, careerClusters: val.split(',').map((s) => s.trim()).filter(Boolean) };
+      return it;
+    }));
+  };
+
+  const removeCareerMapping = (idx) => setCareerMapping((prev) => prev.filter((_, i) => i !== idx));
+
+  const saveCareerMapping = async () => {
+    try {
+      const res = await api.put('/school/career-mapping', { mapping: careerMapping });
+      if (res.data.success) toast.success('Career mapping saved');
+    } catch { toast.error('Failed to save career mapping'); }
+  };
+
+  /* ============================================================
+     REPORT CARD CONFIG
+     ============================================================ */
+  const toggleReportCard = (field) =>
+    setReportCardConfig((prev) => ({ ...prev, [field]: !prev[field] }));
+
+  const saveReportCardConfig = async () => {
+    try {
+      const res = await api.put('/school/report-card-config', reportCardConfig);
+      if (res.data.success) toast.success('Report card config saved');
+    } catch { toast.error('Failed to save'); }
+  };
+
+  /* ============================================================
+     LOAD STREAMS FROM PUPILS
+     ============================================================ */
+  const loadStreamsFromPupils = async () => {
+    setIsLoadingPupils(true);
+    try {
+      const res = await api.get('/pupils');
+      if (res.data.success && res.data.data) {
+        const map = {};
+        res.data.data.forEach((p) => {
+          if (p.class && p.stream) {
+            if (!map[p.class]) map[p.class] = new Set();
+            map[p.class].add(p.stream.trim());
+          }
+        });
+
+        const updated = { ...streamNames };
+        let changed = false;
+        let maxFound = 0;
+        Object.keys(map).forEach((cls) => {
+          const arr = Array.from(map[cls]).filter(Boolean);
+          if (arr.length) {
+            updated[cls] = arr;
+            changed = true;
+            if (arr.length > maxFound) maxFound = arr.length;
+          }
+        });
+
+        if (changed) {
+          setStreamNames(updated);
+          setSchoolInfo((prev) => ({
+            ...prev,
+            classes: prev.classes.map((c) => ({ ...c, streams: updated[c.name] || [] })),
+          }));
+
+          // 🆕 Auto-bump maxStreams if pupils have more streams than current config
+          if (maxFound > maxStreams) {
+            setMaxStreams(maxFound);
+            setSchoolInfo((prev) => ({ ...prev, maxStreamsPerClass: maxFound }));
+            toast.success(`Streams loaded — limit auto-raised to ${maxFound}`);
+          } else {
+            toast.success('Streams loaded from pupils');
+          }
+        } else toast('No streams found on pupils');
+      }
+    } catch { toast.error('Failed to load streams'); }
+    finally { setIsLoadingPupils(false); }
+  };
+
+  /* ============================================================
+     RENDER
+     ============================================================ */
+  const btn = deviceInfo.isMobile ? 'px-6 py-3 text-base' : 'px-4 py-2 text-sm';
 
   if (loading) {
     return (
-      <Layout title="School Settings" subtitle="Configure school details, classes and streams">
+      <Layout title="School Settings" subtitle="Configure your school">
         <div className="flex justify-center items-center h-64">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
-          <p className="ml-4 text-gray-600">Loading school data from database...</p>
         </div>
       </Layout>
     );
   }
 
+  // 🆕 Live preview of skills (what teachers will actually see)
+  const previewCategories = skillsConfig.categories.length > 0
+    ? skillsConfig.categories
+    : [];
+  const previewLevels = skillsConfig.proficiencyLevels.length > 0
+    ? [...skillsConfig.proficiencyLevels].sort((a, b) => (a.rank || 0) - (b.rank || 0))
+    : [];
+
   return (
-    <Layout title="School Settings" subtitle="Configure school details, classes and streams">
-      
-      {/* AI Device Info Toggle */}
-      <div className="bg-gray-50 rounded-xl p-4 mb-4 flex justify-between items-center">
-        <div className="flex items-center gap-2">
-          {deviceInfo.isMobile ? (
-            <FiSmartphone className="text-blue-600 text-xl" />
-          ) : deviceInfo.isTablet ? (
-            <FiTablet className="text-blue-600 text-xl" />
-          ) : (
-            <FiMonitor className="text-blue-600 text-xl" />
-          )}
-          <span className="text-sm text-gray-600 font-medium">
-            {deviceInfo.type.charAt(0).toUpperCase() + deviceInfo.type.slice(1)} View
-          </span>
-        </div>
-        <button
-          onClick={() => setShowDeviceInfo(!showDeviceInfo)}
-          className="text-xs bg-gray-200 hover:bg-gray-300 px-3 py-1 rounded-full"
-        >
-          {showDeviceInfo ? 'Hide' : 'Show'} Device Info
-        </button>
-      </div>
+    <Layout title="School Settings" subtitle="Configure your school">
 
-      {/* AI Device Info Panel */}
-      {showDeviceInfo && (
-        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4 text-xs">
-          <h4 className="font-bold text-blue-800 mb-2">AI Device Detection Info</h4>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-            <div><span className="font-semibold">Device Type:</span> {deviceInfo.type}</div>
-            <div><span className="font-semibold">OS:</span> {deviceInfo.os}</div>
-            <div><span className="font-semibold">Browser:</span> {deviceInfo.browser}</div>
-            <div><span className="font-semibold">Pixel Ratio:</span> {deviceInfo.pixelRatio}x</div>
-            <div><span className="font-semibold">Screen:</span> {deviceInfo.screenWidth}x{deviceInfo.screenHeight}</div>
-            <div><span className="font-semibold">Viewport:</span> {deviceInfo.viewportWidth}x{deviceInfo.viewportHeight}</div>
-            <div><span className="font-semibold">Mobile:</span> {deviceInfo.isMobile ? 'Yes' : 'No'}</div>
-            <div><span className="font-semibold">Tablet:</span> {deviceInfo.isTablet ? 'Yes' : 'No'}</div>
-          </div>
-        </div>
-      )}
-
-      {/* School Information Section - AI Responsive */}
-      <ResponsiveWrapper deviceInfo={deviceInfo} className="mb-6">
-        <div className="bg-white rounded-xl shadow-md p-6">
-          <h2 className={`font-bold text-gray-800 mb-4 flex items-center gap-2 ${
-            deviceInfo.isMobile ? 'text-lg' : 'text-xl'
-          }`}>
-            <FiInfo className="text-blue-600" /> School Information
-          </h2>
-          
-          <div className={`grid ${deviceInfo.isMobile ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2'} gap-4`}>
-            <div>
-              <label className="block text-gray-700 font-medium mb-2">School Name *</label>
-              <input
-                type="text"
-                name="name"
-                value={schoolInfo.name}
-                onChange={handleSchoolInfoChange}
-                placeholder="Enter school name"
-                className={`input-field w-full ${deviceInfo.isMobile ? 'text-base p-3' : ''}`}
-                required
-              />
-            </div>
-            
-            <div>
-              <label className="block text-gray-700 font-medium mb-2">School Email</label>
-              <input
-                type="email"
-                name="email"
-                value={schoolInfo.email}
-                onChange={handleSchoolInfoChange}
-                placeholder="school@example.com"
-                className={`input-field w-full ${deviceInfo.isMobile ? 'text-base p-3' : ''}`}
-              />
-            </div>
-            
-            <div>
-              <label className="block text-gray-700 font-medium mb-2">Phone Number</label>
-              <input
-                type="tel"
-                name="phone"
-                value={schoolInfo.phone}
-                onChange={handleSchoolInfoChange}
-                placeholder="+254 700 000000"
-                className={`input-field w-full ${deviceInfo.isMobile ? 'text-base p-3' : ''}`}
-              />
-            </div>
-            
-            <div>
-              <label className="block text-gray-700 font-medium mb-2">Website</label>
-              <input
-                type="text"
-                name="website"
-                value={schoolInfo.website}
-                onChange={handleSchoolInfoChange}
-                placeholder="www.school.com"
-                className={`input-field w-full ${deviceInfo.isMobile ? 'text-base p-3' : ''}`}
-              />
-            </div>
-            
-            <div className={deviceInfo.isMobile ? 'col-span-1' : 'md:col-span-2'}>
-              <label className="block text-gray-700 font-medium mb-2">School Address</label>
-              <input
-                type="text"
-                name="address"
-                value={schoolInfo.address}
-                onChange={handleSchoolInfoChange}
-                placeholder="Full address"
-                className={`input-field w-full ${deviceInfo.isMobile ? 'text-base p-3' : ''}`}
-              />
-            </div>
-            
-            <div className={deviceInfo.isMobile ? 'col-span-1' : 'md:col-span-2'}>
-              <label className="block text-gray-700 font-medium mb-2">School Motto / Slogan</label>
-              <input
-                type="text"
-                name="motto"
-                value={schoolInfo.motto}
-                onChange={handleSchoolInfoChange}
-                placeholder="Quality Education for All"
-                className={`input-field w-full ${deviceInfo.isMobile ? 'text-base p-3' : ''}`}
-              />
-            </div>
-          </div>
-        </div>
-      </ResponsiveWrapper>
-
-      {/* Class Streams Configuration Section - AI Responsive */}
-      <ResponsiveWrapper deviceInfo={deviceInfo} className="mb-6">
-        <div className="bg-white rounded-xl shadow-md p-6">
-          <h2 className={`font-bold text-gray-800 mb-4 flex items-center gap-2 ${
-            deviceInfo.isMobile ? 'text-lg' : 'text-xl'
-          }`}>
-            <FiBookOpen className="text-green-600" /> Class & Streams Configuration
-          </h2>
-          
-          <div className={`mb-4 flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'flex-wrap gap-4'}`}>
-            <button
-              onClick={loadStreamsFromPupils}
-              disabled={isLoadingPupils}
-              className={`bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center gap-2 text-sm disabled:opacity-50 ${
-                getButtonSize()
-              }`}
-            >
-              <FiRefreshCw className={`w-4 h-4 ${isLoadingPupils ? 'animate-spin' : ''}`} /> 
-              {isLoadingPupils ? 'Loading...' : 'Load Streams from Pupils'}
-            </button>
-            <button
-              onClick={loadSchoolData}
-              className={`bg-gray-600 hover:bg-gray-700 text-white rounded-lg flex items-center gap-2 text-sm ${
-                getButtonSize()
-              }`}
-            >
-              <FiRefreshCw className="w-4 h-4" /> Refresh
-            </button>
-          </div>
-          
-          <div className="mb-6">
-            <label className="block text-gray-700 font-medium mb-2">
-              Maximum Streams per Class
-            </label>
-            <select
-              value={maxStreams}
-              onChange={handleMaxStreamsChange}
-              className={`input-field ${deviceInfo.isMobile ? 'w-full' : 'w-48'}`}
-            >
-              <option value={1}>1 (No streams)</option>
-              <option value={2}>2</option>
-              <option value={3}>3</option>
-              <option value={4}>4</option>
-              <option value={5}>5</option>
-            </select>
-            <p className="text-xs text-gray-400 mt-1">
-              {maxStreams === 1 ? 'No streams will be shown' : `Maximum ${maxStreams} streams per class can be added`}
-            </p>
-          </div>
-
-          {/* CBE Class Selection - AI Responsive */}
-          <div className="mb-6 border border-blue-200 rounded-lg p-4 bg-blue-50">
-            <h3 className={`font-bold text-blue-800 mb-3 flex items-center gap-2 ${
-              deviceInfo.isMobile ? 'text-base' : ''
-            }`}>
-              <FiUsers className="w-5 h-5" /> CBE Standard Classes
-            </h3>
-            <p className="text-xs text-gray-600 mb-3">Select classes based on the Competency-Based Education (CBE) curriculum</p>
-            
-            <div className={`grid ${getGridLayout()} gap-3`}>
-              {LEVEL_ORDER.map((level) => {
-                const classes = cbeLevels[level] || [];
-                return (
-                  <div key={level} className="bg-white rounded-lg p-3 border">
-                    <h4 className={`font-semibold text-gray-700 mb-2 ${deviceInfo.isMobile ? 'text-sm' : ''}`}>
-                      {level}
-                      <span className="text-xs text-gray-400 ml-1">
-                        ({classes.length})
-                      </span>
-                    </h4>
-                    {classes.map(className => {
-                      const isSelected = selectedCbeClasses.includes(className);
-                      return (
-                        <label key={className} className={`flex items-center gap-2 py-1 cursor-pointer hover:bg-gray-50 px-2 rounded ${
-                          deviceInfo.isMobile ? 'text-sm' : ''
-                        }`}>
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => {
-                              if (isSelected) {
-                                setSelectedCbeClasses(prev => prev.filter(c => c !== className));
-                              } else {
-                                setSelectedCbeClasses(prev => [...prev, className]);
-                              }
-                            }}
-                            className="w-4 h-4 text-blue-600"
-                          />
-                          <span className={deviceInfo.isMobile ? 'text-xs' : 'text-sm'}>
-                            {className}
-                            {className === 'Play Group' && ' (3-4 yrs)'}
-                            {className === 'Pre-Primary 1' && ' (4-5 yrs)'}
-                            {className === 'Pre-Primary 2' && ' (5-6 yrs)'}
-                          </span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                );
-              })}
-            </div>
-            
-            <button
-              onClick={() => addCbeClasses(selectedCbeClasses.filter(name => 
-                !schoolInfo.classes.some(c => c.name === name)
-              ))}
-              disabled={selectedCbeClasses.length === 0 || selectedCbeClasses.every(name => 
-                schoolInfo.classes.some(c => c.name === name)
-              )}
-              className={`mt-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm disabled:opacity-50 ${
-                getButtonSize()
-              }`}
-            >
-              Add Selected CBE Classes
-            </button>
-          </div>
-          
-          {/* Active Classes List - Sorted from Lowest to Highest */}
-          {activeClasses.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              <p className={`${deviceInfo.isMobile ? 'text-base' : 'text-lg'}`}>No classes configured yet</p>
-              <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>Select CBE classes above or add custom classes below</p>
-            </div>
-          ) : (
-            <div className={`space-y-6 ${deviceInfo.isMobile ? 'max-h-96' : 'max-h-96'} overflow-y-auto`}>
-              {/* Display classes grouped by level in order */}
-              {LEVEL_ORDER.map((level) => {
-                const levelClasses = activeClasses.filter(cls => {
-                  const cbeInfo = cbeClasses.find(c => c.name === cls.name);
-                  return cbeInfo?.level === level;
-                });
-                
-                if (levelClasses.length === 0) return null;
-                
-                return (
-                  <div key={level} className="border border-gray-200 rounded-lg overflow-hidden">
-                    <div className="bg-gradient-to-r from-blue-50 to-green-50 px-4 py-2 border-b">
-                      <h4 className="font-semibold text-gray-700 text-sm">
-                        {level}
-                        <span className="text-xs text-gray-400 ml-2">
-                          ({levelClasses.length} {levelClasses.length === 1 ? 'class' : 'classes'})
-                        </span>
-                      </h4>
-                    </div>
-                    <div className="divide-y divide-gray-100">
-                      {levelClasses.map((cls) => {
-                        const isCbeClass = cbeClasses.some(c => c.name === cls.name);
-                        const cbeInfo = cbeClasses.find(c => c.name === cls.name);
-                        return (
-                          <div key={cls.name} className="p-4 hover:bg-gray-50 transition-colors">
-                            <div className={`flex ${deviceInfo.isMobile ? 'flex-col items-start gap-2' : 'justify-between items-center'}`}>
-                              <div className="flex flex-wrap items-center gap-2">
-                                <h3 className={`font-bold text-gray-800 ${deviceInfo.isMobile ? 'text-base' : 'text-lg'}`}>
-                                  {cls.name}
-                                </h3>
-                                {isCbeClass && cbeInfo && (
-                                  <span className="bg-blue-100 text-blue-800 text-[10px] px-2 py-0.5 rounded-full">
-                                    {cbeInfo.level}
-                                  </span>
-                                )}
-                                {isCbeClass && (
-                                  <span className="bg-green-100 text-green-800 text-[10px] px-2 py-0.5 rounded-full">CBE</span>
-                                )}
-                                {cbeInfo?.description && (
-                                  <span className="text-xs text-gray-400 hidden md:inline">
-                                    {cbeInfo.description}
-                                  </span>
-                                )}
-                              </div>
-                              <div className={`flex ${deviceInfo.isMobile ? 'w-full justify-start' : ''} gap-2`}>
-                                <button
-                                  onClick={() => toggleClassActive(cls.name)}
-                                  className="text-red-500 hover:text-red-700 text-sm flex items-center gap-1"
-                                >
-                                  <FiX className="w-4 h-4" /> Deactivate
-                                </button>
-                                {!isCbeClass && (
-                                  <button
-                                    onClick={() => removeCustomClass(cls.name)}
-                                    className="text-red-600 hover:text-red-800 text-sm flex items-center gap-1"
-                                  >
-                                    <FiTrash2 className="w-4 h-4" /> Remove
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                            
-                            {maxStreams > 1 && (
-                              <div className="mt-3 space-y-2">
-                                <label className="block text-gray-600 text-sm font-medium">Streams</label>
-                                
-                                {(streamNames[cls.name] || []).length > 0 ? (
-                                  <div className="flex flex-wrap gap-2 mb-2">
-                                    {(streamNames[cls.name] || []).map((stream, idx) => (
-                                      <span key={idx} className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm">
-                                        {stream || `Stream ${idx + 1}`}
-                                      </span>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <p className="text-gray-500 text-sm italic">No streams configured. Add streams below.</p>
-                                )}
-                                
-                                {(streamNames[cls.name] || []).map((stream, idx) => (
-                                  <div key={idx} className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'gap-2'} items-center`}>
-                                    <input
-                                      type="text"
-                                      value={stream}
-                                      onChange={(e) => handleStreamChange(cls.name, idx, e.target.value)}
-                                      placeholder={`Enter ${cls.name} stream name`}
-                                      className={`input-field ${deviceInfo.isMobile ? 'w-full' : 'flex-1'}`}
-                                    />
-                                    <button
-                                      onClick={() => removeStream(cls.name, idx)}
-                                      className="text-red-500 hover:text-red-700 p-2"
-                                      title="Remove stream"
-                                    >
-                                      <FiTrash2 className="w-4 h-4" />
-                                    </button>
-                                  </div>
-                                ))}
-                                
-                                {(streamNames[cls.name] || []).length < maxStreams && (
-                                  <button
-                                    onClick={() => addStream(cls.name)}
-                                    className="text-green-600 hover:text-green-700 text-sm flex items-center gap-1 mt-2"
-                                  >
-                                    <FiPlus className="w-4 h-4" /> ADD STREAM
-                                  </button>
-                                )}
-                                
-                                <button
-                                  onClick={() => updateClassStreams(cls.name)}
-                                  className={`bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm mt-2 flex items-center gap-1 ${
-                                    deviceInfo.isMobile ? 'px-4 py-2' : 'px-3 py-1'
-                                  }`}
-                                >
-                                  <FiCheck className="w-3 h-3" /> Update Streams
-                                </button>
-                              </div>
-                            )}
-                            
-                            {maxStreams === 1 && (
-                              <p className="text-gray-500 text-sm italic mt-2">No streams configured for this class</p>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          
-          {/* Add Custom Class Section - AI Responsive */}
-          {showAddClass ? (
-            <div className="mt-4 border border-green-300 rounded-lg p-4 bg-green-50">
-              <input
-                type="text"
-                value={newClassName}
-                onChange={(e) => setNewClassName(e.target.value)}
-                placeholder="Enter new class name (e.g., A Level, Form 1, Remedial)"
-                className={`input-field w-full mb-2 ${deviceInfo.isMobile ? 'text-base p-3' : ''}`}
-              />
-              <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'gap-2'}`}>
-                <button
-                  onClick={addCustomClass}
-                  className={`bg-green-600 hover:bg-green-700 text-white rounded-lg flex items-center gap-1 ${
-                    getButtonSize()
-                  }`}
-                >
-                  <FiCheck className="w-4 h-4" /> Add Class
-                </button>
-                <button
-                  onClick={() => setShowAddClass(false)}
-                  className={`bg-gray-400 hover:bg-gray-500 text-white rounded-lg flex items-center gap-1 ${
-                    getButtonSize()
-                  }`}
-                >
-                  <FiX className="w-4 h-4" /> Cancel
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button
-              onClick={() => setShowAddClass(true)}
-              className={`mt-4 text-green-600 hover:text-green-700 text-sm flex items-center gap-1 ${
-                deviceInfo.isMobile ? 'w-full justify-center py-2' : ''
-              }`}
-            >
-              <FiPlus className="w-4 h-4" /> Add Custom Class
-            </button>
-          )}
-          
-          {/* Inactive Classes Section */}
-          {inactiveClasses.length > 0 && (
-            <div className="mt-6 pt-4 border-t border-gray-200">
-              <h3 className={`font-semibold text-gray-600 mb-2 ${deviceInfo.isMobile ? 'text-sm' : ''}`}>
-                Inactive Classes
-              </h3>
-              <div className="flex flex-wrap gap-2">
-                {inactiveClasses.map((cls) => (
-                  <button
-                    key={cls.name}
-                    onClick={() => toggleClassActive(cls.name)}
-                    className={`bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-full text-sm flex items-center gap-1 ${
-                      deviceInfo.isMobile ? 'px-2 py-1 text-xs' : 'px-3 py-1'
-                    }`}
-                  >
-                    {cls.name} <FiRefreshCw className="w-3 h-3" />
+      {/* ============ 1. SCHOOL IDENTITY ============ */}
+      <Card title="School Identity" icon={<FiImage />} deviceInfo={deviceInfo} accent="text-blue-600">
+        <div className={`grid gap-5 ${deviceInfo.isMobile ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-3'}`}>
+          <div className="flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-lg p-4 min-h-[160px]">
+            {schoolInfo.logo ? (
+              <>
+                <img src={schoolInfo.logo} alt="School logo" className="max-h-24 max-w-full object-contain mb-3" />
+                <div className="flex gap-2">
+                  <button onClick={() => logoInputRef.current?.click()} disabled={isSavingLogo}
+                    className="text-xs bg-blue-600 text-white px-3 py-1 rounded-full disabled:opacity-50">
+                    {isSavingLogo ? 'Saving...' : 'Change'}
                   </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      </ResponsiveWrapper>
+                  <button onClick={removeLogo} className="text-xs bg-red-500 text-white px-3 py-1 rounded-full">
+                    Remove
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <FiUpload className="w-8 h-8 text-gray-400 mb-2" />
+                <p className="text-xs text-gray-500 mb-3 text-center">PNG / JPG · auto-compressed</p>
+                <button onClick={() => logoInputRef.current?.click()} disabled={isSavingLogo}
+                  className="text-xs bg-blue-600 text-white px-4 py-1.5 rounded-full disabled:opacity-50">
+                  {isSavingLogo ? 'Saving...' : 'Upload Logo'}
+                </button>
+              </>
+            )}
+            <input ref={logoInputRef} type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
+          </div>
 
-      {/* Save Button - AI Responsive */}
-      <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-3' : 'justify-end gap-4'}`}>
-        <button
-          onClick={saveSettings}
-          disabled={isSaving}
-          className={`bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 text-white rounded-lg font-semibold flex items-center gap-2 shadow-md transition-all disabled:opacity-50 ${
-            deviceInfo.isMobile ? 'w-full justify-center px-6 py-4 text-base' : 'px-6 py-3'
-          }`}
-        >
+          <div className="md:col-span-2 space-y-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">School Name *</label>
+              <input type="text" name="name" value={schoolInfo.name} onChange={handleChange}
+                placeholder="e.g., Neema Academy" className="input-field w-full" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Motto</label>
+              <input type="text" name="motto" value={schoolInfo.motto} onChange={handleChange}
+                placeholder="e.g., Quality Education for All" className="input-field w-full" />
+            </div>
+          </div>
+        </div>
+
+        <div className={`grid gap-3 mt-4 ${deviceInfo.isMobile ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-3'}`}>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+            <input type="email" name="email" value={schoolInfo.email} onChange={handleChange}
+              placeholder="school@example.com" className="input-field w-full" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+            <input type="tel" name="phone" value={schoolInfo.phone} onChange={handleChange}
+              placeholder="+254 700 000000" className="input-field w-full" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Website</label>
+            <input type="text" name="website" value={schoolInfo.website} onChange={handleChange}
+              placeholder="www.school.com" className="input-field w-full" />
+          </div>
+        </div>
+
+        <div className="mt-3">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
+          <input type="text" name="address" value={schoolInfo.address} onChange={handleChange}
+            placeholder="Full address" className="input-field w-full" />
+        </div>
+      </Card>
+
+      {/* ============ 2. CLASSES & STREAMS (🆕 rewritten) ============ */}
+      <Card title="Classes & Streams" icon={<FiBookOpen />} deviceInfo={deviceInfo} accent="text-green-600">
+        <div className="flex flex-wrap items-end gap-3 mb-5">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Max Streams / Class</label>
+            <select value={maxStreams} onChange={handleMaxStreams}
+              className={`input-field ${deviceInfo.isMobile ? 'w-full' : 'w-40'}`}>
+              {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+                <option key={n} value={n}>{n === 1 ? '1 (no streams)' : n}</option>
+              ))}
+            </select>
+          </div>
+          <button onClick={loadStreamsFromPupils} disabled={isLoadingPupils}
+            className={`bg-blue-600 text-white rounded-lg flex items-center gap-2 ${btn} disabled:opacity-50`}>
+            <FiRefreshCw className={isLoadingPupils ? 'animate-spin' : ''} />
+            Load from Pupils
+          </button>
+        </div>
+
+        {/* 🆕 Hint when streams disabled */}
+        {maxStreams === 1 && (
+          <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-3 flex gap-2 text-xs text-blue-800">
+            <FiInfo className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <div>
+              <strong>Streams are disabled (1 per class).</strong> Set the max above to 2+ to
+              enable streams. If you try to add a stream while this is 1, you'll be prompted
+              to enable them.
+            </div>
+          </div>
+        )}
+
+        {/* CBE Category picker */}
+        <div className="mb-5">
+          <p className="text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide">
+            CBE Categories — tick to add
+          </p>
+          <div className={`grid gap-3 ${deviceInfo.isMobile ? 'grid-cols-1' : 'grid-cols-2 md:grid-cols-3 lg:grid-cols-5'}`}>
+            {LEVEL_ORDER.map((level) => (
+              <div key={level} className="border rounded-lg p-3 bg-gray-50">
+                <h4 className="font-semibold text-gray-700 text-xs mb-2">{level}</h4>
+                {(CBE_LEVELS[level] || []).map((cls) => {
+                  const entry = schoolInfo.classes.find((c) => c.name === cls);
+                  const isActive = entry?.isActive === true;
+                  const inList = !!entry;
+                  return (
+                    <label key={cls}
+                      className={`flex items-center gap-2 py-1 px-2 rounded cursor-pointer text-xs ${isActive ? 'bg-green-50' : 'hover:bg-gray-100'}`}>
+                      <input
+                        type="checkbox"
+                        checked={isActive}
+                        onChange={() => {
+                          if (isActive) toggleClassActive(cls);
+                          else addClass(cls);
+                        }}
+                        className="w-3.5 h-3.5 text-blue-600"
+                      />
+                      <span className={isActive ? 'font-medium text-green-700' : inList ? 'text-gray-500 line-through' : ''}>
+                        {cls}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Active class cards */}
+        <p className="text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide">
+          Active Classes ({activeClasses.length})
+        </p>
+
+        {activeClasses.length === 0 ? (
+          <p className="text-center py-6 text-gray-400 italic text-sm">
+            No classes yet — tick a category above
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {activeClasses.map((cls) => {
+              const streamsForClass = streamNames[cls.name] || [];
+              return (
+                <div key={cls.name} className="border rounded-lg p-3 bg-white">
+                  <div className="flex justify-between items-center flex-wrap gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-sm">{cls.name}</span>
+                      {streamsForClass.length > 0 && (
+                        <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-semibold">
+                          {streamsForClass.length} stream{streamsForClass.length !== 1 ? 's' : ''}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex gap-3">
+                      <button onClick={() => toggleClassActive(cls.name)}
+                        className="text-red-500 text-xs hover:underline">Deactivate</button>
+                      {!ALL_CBE_CLASSES.includes(cls.name) && (
+                        <button onClick={() => removeClass(cls.name)}
+                          className="text-red-600 text-xs hover:underline">Remove</button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 🆕 Streams ALWAYS visible (not only when maxStreams > 1) */}
+                  <div className="mt-2 pl-3 border-l-2 border-blue-200">
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-[10px] uppercase text-gray-400 font-semibold">Streams</p>
+                      {streamsForClass.length === 0 && maxStreams === 1 && (
+                        <button onClick={() => addStream(cls.name)}
+                          className="text-[10px] text-blue-600 hover:underline flex items-center gap-0.5">
+                          + Enable streams
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Show existing streams as chips */}
+                    {streamsForClass.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mb-2">
+                        {streamsForClass.map((s, i) => (
+                          <span key={i} className="inline-flex items-center gap-1 bg-green-50 border border-green-200 text-green-800 px-2 py-0.5 rounded text-[11px] font-medium">
+                            {s || '(unnamed)'}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Editable streams */}
+                    {streamsForClass.map((s, i) => (
+                      <div key={i} className="flex gap-2 items-center mb-1">
+                        <input type="text" value={s}
+                          onChange={(e) => updateStream(cls.name, i, e.target.value)}
+                          placeholder={`Stream ${i + 1} (e.g., A, Blue)`}
+                          className="input-field flex-1 text-xs py-1" />
+                        <button onClick={() => removeStream(cls.name, i)} className="text-red-500">
+                          <FiTrash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+
+                    {streamsForClass.length < maxStreams && (
+                      <button onClick={() => addStream(cls.name)}
+                        className="text-green-600 text-xs flex items-center gap-1 mt-1">
+                        <FiPlus className="w-3 h-3" /> Add Stream
+                      </button>
+                    )}
+                    {streamsForClass.length >= maxStreams && maxStreams > 1 && (
+                      <p className="text-[10px] text-amber-600 mt-1">
+                        Limit reached ({maxStreams}). Raise "Max Streams / Class" above to add more.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Custom class + inactive */}
+        {showAddClass ? (
+          <div className="mt-4 flex gap-2">
+            <input type="text" value={newClassName}
+              onChange={(e) => setNewClassName(e.target.value)}
+              placeholder="Custom class name" className="input-field flex-1" />
+            <button onClick={addCustomClass} className={`bg-green-600 text-white rounded-lg ${btn}`}>
+              <FiCheck className="inline w-4 h-4" /> Add
+            </button>
+            <button onClick={() => setShowAddClass(false)} className={`bg-gray-400 text-white rounded-lg ${btn}`}>
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <button onClick={() => setShowAddClass(true)}
+            className="mt-4 text-green-600 text-sm flex items-center gap-1">
+            <FiPlus className="w-4 h-4" /> Add Custom Class
+          </button>
+        )}
+
+        {inactiveClasses.length > 0 && (
+          <div className="mt-4 pt-3 border-t">
+            <p className="text-xs text-gray-500 mb-1">Inactive:</p>
+            <div className="flex flex-wrap gap-2">
+              {inactiveClasses.map((c) => (
+                <button key={c.name} onClick={() => toggleClassActive(c.name)}
+                  className="bg-gray-200 text-gray-700 px-3 py-1 rounded-full text-xs hover:bg-gray-300">
+                  {c.name} <FiRefreshCw className="inline w-3 h-3" />
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </Card>
+
+      {/* ============ 3. REPORT CARD DISPLAY ============ */}
+      <Card title="Report Card Display" icon={<FiFileText />} deviceInfo={deviceInfo} accent="text-pink-600">
+        <div className="space-y-2">
+          {[
+            { key: 'showFeesOnReportCard', label: 'Show fees on individual report cards' },
+            { key: 'showFeesOnClassReport', label: 'Show fees on class reports' },
+            { key: 'showFeesOnStreamReport', label: 'Show fees on stream reports' },
+            { key: 'showFeesOnCombinedReport', label: 'Show fees on combined exam reports' },
+          ].map(({ key, label }) => (
+            <label key={key} className="flex items-center gap-2 cursor-pointer text-sm">
+              <input type="checkbox" checked={reportCardConfig[key]}
+                onChange={() => toggleReportCard(key)} className="w-4 h-4" />
+              {label}
+            </label>
+          ))}
+          <div className="mt-3">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Who can enable fees on reports
+            </label>
+            <select value={reportCardConfig.whoCanEnableFees}
+              onChange={(e) => setReportCardConfig((prev) => ({ ...prev, whoCanEnableFees: e.target.value }))}
+              className="input-field w-full md:w-64">
+              <option value="admin">Admin only</option>
+              <option value="admin_bursar">Admin + Bursar</option>
+            </select>
+          </div>
+          <button onClick={saveReportCardConfig}
+            className={`mt-3 bg-pink-600 text-white rounded-lg ${btn}`}>
+            <FiSave className="inline w-4 h-4 mr-1" /> Save
+          </button>
+        </div>
+      </Card>
+
+      {/* ============ 4. SKILLS & TALENTS (🆕 with live preview) ============ */}
+      <Card title="Skills & Talents" icon={<FiAward />} deviceInfo={deviceInfo} accent="text-orange-600">
+        <div className="mb-4">
+          <p className="text-xs font-semibold text-gray-600 mb-2">Categories</p>
+          <div className="flex flex-wrap gap-2 mb-2">
+            {skillsConfig.categories.map((cat, i) => (
+              <span key={i} className="bg-orange-100 text-orange-800 px-3 py-1 rounded-full text-xs flex items-center gap-2">
+                {cat.name}
+                <button onClick={() => removeSkillCategory(i)} className="text-red-500">
+                  <FiX className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
+            {!skillsConfig.categories.length && (
+              <span className="text-xs italic text-gray-400">None yet</span>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <input type="text" value={newCategory} onChange={(e) => setNewCategory(e.target.value)}
+              placeholder="New category (e.g., Sports, Music, ICT)"
+              className="input-field flex-1 text-sm"
+              onKeyDown={(e) => e.key === 'Enter' && addSkillCategory()} />
+            <button onClick={addSkillCategory} className="bg-orange-600 text-white rounded-lg px-3 py-1.5 text-sm">
+              <FiPlus className="inline w-3 h-3" /> Add
+            </button>
+          </div>
+        </div>
+
+        <div className="mb-4">
+          <p className="text-xs font-semibold text-gray-600 mb-2">Proficiency Levels</p>
+          <div className="flex flex-wrap gap-2 mb-2">
+            {skillsConfig.proficiencyLevels.map((lvl, i) => (
+              <span key={i} className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs flex items-center gap-2">
+                {lvl.name} ({lvl.rank})
+                <button onClick={() => removeProficiency(i)} className="text-red-500">
+                  <FiX className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
+            {!skillsConfig.proficiencyLevels.length && (
+              <span className="text-xs italic text-gray-400">None yet</span>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <input type="text" value={newProficiency.name}
+              onChange={(e) => setNewProficiency((p) => ({ ...p, name: e.target.value }))}
+              placeholder="Level name (e.g., Beginner, Advanced)"
+              className="input-field flex-1 text-sm"
+              onKeyDown={(e) => e.key === 'Enter' && addProficiency()} />
+            <input type="number" value={newProficiency.rank}
+              onChange={(e) => setNewProficiency((p) => ({ ...p, rank: e.target.value }))}
+              placeholder="Rank" className="input-field w-20 text-sm" />
+            <button onClick={addProficiency} className="bg-blue-600 text-white rounded-lg px-3 py-1.5 text-sm">
+              <FiPlus className="inline w-3 h-3" /> Add
+            </button>
+          </div>
+        </div>
+
+        <div className="space-y-2 mb-3">
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" checked={skillsConfig.requireEvidenceNotes}
+              onChange={(e) => setSkillsConfig((p) => ({ ...p, requireEvidenceNotes: e.target.checked }))}
+              className="w-4 h-4" />
+            Require evidence notes
+          </label>
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" checked={skillsConfig.allowTeacherDelete}
+              onChange={(e) => setSkillsConfig((p) => ({ ...p, allowTeacherDelete: e.target.checked }))}
+              className="w-4 h-4" />
+            Allow teachers to delete entries
+          </label>
+        </div>
+
+        {/* 🆕 LIVE PREVIEW — what teachers/pupils will see */}
+        <div className="mt-4 bg-gray-50 border border-gray-200 rounded-lg p-3">
+          <p className="text-xs font-semibold text-gray-700 mb-2 flex items-center gap-1">
+            <FiEye className="w-3.5 h-3.5" /> Preview — what teachers/pupils will see
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+            <div>
+              <p className="font-medium text-orange-700 mb-1">Category dropdown:</p>
+              {previewCategories.length === 0 ? (
+                <p className="text-gray-400 italic">No categories — teachers will see an empty dropdown</p>
+              ) : (
+                <ul className="bg-white border rounded p-2 space-y-0.5">
+                  {previewCategories.map((c) => (
+                    <li key={c.name} className="text-gray-700">• {c.name}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div>
+              <p className="font-medium text-blue-700 mb-1">Proficiency dropdown:</p>
+              {previewLevels.length === 0 ? (
+                <p className="text-gray-400 italic">No levels — teachers will see an empty dropdown</p>
+              ) : (
+                <ul className="bg-white border rounded p-2 space-y-0.5">
+                  {previewLevels.map((l) => (
+                    <li key={l.name} className="text-gray-700">
+                      • {l.name} <span className="text-gray-400">(rank {l.rank})</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <button onClick={saveSkillsConfig} className={`mt-4 bg-orange-600 text-white rounded-lg ${btn}`}>
+          <FiSave className="inline w-4 h-4 mr-1" /> Save
+        </button>
+      </Card>
+
+      {/* ============ 5. BURSAR ============ */}
+      <Card title="Bursar / Accountant" icon={<FiUserPlus />} deviceInfo={deviceInfo} accent="text-purple-600">
+        {!bursar && !showBursarForm && (
+          <div className="text-center py-4 bg-purple-50 rounded-lg">
+            <p className="text-sm text-gray-600 mb-2">No bursar registered</p>
+            <button onClick={() => setShowBursarForm(true)}
+              className={`bg-purple-600 text-white rounded-lg ${btn}`}>
+              <FiUserPlus className="inline w-4 h-4 mr-1" /> Register
+            </button>
+          </div>
+        )}
+
+        {showBursarForm && bursarStep === 'form' && (
+          <div className="border border-purple-200 rounded-lg p-4 bg-purple-50 space-y-3">
+            {['name', 'email', 'phone'].map((f) => (
+              <div key={f}>
+                <label className="block text-xs font-medium text-gray-700 mb-1 capitalize">{f} *</label>
+                <input type={f === 'email' ? 'email' : f === 'phone' ? 'tel' : 'text'}
+                  name={f} value={bursarForm[f]}
+                  onChange={(e) => setBursarForm((p) => ({ ...p, [f]: e.target.value }))}
+                  className="input-field w-full text-sm" />
+              </div>
+            ))}
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1">Login Password (6 digits) *</label>
+              <div className="relative">
+                <input type={showBursarPassword ? 'text' : 'password'}
+                  value={bursarForm.password}
+                  onChange={(e) => setBursarForm((p) => ({
+                    ...p, password: e.target.value.replace(/\D/g, '').slice(0, 6),
+                  }))}
+                  maxLength={6} inputMode="numeric"
+                  className="input-field w-full pr-12 tracking-widest font-mono" />
+                <button type="button" onClick={() => setShowBursarPassword(!showBursarPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500">
+                  {showBursarPassword ? '🙈' : '👁'}
+                </button>
+              </div>
+              <button type="button"
+                onClick={() => {
+                  const c = Math.floor(100000 + Math.random() * 900000).toString();
+                  setBursarForm((p) => ({ ...p, password: c }));
+                  setShowBursarPassword(true);
+                }}
+                className="text-xs bg-purple-100 text-purple-800 px-3 py-1 rounded-full mt-2">
+                🔄 Generate
+              </button>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={sendBursarCode} disabled={bursarLoading || bursarForm.password.length !== 6}
+                className={`bg-purple-600 text-white rounded-lg disabled:opacity-50 ${btn}`}>
+                {bursarLoading ? 'Sending...' : 'Send Code'}
+              </button>
+              <button onClick={() => {
+                setShowBursarForm(false); setBursarStep('form');
+                setBursarForm({ name: '', email: '', phone: '', password: '', code: '' });
+              }} className={`bg-gray-300 text-gray-700 rounded-lg ${btn}`}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {showBursarForm && bursarStep === 'verify' && (
+          <div className="border border-purple-200 rounded-lg p-4 bg-purple-50 space-y-3">
+            <p className="text-xs text-gray-600">Code sent to <strong>{bursarForm.email}</strong></p>
+            <input type="text" value={bursarForm.code}
+              onChange={(e) => setBursarForm((p) => ({
+                ...p, code: e.target.value.replace(/\D/g, '').slice(0, 6),
+              }))}
+              maxLength={6} placeholder="000000"
+              className="input-field w-full text-center text-xl tracking-widest" />
+            <div className="flex gap-2">
+              <button onClick={registerBursar} disabled={bursarLoading || bursarForm.code.length !== 6}
+                className={`bg-green-600 text-white rounded-lg disabled:opacity-50 ${btn}`}>
+                {bursarLoading ? 'Registering...' : 'Verify & Register'}
+              </button>
+              <button onClick={() => setBursarStep('form')}
+                className={`bg-gray-300 text-gray-700 rounded-lg ${btn}`}>
+                Back
+              </button>
+            </div>
+          </div>
+        )}
+
+        {bursar && (
+          <div className="border rounded-lg p-4 bg-gray-50">
+            <div className="flex justify-between items-start mb-2 flex-wrap gap-2">
+              <div>
+                <p className="font-bold">{bursar.name}</p>
+                <p className="text-xs text-gray-600 flex items-center gap-1">
+                  <FiMail className="w-3 h-3" /> {bursar.email}
+                </p>
+                <p className="text-xs text-gray-600 flex items-center gap-1">
+                  <FiPhone className="w-3 h-3" /> {bursar.phone}
+                </p>
+                <p className="text-xs mt-1">
+                  Status: <span className={bursar.status === 'active' ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}>
+                    {bursar.status}
+                  </span>
+                </p>
+              </div>
+              <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                feesControl.controlledBy === 'bursar'
+                  ? 'bg-purple-100 text-purple-700'
+                  : 'bg-green-100 text-green-700'
+              }`}>
+                Fees: {feesControl.controlledBy}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={toggleBursarStatus} className="bg-yellow-500 text-white px-3 py-1.5 rounded-lg text-xs">
+                {bursar.status === 'active' ? 'Deactivate' : 'Reactivate'}
+              </button>
+              <button onClick={transferFees} className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-xs">
+                Transfer Fees to Admin
+              </button>
+              <button onClick={deleteBursar} className="bg-red-600 text-white px-3 py-1.5 rounded-lg text-xs">
+                Delete
+              </button>
+            </div>
+          </div>
+        )}
+      </Card>
+
+      {/* ============ 6. ADVANCED ============ */}
+      <details className="bg-white rounded-xl shadow-md p-5 mb-5">
+        <summary className="cursor-pointer font-bold text-gray-800 text-sm flex items-center gap-2">
+          <FiTarget className="text-indigo-600" /> Advanced: AI Weighting & Career Mapping
+        </summary>
+
+        <div className="mt-4 space-y-4">
+          <div>
+            <p className="text-xs font-semibold text-gray-700 mb-2">AI Career Insight Weighting</p>
+            {['academic', 'skills', 'interests'].map((f) => (
+              <div key={f} className="mb-2">
+                <label className="flex justify-between text-xs font-medium text-gray-600 mb-1">
+                  <span className="capitalize">{f}</span>
+                  <span>{aiWeighting[f]}%</span>
+                </label>
+                <input type="range" min="0" max="100" value={aiWeighting[f]}
+                  onChange={(e) => setAiWeighting((p) => ({ ...p, [f]: parseInt(e.target.value) || 0 }))}
+                  className="w-full" />
+              </div>
+            ))}
+            <p className={`text-xs font-semibold ${
+              aiWeighting.academic + aiWeighting.skills + aiWeighting.interests === 100
+                ? 'text-green-600' : 'text-red-600'
+            }`}>
+              Total: {aiWeighting.academic + aiWeighting.skills + aiWeighting.interests}%
+            </p>
+            <label className="flex items-center gap-2 text-xs mt-2">
+              <input type="checkbox" checked={aiWeighting.dynamicEnabled}
+                onChange={(e) => setAiWeighting((p) => ({ ...p, dynamicEnabled: e.target.checked }))}
+                className="w-4 h-4" />
+              Dynamic weighting
+            </label>
+            <button onClick={saveAiWeighting} className={`mt-3 bg-indigo-600 text-white rounded-lg ${btn}`}>
+              <FiSave className="inline w-4 h-4 mr-1" /> Save
+            </button>
+          </div>
+
+          <div className="pt-4 border-t">
+            <p className="text-xs font-semibold text-gray-700 mb-2">Career Pathway Mapping</p>
+            {careerMapping.map((item, i) => (
+              <div key={i} className="flex flex-wrap gap-2 items-center mb-2">
+                <select value={item.categoryName}
+                  onChange={(e) => updateCareerMapping(i, 'categoryName', e.target.value)}
+                  className="input-field flex-1 min-w-[140px] text-sm">
+                  {skillsConfig.categories.map((cat) => (
+                    <option key={cat.name} value={cat.name}>{cat.name}</option>
+                  ))}
+                </select>
+                <input type="text" value={item.careerClusters.join(', ')}
+                  onChange={(e) => updateCareerMapping(i, 'careerClusters', e.target.value)}
+                  placeholder="Careers (comma-separated)"
+                  className="input-field flex-[2] min-w-[180px] text-sm" />
+                <button onClick={() => removeCareerMapping(i)} className="text-red-500 p-2">
+                  <FiTrash2 className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+            <div className="flex gap-2 mt-2">
+              <button onClick={addCareerMapping} className="bg-teal-600 text-white px-3 py-1.5 rounded-lg text-sm">
+                <FiPlus className="inline w-3 h-3" /> Add
+              </button>
+              <button onClick={saveCareerMapping} className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-sm">
+                <FiSave className="inline w-3 h-3" /> Save
+              </button>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      {/* SAVE ALL */}
+      <div className={`flex ${deviceInfo.isMobile ? 'flex-col' : 'justify-end'}`}>
+        <button onClick={saveSettings} disabled={isSaving}
+          className={`bg-gradient-to-r from-green-600 to-blue-600 text-white rounded-lg font-semibold flex items-center justify-center gap-2 shadow-md disabled:opacity-50 ${
+            deviceInfo.isMobile ? 'w-full py-4 text-base' : 'px-6 py-3'
+          }`}>
           <FiSave /> {isSaving ? 'SAVING...' : 'SAVE SETTINGS'}
         </button>
       </div>
-
-      {/* AI Responsive CSS */}
-      <style jsx>{`
-        @media (max-width: 768px) {
-          .mobile-view .input-field {
-            font-size: 16px !important;
-            padding: 12px !important;
-          }
-          .mobile-view .p-6 {
-            padding: 16px !important;
-          }
-          .mobile-view .gap-4 {
-            gap: 12px !important;
-          }
-          .mobile-view .text-xl {
-            font-size: 1.125rem !important;
-          }
-        }
-        
-        @media (min-width: 769px) and (max-width: 1024px) {
-          .tablet-view .grid-cols-2 {
-            grid-template-columns: repeat(2, 1fr) !important;
-          }
-          .tablet-view .p-6 {
-            padding: 20px !important;
-          }
-        }
-        
-        .desktop-view .grid-cols-4 {
-          grid-template-columns: repeat(4, 1fr) !important;
-        }
-        
-        .responsive-wrapper {
-          transition: all 0.3s ease;
-        }
-        
-        .responsive-wrapper .input-field {
-          transition: all 0.3s ease;
-        }
-      `}</style>
     </Layout>
   );
 };

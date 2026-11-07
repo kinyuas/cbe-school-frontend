@@ -1,3 +1,4 @@
+// src/components/admin/AdminDashboard.jsx
 import React, { useState, useEffect } from 'react';
 import Layout from '../common/Layout';
 import api from '../../services/api';
@@ -5,28 +6,10 @@ import AddPupilModal from '../modals/AddPupilModal';
 import AddTeacherModal from '../modals/AddTeacherModal';
 import toast from 'react-hot-toast';
 import { 
-  FiUsers, 
-  FiUserCheck, 
-  FiCalendar, 
-  FiBookOpen, 
-  FiFileText, 
-  FiBarChart2, 
-  FiAward,
-  FiTrendingUp,
-  FiTarget,
-  FiPlus,
-  FiEdit3,
-  FiPrinter,
-  FiClock,
-  FiMapPin,
-  FiMonitor,
-  FiSmartphone,
-  FiTablet,
-  FiRefreshCw,
-  FiUser,
-  FiMail,
-  FiPhone,
-  FiBriefcase
+  FiUsers, FiUserCheck, FiCalendar, FiBookOpen, FiFileText, 
+  FiBarChart2, FiAward, FiTrendingUp, FiTarget, FiPlus, 
+  FiEdit3, FiPrinter, FiClock, FiMapPin, FiRefreshCw, 
+  FiUser, FiMail, FiPhone, FiBriefcase, FiExternalLink, FiGlobe
 } from 'react-icons/fi';
 import { Link } from 'react-router-dom';
 
@@ -88,116 +71,166 @@ const useResponsiveClasses = (deviceInfo) => {
     textSize: deviceInfo.isMobile ? 'text-xs' : 'text-sm',
     buttonSize: deviceInfo.isMobile ? 'px-2 py-1.5 text-xs' : 'px-4 py-3 text-sm',
     gridGap: deviceInfo.isMobile ? 'gap-2' : 'gap-3',
-    statsGrid: deviceInfo.isMobile ? 'grid-cols-2' : 'grid-cols-2 md:grid-cols-4 lg:grid-cols-6'
+    statsGrid: deviceInfo.isMobile ? 'grid-cols-2' : 'grid-cols-2 md:grid-cols-4 lg:grid-cols-7' 
   };
 };
 
+/* ============================================================
+   ✅ Compute Skills Coverage from real skills data
+   ============================================================ */
+const computeSkillsCoverage = async (pupils, classes, year) => {
+  if (!pupils || pupils.length === 0) return 0;
+
+  const activeClasses = (classes || []).filter(c => c.isActive !== false);
+  if (activeClasses.length === 0) return 0;
+
+  const pupilIdsWithSkills = new Set();
+
+  await Promise.all(
+    activeClasses.map(async (cls) => {
+      try {
+        const res = await api.get('/reports/skills-summary', {
+          params: { class: cls.name, year }
+        });
+        const rows = res.data?.data || [];
+        rows.forEach(row => {
+          const hasSkills = Array.isArray(row.skills) && row.skills.length > 0;
+          if (hasSkills && row.pupilId) {
+            pupilIdsWithSkills.add(String(row.pupilId));
+          }
+        });
+      } catch (e) {
+        // ignore individual class failures
+      }
+    })
+  );
+
+  return Math.round((pupilIdsWithSkills.size / pupils.length) * 100);
+};
+
 const AdminDashboard = () => {
-  // AI Device Detection
   const deviceInfo = useDeviceDetection();
   const responsive = useResponsiveClasses(deviceInfo);
   
-  // Store all numbers we need to show on the dashboard
   const [stats, setStats] = useState({
     learners: 0,
     teachers: 0,
     events: 0,
     exams: 0,
     alumni: 0,
-    transferred: 0
+    transferred: 0,
+    skillsCoverage: 0
   });
   
-  // Store lists of students and teachers
   const [recentStudents, setRecentStudents] = useState([]);
   const [recentTeachers, setRecentTeachers] = useState([]);
-  
-  // Store upcoming exams and events
   const [upcomingExams, setUpcomingExams] = useState([]);
   const [upcomingEvents, setUpcomingEvents] = useState([]);
+  const [globalItems, setGlobalItems] = useState([]); 
+  
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [schoolName, setSchoolName] = useState('School');
   const [schoolMotto, setSchoolMotto] = useState('Excellence in Education');
   
-  // Modal states for quick actions
   const [showAddStudentModal, setShowAddStudentModal] = useState(false);
   const [showAddTeacherModal, setShowAddTeacherModal] = useState(false);
 
-  // When page loads, fetch data from API
   useEffect(() => {
     loadDashboardData();
   }, []);
 
-  // Fetch all data from database API
   const loadDashboardData = async () => {
     setLoading(true);
     try {
-      // Load school info
-      const schoolResponse = await api.get('/school/settings').catch(() => ({ data: { data: {} } }));
+      // 1. Fetch school settings
+      const schoolResponse = await api
+        .get('/school/settings')
+        .catch(() => ({ data: { data: {} } }));
+
+      let currentTerm = 'Term 1';
+      let currentYear = new Date().getFullYear();
+      let schoolClasses = [];
+
       if (schoolResponse.data?.success && schoolResponse.data?.data) {
         const school = schoolResponse.data.data;
         setSchoolName(school.schoolName || school.name || 'School');
         setSchoolMotto(school.motto || 'Excellence in Education');
+        currentTerm = school.currentTerm || 'Term 1';
+        currentYear = school.currentYear || new Date().getFullYear();
+        schoolClasses = school.classes || [];
       }
 
-      // Fetch all data in parallel for better performance
+      // 2. Fetch all data in parallel
       const [
         pupilsResponse,
         teachersResponse,
         eventsResponse,
         examsResponse,
         alumniResponse,
-        transferredResponse
+        transferredResponse,
+        globalResponse
       ] = await Promise.all([
-        api.get('/pupils').catch(() => ({ data: { data: [] } })),
+        api.get('/pupils?limit=5000').catch(() => ({ data: { data: [] } })),
         api.get('/teachers').catch(() => ({ data: { data: [] } })),
         api.get('/events').catch(() => ({ data: { data: [] } })),
         api.get('/exams').catch(() => ({ data: { data: [] } })),
         api.get('/alumni').catch(() => ({ data: { data: [] } })),
-        api.get('/transferred').catch(() => ({ data: { data: [] } }))
+        api.get('/transferred').catch(() => ({ data: { data: [] } })),
+        api.get('/public/scholarships-events').catch(() => ({ data: { data: [] } }))
       ]);
+
+      const pupils       = pupilsResponse.data?.data || [];
+      const teachers     = teachersResponse.data?.data || [];
+      const events       = eventsResponse.data?.data || [];
+      const exams        = examsResponse.data?.data || [];
+      const alumni       = alumniResponse.data?.data || [];
+      const transferred  = transferredResponse.data?.data || [];
+      const globals      = globalResponse.data?.data || [];
+
+      // 3. Compute skills coverage
+      let coverage = 0;
+      try {
+        coverage = await computeSkillsCoverage(pupils, schoolClasses, currentYear);
+      } catch (e) {
+        console.error('Skills coverage compute failed:', e);
+      }
+
+      setRecentStudents(pupils.slice(0, 5));
+      setRecentTeachers(teachers.slice(0, 5));
       
-      const pupils = pupilsResponse.data?.data || [];
-      const teachers = teachersResponse.data?.data || [];
-      const events = eventsResponse.data?.data || [];
-      const exams = examsResponse.data?.data || [];
-      const alumni = alumniResponse.data?.data || [];
-      const transferred = transferredResponse.data?.data || [];
-      
-      // Get recent students (last 5)
-      const recentPupils = pupils.slice(0, 5);
-      setRecentStudents(recentPupils);
-      
-      // Get recent teachers (last 5)
-      const recentTeachersList = teachers.slice(0, 5);
-      setRecentTeachers(recentTeachersList);
-      
-      // Filter upcoming exams (not expired) - limit to 5
       const now = new Date();
-      const activeExams = exams.filter(exam => {
-        if (!exam.endDateTime) return true;
-        const examEnd = new Date(exam.endDateTime);
-        return examEnd >= now;
-      }).slice(0, 5);
       
-      // Show all events sorted by date
-      const allEvents = [...events].sort((a, b) => {
-        const dateA = a.date ? new Date(a.date) : new Date(0);
-        const dateB = b.date ? new Date(b.date) : new Date(0);
-        return dateB - dateA; // Newest first
-      }).slice(0, 5);
+      // Limit to 2 items max
+      const activeExams = exams
+        .filter(exam => !exam.endDateTime || new Date(exam.endDateTime) >= now)
+        .sort((a, b) => new Date(a.startDateTime) - new Date(b.startDateTime))
+        .slice(0, 2);
+      
+      const allEvents = [...events]
+        .sort((a, b) => {
+          const dateA = a.date ? new Date(a.date) : new Date(0);
+          const dateB = b.date ? new Date(b.date) : new Date(0);
+          return dateB - dateA;
+        })
+        .slice(0, 2);
+
+      const recentGlobals = [...globals]
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+        .slice(0, 2);
       
       setUpcomingExams(activeExams);
       setUpcomingEvents(allEvents);
+      setGlobalItems(recentGlobals);
       
-      // Update all numbers on the dashboard (removed outcomes/results)
       setStats({
-        learners: pupils.length,
-        teachers: teachers.length,
-        events: events.length,
-        exams: exams.length,
-        alumni: alumni.length,
-        transferred: transferred.length
+        learners:        pupils.length,
+        teachers:        teachers.length,
+        events:          events.length,
+        exams:           exams.length,
+        alumni:          alumni.length,
+        transferred:     transferred.length,
+        skillsCoverage:  coverage
       });
       
     } catch (error) {
@@ -215,7 +248,6 @@ const AdminDashboard = () => {
     toast.success('Dashboard refreshed');
   };
 
-  // Handle adding a new student
   const handleAddStudent = async (studentData) => {
     try {
       const response = await api.post('/pupils', studentData);
@@ -227,12 +259,10 @@ const AdminDashboard = () => {
         toast.error(response.data.message || 'Failed to add student');
       }
     } catch (error) {
-      console.error('Error adding student:', error);
       toast.error(error.response?.data?.message || 'Failed to add student');
     }
   };
 
-  // Handle adding a new teacher
   const handleAddTeacher = async (teacherData) => {
     try {
       const response = await api.post('/teachers', teacherData);
@@ -244,28 +274,21 @@ const AdminDashboard = () => {
         toast.error(response.data.message || 'Failed to add teacher');
       }
     } catch (error) {
-      console.error('Error adding teacher:', error);
       toast.error(error.response?.data?.message || 'Failed to add teacher');
     }
   };
 
-  // Format date nicely
   const formatDate = (dateString) => {
     if (!dateString) return 'Date TBA';
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-KE', { 
-      day: 'numeric', 
-      month: 'short', 
-      year: 'numeric' 
+    return new Date(dateString).toLocaleDateString('en-KE', { 
+      day: 'numeric', month: 'short', year: 'numeric' 
     });
   };
 
-  // Format time nicely
   const formatTime = (timeString) => {
     if (!timeString) return '';
     return new Date(`2000-01-01T${timeString}`).toLocaleTimeString('en-KE', { 
-      hour: '2-digit', 
-      minute: '2-digit' 
+      hour: '2-digit', minute: '2-digit' 
     });
   };
 
@@ -279,10 +302,10 @@ const AdminDashboard = () => {
     );
   }
 
-  // Get stats cards array for responsive rendering (removed Results)
   const statCards = [
     { title: 'Students', value: stats.learners, icon: FiUsers, color: 'text-blue-500', link: '/admin/pupils' },
     { title: 'Teachers', value: stats.teachers, icon: FiUserCheck, color: 'text-green-500', link: '/admin/teachers' },
+    { title: 'Skills Coverage', value: `${stats.skillsCoverage}%`, icon: FiTarget, color: 'text-orange-500', link: '/admin/skills' },
     { title: 'Exams', value: stats.exams, icon: FiFileText, color: 'text-indigo-500', link: '/admin/exams' },
     { title: 'Graduates', value: stats.alumni, icon: FiAward, color: 'text-purple-500', link: '/admin/alumni' },
     { title: 'Transferred', value: stats.transferred, icon: FiTrendingUp, color: 'text-yellow-500', link: '/admin/transferred-learners' },
@@ -290,11 +313,8 @@ const AdminDashboard = () => {
   ];
 
   return (
-    <Layout 
-      title={`${schoolName} - Control Panel`} 
-      subtitle={`CBE - Competency Based Education | ${schoolMotto}`}
-    >
-      {/* Header with Refresh Button */}
+    <Layout title={`${schoolName} - Control Panel`} subtitle={`CBE - Competency Based Education | ${schoolMotto}`}>
+      
       <div className="flex items-center justify-end mb-4">
         <button
           onClick={handleRefresh}
@@ -308,7 +328,6 @@ const AdminDashboard = () => {
         </button>
       </div>
 
-      {/* Welcome Message - CBE Dashboard Card */}
       <div className={`bg-gradient-to-r from-green-600 to-blue-600 text-white rounded-xl ${deviceInfo.isMobile ? 'p-3' : 'p-4'} mb-6`}>
         <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'items-center justify-between'}`}>
           <div>
@@ -328,20 +347,13 @@ const AdminDashboard = () => {
         </div>
       </div>
 
-      {/* Quick Actions - Below CBE Dashboard Card */}
       <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding} mb-6`}>
         <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-4`}>Quick Actions</h2>
         <div className={`grid ${deviceInfo.isMobile ? 'grid-cols-2 gap-2' : 'grid-cols-3 md:grid-cols-6 gap-3'}`}>
-          <button 
-            onClick={() => setShowAddStudentModal(true)}
-            className={`bg-blue-600 text-white rounded-lg text-center hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 ${deviceInfo.isMobile ? 'px-2 py-2 text-xs' : 'px-4 py-3 text-sm'}`}
-          >
+          <button onClick={() => setShowAddStudentModal(true)} className={`bg-blue-600 text-white rounded-lg text-center hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 ${deviceInfo.isMobile ? 'px-2 py-2 text-xs' : 'px-4 py-3 text-sm'}`}>
             <FiPlus className="w-4 h-4" /> Add Student
           </button>
-          <button 
-            onClick={() => setShowAddTeacherModal(true)}
-            className={`bg-green-600 text-white rounded-lg text-center hover:bg-green-700 transition-colors flex items-center justify-center gap-2 ${deviceInfo.isMobile ? 'px-2 py-2 text-xs' : 'px-4 py-3 text-sm'}`}
-          >
+          <button onClick={() => setShowAddTeacherModal(true)} className={`bg-green-600 text-white rounded-lg text-center hover:bg-green-700 transition-colors flex items-center justify-center gap-2 ${deviceInfo.isMobile ? 'px-2 py-2 text-xs' : 'px-4 py-3 text-sm'}`}>
             <FiPlus className="w-4 h-4" /> Add Teacher
           </button>
           <Link to="/admin/exams" className={`bg-indigo-600 text-white rounded-lg text-center hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2 ${deviceInfo.isMobile ? 'px-2 py-2 text-xs' : 'px-4 py-3 text-sm'}`}>
@@ -359,14 +371,9 @@ const AdminDashboard = () => {
         </div>
       </div>
       
-      {/* Quick Stats Cards - AI Responsive */}
       <div className={`grid ${responsive.statsGrid} ${responsive.gridGap} mb-6`}>
         {statCards.map((stat, index) => (
-          <Link 
-            key={index} 
-            to={stat.link} 
-            className={`bg-white rounded-xl shadow-md hover:shadow-lg transition-all ${deviceInfo.isMobile ? 'p-2' : 'p-3'}`}
-          >
+          <Link key={index} to={stat.link} className={`bg-white rounded-xl shadow-md hover:shadow-lg transition-all ${deviceInfo.isMobile ? 'p-2' : 'p-3'}`}>
             <div className={`flex ${deviceInfo.isMobile ? 'items-center gap-2' : 'items-center justify-between'}`}>
               <div>
                 <p className={`text-gray-500 ${deviceInfo.isMobile ? 'text-[8px]' : 'text-xs'}`}>{stat.title}</p>
@@ -379,8 +386,6 @@ const AdminDashboard = () => {
       </div>
 
       <div className={`grid ${deviceInfo.isMobile ? 'grid-cols-1' : 'lg:grid-cols-2'} gap-6`}>
-        
-        {/* Recent Students Section - Replaces Competency Levels */}
         <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding}`}>
           <div className="flex items-center justify-between mb-4">
             <h2 className={`${responsive.headingSize} font-bold text-gray-800 flex items-center gap-2`}>
@@ -406,12 +411,7 @@ const AdminDashboard = () => {
                       {student.admNo && <span>• Adm: {student.admNo}</span>}
                     </div>
                   </div>
-                  <Link 
-                    to={`/admin/pupils/${student._id}`}
-                    className="text-xs text-blue-600 hover:text-blue-800 flex-shrink-0"
-                  >
-                    View
-                  </Link>
+                  <Link to={`/admin/pupils/${student._id}`} className="text-xs text-blue-600 hover:text-blue-800 flex-shrink-0">View</Link>
                 </div>
               ))}
             </div>
@@ -419,17 +419,13 @@ const AdminDashboard = () => {
             <div className="text-center py-6">
               <FiUsers className={`${deviceInfo.isMobile ? 'w-8 h-8' : 'w-10 h-10'} text-gray-300 mx-auto mb-2`} />
               <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-gray-500`}>No students registered yet</p>
-              <button 
-                onClick={() => setShowAddStudentModal(true)}
-                className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-blue-600 hover:text-blue-800 mt-2 inline-block`}
-              >
+              <button onClick={() => setShowAddStudentModal(true)} className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-blue-600 hover:text-blue-800 mt-2 inline-block`}>
                 Add First Student →
               </button>
             </div>
           )}
         </div>
 
-        {/* Recent Teachers Section - Replaces Upcoming Exams */}
         <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding}`}>
           <div className="flex items-center justify-between mb-4">
             <h2 className={`${responsive.headingSize} font-bold text-gray-800 flex items-center gap-2`}>
@@ -455,12 +451,7 @@ const AdminDashboard = () => {
                       {teacher.phone && <span>• {teacher.phone}</span>}
                     </div>
                   </div>
-                  <Link 
-                    to={`/admin/teachers/${teacher._id}`}
-                    className="text-xs text-green-600 hover:text-green-800 flex-shrink-0"
-                  >
-                    View
-                  </Link>
+                  <Link to={`/admin/teachers/${teacher._id}`} className="text-xs text-green-600 hover:text-green-800 flex-shrink-0">View</Link>
                 </div>
               ))}
             </div>
@@ -468,10 +459,7 @@ const AdminDashboard = () => {
             <div className="text-center py-6">
               <FiUserCheck className={`${deviceInfo.isMobile ? 'w-8 h-8' : 'w-10 h-10'} text-gray-300 mx-auto mb-2`} />
               <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-gray-500`}>No teachers registered yet</p>
-              <button 
-                onClick={() => setShowAddTeacherModal(true)}
-                className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-green-600 hover:text-green-800 mt-2 inline-block`}
-              >
+              <button onClick={() => setShowAddTeacherModal(true)} className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-green-600 hover:text-green-800 mt-2 inline-block`}>
                 Add First Teacher →
               </button>
             </div>
@@ -479,9 +467,10 @@ const AdminDashboard = () => {
         </div>
       </div>
 
-      <div className={`grid ${deviceInfo.isMobile ? 'grid-cols-1' : 'lg:grid-cols-2'} gap-6 mt-6`}>
+      {/* Bottom Row: Exams, Events, Scholarships */}
+      <div className={`grid ${deviceInfo.isMobile ? 'grid-cols-1' : 'lg:grid-cols-3'} gap-6 mt-6`}>
         
-        {/* Upcoming Exams Section */}
+        {/* UPCOMING EXAMS */}
         <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding}`}>
           <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-4 flex items-center gap-2`}>
             <FiFileText className="text-indigo-600" /> Upcoming Exams
@@ -495,16 +484,7 @@ const AdminDashboard = () => {
                     {exam.type || 'Exam'} • {exam.term || 'Current Term'}
                   </p>
                   <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-1' : 'items-center gap-3'} mt-1 text-xs text-gray-500`}>
-                    <span className="flex items-center gap-1">
-                      <FiCalendar className="w-3 h-3" />
-                      {formatDate(exam.startDate || exam.startDateTime)}
-                    </span>
-                    {exam.startTime && (
-                      <span className="flex items-center gap-1">
-                        <FiClock className="w-3 h-3" />
-                        {formatTime(exam.startTime)}
-                      </span>
-                    )}
+                    <span className="flex items-center gap-1"><FiCalendar className="w-3 h-3" />{formatDate(exam.startDate || exam.startDateTime)}</span>
                   </div>
                 </div>
               ))}
@@ -513,17 +493,12 @@ const AdminDashboard = () => {
             <div className="text-center py-6">
               <FiFileText className={`${deviceInfo.isMobile ? 'w-8 h-8' : 'w-10 h-10'} text-gray-300 mx-auto mb-2`} />
               <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-gray-500`}>No upcoming exams</p>
-              <Link to="/admin/exams" className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-indigo-600 hover:text-indigo-800 mt-2 inline-block`}>
-                Schedule Exam →
-              </Link>
             </div>
           )}
-          <Link to="/admin/exams" className={`block text-center ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-indigo-600 hover:text-indigo-800 mt-4`}>
-            View All Exams →
-          </Link>
+          <Link to="/admin/exams" className={`block text-center ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-indigo-600 hover:text-indigo-800 mt-4`}>View All Exams →</Link>
         </div>
 
-        {/* Upcoming Events Section */}
+        {/* UPCOMING EVENTS */}
         <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding}`}>
           <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-4 flex items-center gap-2`}>
             <FiCalendar className="text-pink-600" /> Recent & Upcoming Events
@@ -531,37 +506,16 @@ const AdminDashboard = () => {
           {upcomingEvents.length > 0 ? (
             <div className="space-y-3">
               {upcomingEvents.map((event, index) => {
-                // Check if event is past or future
                 const isPast = event.date ? new Date(event.date) < new Date() : false;
                 return (
                   <div key={event._id || index} className={`border-l-4 ${isPast ? 'border-gray-400' : 'border-pink-500'} pl-3 py-2 hover:bg-gray-50 transition-colors`}>
                     <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-1' : 'justify-between items-start'}`}>
-                      <h3 className={`${deviceInfo.isMobile ? 'text-sm' : 'text-base'} font-semibold text-gray-800`}>
-                        {event.title}
-                      </h3>
-                      {isPast && (
-                        <span className={`${deviceInfo.isMobile ? 'text-[8px]' : 'text-[10px]'} bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full flex-shrink-0`}>
-                          Past Event
-                        </span>
-                      )}
+                      <h3 className={`${deviceInfo.isMobile ? 'text-sm' : 'text-base'} font-semibold text-gray-800`}>{event.title}</h3>
                     </div>
                     <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-1' : 'items-center gap-3'} mt-1 text-xs text-gray-500`}>
-                      <span className="flex items-center gap-1">
-                        <FiCalendar className="w-3 h-3" />
-                        {formatDate(event.date)}
-                      </span>
-                      {event.venue && (
-                        <span className="flex items-center gap-1">
-                          <FiMapPin className="w-3 h-3" />
-                          {event.venue}
-                        </span>
-                      )}
+                      <span className="flex items-center gap-1"><FiCalendar className="w-3 h-3" />{formatDate(event.date)}</span>
+                      {event.venue && <span className="flex items-center gap-1"><FiMapPin className="w-3 h-3" />{event.venue}</span>}
                     </div>
-                    {event.description && (
-                      <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-600 mt-1 line-clamp-2`}>
-                        {event.description}
-                      </p>
-                    )}
                   </div>
                 );
               })}
@@ -570,61 +524,73 @@ const AdminDashboard = () => {
             <div className="text-center py-6">
               <FiCalendar className={`${deviceInfo.isMobile ? 'w-8 h-8' : 'w-10 h-10'} text-gray-300 mx-auto mb-2`} />
               <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-gray-500`}>No events created yet</p>
-              <Link to="/admin/events" className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-pink-600 hover:text-pink-800 mt-2 inline-block`}>
-                Create Event →
-              </Link>
             </div>
           )}
-          <Link to="/admin/events" className={`block text-center ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-pink-600 hover:text-pink-800 mt-4`}>
-            View All Events →
-          </Link>
+          <Link to="/admin/events" className={`block text-center ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-pink-600 hover:text-pink-800 mt-4`}>View All Events →</Link>
         </div>
+
+        {/* SCHOLARSHIPS & NATIONAL EVENTS */}
+        <div className={`bg-white rounded-xl shadow-md ${responsive.cardPadding}`}>
+          <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-4 flex items-center gap-2`}>
+            <FiAward className="text-yellow-500" /> Scholarships & National Events
+          </h2>
+          {globalItems.length > 0 ? (
+            <div className="space-y-3">
+              {globalItems.map((g, index) => (
+                <div key={g._id || index} className="border-l-4 border-yellow-400 pl-3 py-2 hover:bg-gray-50 transition-colors">
+                  <div className="flex items-start gap-1">
+                    <h3 className="text-sm font-semibold text-gray-800 line-clamp-1 flex-1">
+                      {g.title}
+                    </h3>
+                  </div>
+                  <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500 flex items-center gap-1 mt-1`}>
+                    {g.scope === 'kenya' 
+                      ? <><FiMapPin className="w-3 h-3" /> Kenya</> 
+                      : <><FiGlobe className="w-3 h-3" /> International</>}
+                    {g.deadline && <> • Deadline {formatDate(g.deadline)}</>}
+                    {g.eventDate && <> • {formatDate(g.eventDate)}</>}
+                  </p>
+                  {g.linkUrl && (
+                    <a 
+                      href={g.linkUrl} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-[11px] text-indigo-600 font-semibold inline-flex items-center gap-1 hover:underline mt-1"
+                    >
+                      {g.linkLabel || 'Learn More'} <FiExternalLink className="w-3 h-3" />
+                    </a>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-6">
+              <FiAward className={`${deviceInfo.isMobile ? 'w-8 h-8' : 'w-10 h-10'} text-gray-300 mx-auto mb-2`} />
+              <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-gray-500`}>No opportunities published</p>
+            </div>
+          )}
+          {/* 🆕 Updated Link to match the others */}
+          <Link to="/admin/events?tab=opportunities" className={`block text-center ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} text-yellow-600 hover:text-yellow-800 mt-4`}>View All Scholarships →</Link>
+        </div>
+
       </div>
 
-      {/* Add Student Modal */}
-      <AddPupilModal
-        isOpen={showAddStudentModal}
-        onClose={() => setShowAddStudentModal(false)}
-        onSave={handleAddStudent}
-      />
+      <AddPupilModal isOpen={showAddStudentModal} onClose={() => setShowAddStudentModal(false)} onSave={handleAddStudent} />
+      <AddTeacherModal isOpen={showAddTeacherModal} onClose={() => setShowAddTeacherModal(false)} onSave={handleAddTeacher} />
 
-      {/* Add Teacher Modal */}
-      <AddTeacherModal
-        isOpen={showAddTeacherModal}
-        onClose={() => setShowAddTeacherModal(false)}
-        onSave={handleAddTeacher}
-      />
-
-      {/* AI Responsive CSS */}
-      <style jsx>{`
+      <style>{`
         @media (max-width: 768px) {
-          .mobile-view .p-4 {
-            padding: 12px !important;
-          }
-          .mobile-view .gap-6 {
-            gap: 12px !important;
-          }
-          .mobile-view .text-xl {
-            font-size: 1.125rem !important;
-          }
-          .mobile-view .text-lg {
-            font-size: 1rem !important;
-          }
+          .mobile-view .p-4 { padding: 12px !important; }
+          .mobile-view .gap-6 { gap: 12px !important; }
+          .mobile-view .text-xl { font-size: 1.125rem !important; }
+          .mobile-view .text-lg { font-size: 1rem !important; }
         }
         @media (min-width: 769px) and (max-width: 1024px) {
-          .tablet-view .grid-cols-4 {
-            grid-template-columns: repeat(4, 1fr) !important;
-          }
+          .tablet-view .grid-cols-4 { grid-template-columns: repeat(4, 1fr) !important; }
         }
-        .responsive-wrapper {
-          transition: all 0.3s ease;
-        }
-        .stat-card {
-          transition: all 0.3s ease;
-        }
-        .stat-card:hover {
-          transform: translateY(-2px);
-        }
+        .responsive-wrapper { transition: all 0.3s ease; }
+        .stat-card { transition: all 0.3s ease; }
+        .stat-card:hover { transform: translateY(-2px); }
       `}</style>
     </Layout>
   );
