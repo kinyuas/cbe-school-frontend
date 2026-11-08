@@ -509,7 +509,6 @@ const ClassPerformance = () => {
         api.get('/school/settings').catch(() => ({ data: {} })),
         api.get('/pupils').catch(() => ({ data: { data: [] } })),
         api.get('/exams').catch(() => ({ data: { data: [] } })),
-        // Only admins need /teachers — but harmless for teachers too
         api.get('/teachers').catch(() => ({ data: { data: [] } })),
       ]);
 
@@ -565,7 +564,6 @@ const ClassPerformance = () => {
       setDisplayExamStatus(examStatus);
 
       if (!examToDisplay) {
-        // No exams scheduled — nothing else to fetch
         setSubjectPerformance([]);
         setTotalResults(0);
         setClassReportData([]);
@@ -577,9 +575,7 @@ const ClassPerformance = () => {
         return;
       }
 
-      // Subject performance is now shown for any exam the teacher has
-      // actually uploaded results for — active, completed, OR upcoming
-      // (if a teacher uploaded early). No silent hiding.
+      // 1. Fetch Subject Performance
       const perfRes = await api.get('/reports/teacher-subject-performance', {
         params: {
           teacherId,
@@ -593,8 +589,7 @@ const ClassPerformance = () => {
 
       let perf = perfRes?.data?.data;
 
-      // 🔁 Fallback: if the new route isn't deployed yet, use /results
-      // with server-side filters. Much lighter than fetching everything.
+      // 🔁 Fallback for Subject Performance
       if (perf === null || perf === undefined) {
         const fallbackRes = await api.get('/results', {
           params: {
@@ -607,16 +602,9 @@ const ClassPerformance = () => {
         }).catch(() => ({ data: { data: [] } }));
         const rawResults = fallbackRes.data?.data || [];
 
-        // Build the same shape the aggregate route returns
         const grouped = {};
-        const pupilIds = [...new Set(
-          rawResults.map(r => String(r.pupilId?._id || r.pupilId)).filter(Boolean)
-        )];
-        const pupilMap = new Map(
-          studentsData
-            .filter(p => pupilIds.includes(String(p._id)))
-            .map(p => [String(p._id), p])
-        );
+        const pupilIds = [...new Set(rawResults.map(r => String(r.pupilId?._id || r.pupilId)).filter(Boolean))];
+        const pupilMap = new Map(studentsData.filter(p => pupilIds.includes(String(p._id))).map(p => [String(p._id), p]));
 
         rawResults.forEach(r => {
           const marks = parseFloat(r.marks ?? r.score ?? 0);
@@ -627,6 +615,7 @@ const ClassPerformance = () => {
           const className = pupil.class || pupil.grade || 'Unknown Class';
           const stream = pupil.stream || '';
           const key = `${subject}|${className}|${stream || 'ns'}`;
+          
           if (!grouped[key]) {
             grouped[key] = {
               subject, class: className, stream: stream || null,
@@ -653,10 +642,10 @@ const ClassPerformance = () => {
         }));
       }
 
-      setSubjectPerformance(perf);
+      setSubjectPerformance(perf || []);
       setTotalResults((perf || []).reduce((s, p) => s + (p.totalResults || 0), 0));
 
-      // --- Class report (server-aggregated) ---
+      // 2. Fetch Class Report (My Class Results)
       if (myProfile?.classAssigned) {
         const classRes = await api.get('/reports/class-report', {
           params: {
@@ -669,8 +658,65 @@ const ClassPerformance = () => {
           },
         }).catch(() => ({ data: { data: null } }));
 
-        const classData = classRes.data?.data;
-        if (classData?.students?.length) {
+        let classData = classRes.data?.data;
+
+        // 🔁 Fallback for Class Report if aggregate route fails or is missing
+        if (!classData || !classData.students || classData.students.length === 0) {
+          const fbClassRes = await api.get('/results', {
+            params: {
+              class: myProfile.classAssigned,
+              stream: myProfile.streamAssigned || undefined,
+              examName: examToDisplay.title,
+              examType: examToDisplay.type,
+              term: examToDisplay.term,
+              year: examToDisplay.year,
+            },
+          }).catch(() => ({ data: { data: [] } }));
+          
+          const rawResults = fbClassRes.data?.data || [];
+          if (rawResults.length > 0) {
+            const subjectsSet = new Set();
+            const studentMap = new Map();
+
+            rawResults.forEach(r => {
+              const pid = String(r.pupilId?._id || r.pupilId);
+              const pupil = studentsData.find(p => String(p._id) === pid);
+              if (!pupil) return;
+              
+              const marks = parseFloat(r.marks ?? r.score ?? 0);
+              if (isNaN(marks)) return;
+
+              if (!studentMap.has(pid)) {
+                studentMap.set(pid, {
+                  id: pid, name: pupil.name, admNo: pupil.admNo, stream: pupil.stream || '',
+                  subjectMarks: {}, totalMarks: 0, subjectsWithMarks: 0,
+                });
+              }
+              const s = studentMap.get(pid);
+              const prev = s.subjectMarks[r.subject];
+              if (prev === undefined || marks > prev) {
+                if (prev === undefined) {
+                  s.totalMarks += marks;
+                  s.subjectsWithMarks += 1;
+                } else {
+                  s.totalMarks += (marks - prev);
+                }
+                s.subjectMarks[r.subject] = marks;
+              }
+              subjectsSet.add(r.subject);
+            });
+
+            classData = {
+              subjects: [...subjectsSet],
+              students: Array.from(studentMap.values()).map(s => ({
+                ...s,
+                averageScore: subjectsSet.size > 0 ? Math.round(s.totalMarks / subjectsSet.size) : 0,
+              }))
+            };
+          }
+        }
+
+        if (classData?.students?.length > 0) {
           buildClassReportFromServer(classData, examToDisplay, myProfile);
         } else {
           setClassReportData([]);
@@ -696,7 +742,7 @@ const ClassPerformance = () => {
   };
 
   // ============================================================
-  // BUILD CLASS REPORT from aggregated server payload
+  // BUILD CLASS REPORT from payload
   // ============================================================
   const buildClassReportFromServer = (classData, exam, profile) => {
     const subjects = classData.subjects || [];
@@ -1330,10 +1376,10 @@ const ClassPerformance = () => {
         </div>
       )}
 
-      {/* ======================= MY SUBJECT PERFORMANCE ======================= */}
+      {/* ======================= MY SUBJECT PERFORMANCE (COMPACT) ======================= */}
       {hasSummaryResults && (
-        <div className={`bg-white rounded-lg shadow-md ${responsive.cardPadding} mb-6`}>
-          <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <div className={`bg-white rounded-lg shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-4'} mb-6`}>
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
             <h3 className={`${responsive.headingSize} font-bold text-gray-800 flex items-center gap-2`}>
               <FiBookOpen className="text-green-600" /> My Subject Performance
             </h3>
@@ -1344,15 +1390,15 @@ const ClassPerformance = () => {
             )}
           </div>
 
-          <div className="bg-gradient-to-r from-green-50 to-blue-50 border border-blue-200 rounded-lg p-4 mb-5">
-            <div className="grid grid-cols-3 gap-4 text-center">
+          <div className="bg-gradient-to-r from-green-50 to-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+            <div className="grid grid-cols-3 gap-2 text-center">
               <div>
                 <p className="text-[10px] text-gray-500 uppercase tracking-wider font-semibold">Subjects Logged</p>
-                <p className="text-2xl font-bold text-blue-700 mt-1">{subjectPerformance.length}</p>
+                <p className="text-xl font-bold text-blue-700 mt-0.5">{subjectPerformance.length}</p>
               </div>
               <div>
                 <p className="text-[10px] text-gray-500 uppercase tracking-wider font-semibold">Mean Score</p>
-                <p className={`text-2xl font-bold mt-1 ${
+                <p className={`text-xl font-bold mt-0.5 ${
                   parseFloat(overallMean) >= 80 ? 'text-purple-600' :
                   parseFloat(overallMean) >= 60 ? 'text-green-600' :
                   parseFloat(overallMean) >= 40 ? 'text-blue-600' : 'text-red-600'
@@ -1360,50 +1406,46 @@ const ClassPerformance = () => {
               </div>
               <div>
                 <p className="text-[10px] text-gray-500 uppercase tracking-wider font-semibold">Total Uploads</p>
-                <p className="text-2xl font-bold text-green-700 mt-1">{totalStudentsInExam}</p>
+                <p className="text-xl font-bold text-green-700 mt-0.5">{totalStudentsInExam}</p>
               </div>
             </div>
           </div>
 
-          <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {subjectPerformance.map((subject, index) => {
               const mean = parseFloat(subject.averageScore);
               return (
-                <div key={index} className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-                  <div className={`p-4 border-l-4 ${mean >= 60 ? 'border-green-500 bg-green-50/30' : mean >= 50 ? 'border-yellow-500 bg-yellow-50/30' : 'border-red-500 bg-red-50/30'}`}>
-                    <div className="flex justify-between items-start mb-3 flex-wrap gap-2">
-                      <div>
-                        <h4 className="text-base font-bold text-gray-800 flex items-center gap-2">
-                          <FiBookOpen className="w-4 h-4 text-gray-500" />
-                          {subject.subject}
-                        </h4>
-                        <p className="text-xs text-gray-500 mt-1">
-                          {subject.class}
-                          {subject.stream ? ` • Stream ${subject.stream}` : ''}
-                          {subject.examName ? ` • ${subject.examName}` : ''}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <span className={`text-sm font-bold px-3 py-1 rounded-full ${mean >= 60 ? 'bg-green-100 text-green-700' : mean >= 50 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
-                          Mean: {subject.averageScore}%
-                        </span>
-                        <p className="text-[10px] text-gray-400 mt-1">{subject.students} student{subject.students !== 1 ? 's' : ''}</p>
-                      </div>
+                <div key={index} className={`bg-white border border-gray-200 rounded-lg p-3 shadow-sm hover:shadow-md transition-shadow border-l-4 ${mean >= 60 ? 'border-l-green-500' : mean >= 50 ? 'border-l-yellow-500' : 'border-l-red-500'}`}>
+                  <div className="flex justify-between items-start mb-2">
+                    <div>
+                      <h4 className="text-sm font-bold text-gray-800 line-clamp-1" title={subject.subject}>
+                        {subject.subject}
+                      </h4>
+                      <p className="text-[10px] text-gray-500 truncate">
+                        {subject.class}
+                        {subject.stream ? ` • ${subject.stream}` : ''}
+                      </p>
                     </div>
+                    <div className="text-right flex-shrink-0 ml-2">
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${mean >= 60 ? 'bg-green-100 text-green-700' : mean >= 50 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
+                        {subject.averageScore}%
+                      </span>
+                      <p className="text-[9px] text-gray-400 mt-0.5">{subject.students} stdnt{subject.students !== 1 ? 's' : ''}</p>
+                    </div>
+                  </div>
 
-                    <div className="grid grid-cols-3 gap-2 mt-3 bg-white rounded-lg p-2 border border-gray-100">
-                      <div className="text-center">
-                        <p className="text-[10px] text-green-600 uppercase font-semibold">Pass (≥60)</p>
-                        <p className="text-lg font-bold text-green-700">{subject.passing}</p>
-                      </div>
-                      <div className="text-center border-l border-r border-gray-100">
-                        <p className="text-[10px] text-yellow-600 uppercase font-semibold">Avg (50-59)</p>
-                        <p className="text-lg font-bold text-yellow-700">{subject.average}</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-[10px] text-red-600 uppercase font-semibold">Below Avg (&lt;50)</p>
-                        <p className="text-lg font-bold text-red-700">{subject.belowAvg}</p>
-                      </div>
+                  <div className="grid grid-cols-3 gap-1 bg-gray-50 rounded p-1.5 border border-gray-100 text-center">
+                    <div>
+                      <p className="text-[9px] text-green-600 uppercase font-semibold leading-tight">Pass</p>
+                      <p className="text-xs font-bold text-green-700 leading-tight">{subject.passing}</p>
+                    </div>
+                    <div className="border-l border-r border-gray-200">
+                      <p className="text-[9px] text-yellow-600 uppercase font-semibold leading-tight">Avg</p>
+                      <p className="text-xs font-bold text-yellow-700 leading-tight">{subject.average}</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] text-red-600 uppercase font-semibold leading-tight">Below</p>
+                      <p className="text-xs font-bold text-red-700 leading-tight">{subject.belowAvg}</p>
                     </div>
                   </div>
                 </div>
