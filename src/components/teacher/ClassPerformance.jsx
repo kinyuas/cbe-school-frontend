@@ -1,6 +1,5 @@
 // src/components/admin/ClassPerformance.jsx
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
 import Layout from '../common/Layout';
 import {
   FiFilter, FiDownload, FiBarChart2, FiCalendar, FiBookOpen,
@@ -48,7 +47,7 @@ const SUBJECTS_BY_CLASS = {
 };
 
 /* ============================================================
-   ✅ SKILL → CAREER-FIELD BOOST (matches Reports.jsx)
+   ✅ SKILL → CAREER-FIELD BOOST
    ============================================================ */
 const SKILL_BOOST = {
   'Sports':              { field: 'Sports & Recreation',         boost: 12 },
@@ -65,7 +64,7 @@ const SKILL_BOOST = {
 };
 
 /* ============================================================
-   ✅ CAREER DATABASE (matches Reports.jsx — full 24 careers)
+   ✅ CAREER DATABASE
    ============================================================ */
 const CAREER_DB = [
   { name: 'Medicine & Surgery (MBChB)', field: 'Medicine & Health Sciences', icon: '🩺', subjects: ['Biology', 'Chemistry'], minAvg: 75 },
@@ -340,20 +339,25 @@ const ClassPerformance = () => {
   const teacherId = user?._id || user?.id || user?.teacherId;
   const teacherName = user?.name || user?.username || '';
 
+  // --- userRole read SYNCHRONOUSLY so loadData knows it immediately ---
+  const [userRole] = useState(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem('user') || '{}');
+      return stored.role || null;
+    } catch { return null; }
+  });
+
   const [teacherProfile, setTeacherProfile] = useState(null);
   const [students, setStudents] = useState([]);
   const [exams, setExams] = useState([]);
   const [schoolInfo, setSchoolInfo] = useState({ name: '', classes: [], streams: [] });
 
   const [loading, setLoading] = useState(true);
-  const [teacherResults, setTeacherResults] = useState([]);
+  const [refreshing, setRefreshing] = useState(false);
   const [subjectPerformance, setSubjectPerformance] = useState([]);
   const [totalResults, setTotalResults] = useState(0);
   const [displayExam, setDisplayExam] = useState(null);
   const [displayExamStatus, setDisplayExamStatus] = useState('none');
-  const [nextExam, setNextExam] = useState(null);
-
-  const [userRole, setUserRole] = useState(null);
 
   // Active Tab: 'my-class' | 'subject-analysis'
   const [activeTab, setActiveTab] = useState('my-class');
@@ -376,8 +380,6 @@ const ClassPerformance = () => {
   const [showResults, setShowResults] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
 
-  const [historicalData, setHistoricalData] = useState([]);
-
   const [performanceData, setPerformanceData] = useState([]);
   const [classAverage, setClassAverage] = useState(0);
   const [topStudent, setTopStudent] = useState(null);
@@ -389,8 +391,7 @@ const ClassPerformance = () => {
   const [allSubjectsInReport, setAllSubjectsInReport] = useState([]);
   const [showReportCard, setShowReportCard] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
-  const [printingAll, setPrintingAll] = useState(false);
-  const [reportCardConfig, setReportCardConfig] = useState({ showFeesOnReportCard: false });
+  const [reportCardConfig] = useState({ showFeesOnReportCard: false });
   const [skillsSummary, setSkillsSummary] = useState({});
   const [careerInsights, setCareerInsights] = useState({});
 
@@ -440,32 +441,16 @@ const ClassPerformance = () => {
     return 'Needs Improvement';
   };
 
-  const findPupilById = (pupilId, learners) => {
-    if (!pupilId || !learners || learners.length === 0) return null;
-    const pupilIdStr = String(pupilId);
-    return learners.find(p => {
-      if (!p) return false;
-      if (p._id) return String(p._id) === pupilIdStr;
-      if (p.id) return String(p.id) === pupilIdStr;
-      return false;
-    }) || null;
-  };
-
   // ============================================================
-  // BOOTSTRAP
+  // BOOTSTRAP (single effect, everything in parallel)
   // ============================================================
-  useEffect(() => {
-    const userData = JSON.parse(localStorage.getItem('user') || '{}');
-    setUserRole(userData.role || null);
-  }, []);
-
   useEffect(() => {
     loadData();
     // eslint-disable-next-line
-  }, [user?.email, userRole]);
+  }, [user?.email]);
 
   // ============================================================
-  // SUBJECTS LIST — derived from schoolInfo + students (no results scan)
+  // SUBJECTS LIST — uses curriculum, no /results scan
   // ============================================================
   useEffect(() => {
     if (!selectedClass) {
@@ -513,26 +498,28 @@ const ClassPerformance = () => {
   }, [selectedExamType, selectedTerm, selectedYear, exams]);
 
   // ============================================================
-  // LOAD DATA — FAST (parallel, no full /results fetch)
+  // LOAD DATA — FAST
   // ============================================================
-  const loadData = async () => {
-    setLoading(true);
+  const loadData = async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
+
     try {
-      // ---- Parallel: school, pupils, exams, teachers ----
       const [schoolRes, studentsRes, examsRes, teachersRes] = await Promise.all([
         api.get('/school/settings').catch(() => ({ data: {} })),
         api.get('/pupils').catch(() => ({ data: { data: [] } })),
         api.get('/exams').catch(() => ({ data: { data: [] } })),
+        // Only admins need /teachers — but harmless for teachers too
         api.get('/teachers').catch(() => ({ data: { data: [] } })),
       ]);
 
-      // ---- School info ----
+      // --- School info ---
       let schoolFromApi = schoolRes.data?.data || null;
       if (!schoolFromApi) {
-        const stored = localStorage.getItem('schoolInfo');
-        if (stored) {
-          try { schoolFromApi = JSON.parse(stored); } catch (e) { schoolFromApi = null; }
-        }
+        try {
+          const stored = localStorage.getItem('schoolInfo');
+          if (stored) schoolFromApi = JSON.parse(stored);
+        } catch {}
       }
       if (schoolFromApi) {
         const normalized = {
@@ -544,19 +531,15 @@ const ClassPerformance = () => {
           schoolLogo: schoolFromApi.schoolLogo || schoolFromApi.logo || '',
         };
         setSchoolInfo(normalized);
-        try { localStorage.setItem('schoolInfo', JSON.stringify(normalized)); } catch (e) {}
+        try { localStorage.setItem('schoolInfo', JSON.stringify(normalized)); } catch {}
 
         const activeClasses = (normalized.classes || [])
           .filter(c => c.isActive !== false)
           .map(c => c.name);
         setAvailableClasses(sortClassesByOrder(activeClasses));
-
-        if (normalized.reportCardConfig) {
-          setReportCardConfig(prev => ({ ...prev, ...normalized.reportCardConfig }));
-        }
       }
 
-      // ---- Students + exams ----
+      // --- Students + exams ---
       const studentsData = studentsRes.data?.data || [];
       setStudents(studentsData);
 
@@ -564,7 +547,7 @@ const ClassPerformance = () => {
       setExams(examsData);
       setAvailableExamTypes([...new Set(examsData.map(e => e.type).filter(Boolean))]);
 
-      // ---- Teacher profile ----
+      // --- Teacher profile (only if not admin) ---
       let myProfile = null;
       if (userRole !== 'admin' && user?.email) {
         const allTeachers = teachersRes.data?.data || [];
@@ -576,30 +559,28 @@ const ClassPerformance = () => {
         setSelectedStream(myProfile.streamAssigned || '');
       }
 
-      // ---- Current exam window ----
+      // --- Exam window ---
       const { exam: examToDisplay, status: examStatus } = getCurrentDisplayExam(examsData);
       setDisplayExam(examToDisplay);
       setDisplayExamStatus(examStatus);
-      setNextExam(getNextUpcomingExam(examsData));
 
-      const showSummary = examToDisplay && (examStatus === 'active' || examStatus === 'completed');
-
-      if (!showSummary) {
-        setTeacherResults([]);
+      if (!examToDisplay) {
+        // No exams scheduled — nothing else to fetch
         setSubjectPerformance([]);
         setTotalResults(0);
         setClassReportData([]);
         setClassReportStats(null);
         setAllSubjectsInReport([]);
         setStreamAnalysis([]);
-        setSkillsSummary({});
-        setCareerInsights({});
         setLoading(false);
+        setRefreshing(false);
         return;
       }
 
-      // ---- FAST: My Subject Performance (server-aggregated) ----
-      const perfPromise = api.get('/reports/teacher-subject-performance', {
+      // Subject performance is now shown for any exam the teacher has
+      // actually uploaded results for — active, completed, OR upcoming
+      // (if a teacher uploaded early). No silent hiding.
+      const perfRes = await api.get('/reports/teacher-subject-performance', {
         params: {
           teacherId,
           teacherName,
@@ -608,58 +589,114 @@ const ClassPerformance = () => {
           term: examToDisplay.term,
           year: examToDisplay.year,
         },
-      }).catch(() => ({ data: { data: [] } }));
+      }).catch(() => ({ data: { data: null } }));
 
-      // ---- FAST: Class Report (server-aggregated), only for teachers with a class ----
-      const classPromise = (myProfile?.classAssigned || userRole === 'admin')
-        ? api.get('/reports/class-report', {
-            params: {
-              className: myProfile?.classAssigned,
-              stream: myProfile?.streamAssigned || undefined,
-              examName: examToDisplay.title,
-              examType: examToDisplay.type,
-              term: examToDisplay.term,
-              year: examToDisplay.year,
-            },
-          }).catch(() => ({ data: { data: null } }))
-        : Promise.resolve({ data: { data: null } });
+      let perf = perfRes?.data?.data;
 
-      const [perfRes, classRes] = await Promise.all([perfPromise, classPromise]);
+      // 🔁 Fallback: if the new route isn't deployed yet, use /results
+      // with server-side filters. Much lighter than fetching everything.
+      if (perf === null || perf === undefined) {
+        const fallbackRes = await api.get('/results', {
+          params: {
+            examName: examToDisplay.title,
+            examType: examToDisplay.type,
+            term: examToDisplay.term,
+            year: examToDisplay.year,
+            recordedBy: teacherId,
+          },
+        }).catch(() => ({ data: { data: [] } }));
+        const rawResults = fallbackRes.data?.data || [];
 
-      const perf = perfRes.data?.data || [];
-      setSubjectPerformance(perf);
-      setTeacherResults(perf); // used only for banner counts
-      setTotalResults(perf.reduce((s, p) => s + (p.totalResults || 0), 0));
+        // Build the same shape the aggregate route returns
+        const grouped = {};
+        const pupilIds = [...new Set(
+          rawResults.map(r => String(r.pupilId?._id || r.pupilId)).filter(Boolean)
+        )];
+        const pupilMap = new Map(
+          studentsData
+            .filter(p => pupilIds.includes(String(p._id)))
+            .map(p => [String(p._id), p])
+        );
 
-      // ---- Finish class report from server payload ----
-      const classData = classRes.data?.data;
-      if (classData && (classData.students?.length > 0 || classData.subjects?.length > 0)) {
-        buildClassReportFromServer(classData, examToDisplay, myProfile);
-      } else {
-        setClassReportData([]);
-        setClassReportStats(null);
-        setAllSubjectsInReport([]);
-        setStreamAnalysis([]);
-        setClassReportExam(examToDisplay);
+        rawResults.forEach(r => {
+          const marks = parseFloat(r.marks ?? r.score ?? 0);
+          if (isNaN(marks)) return;
+          const pupil = pupilMap.get(String(r.pupilId?._id || r.pupilId));
+          if (!pupil) return;
+          const subject = r.subject || 'Unknown';
+          const className = pupil.class || pupil.grade || 'Unknown Class';
+          const stream = pupil.stream || '';
+          const key = `${subject}|${className}|${stream || 'ns'}`;
+          if (!grouped[key]) {
+            grouped[key] = {
+              subject, class: className, stream: stream || null,
+              examName: examToDisplay.title, examType: examToDisplay.type,
+              term: examToDisplay.term, year: examToDisplay.year,
+              totalMarks: 0, count: 0, passing: 0, average: 0, belowAvg: 0,
+              studentSet: new Set(),
+            };
+          }
+          const g = grouped[key];
+          g.totalMarks += marks; g.count += 1;
+          if (marks >= 60) g.passing += 1;
+          else if (marks >= 50) g.average += 1;
+          else g.belowAvg += 1;
+          g.studentSet.add(String(pupil._id));
+        });
+
+        perf = Object.values(grouped).map(g => ({
+          subject: g.subject, class: g.class, stream: g.stream,
+          examName: g.examName, examType: g.examType, term: g.term, year: g.year,
+          averageScore: g.count ? (g.totalMarks / g.count).toFixed(1) : '0.0',
+          students: g.studentSet.size, totalResults: g.count,
+          passing: g.passing, average: g.average, belowAvg: g.belowAvg,
+        }));
       }
 
-      // ---- Deferred (non-blocking) skills load ----
+      setSubjectPerformance(perf);
+      setTotalResults((perf || []).reduce((s, p) => s + (p.totalResults || 0), 0));
+
+      // --- Class report (server-aggregated) ---
       if (myProfile?.classAssigned) {
+        const classRes = await api.get('/reports/class-report', {
+          params: {
+            className: myProfile.classAssigned,
+            stream: myProfile.streamAssigned || undefined,
+            examName: examToDisplay.title,
+            examType: examToDisplay.type,
+            term: examToDisplay.term,
+            year: examToDisplay.year,
+          },
+        }).catch(() => ({ data: { data: null } }));
+
+        const classData = classRes.data?.data;
+        if (classData?.students?.length) {
+          buildClassReportFromServer(classData, examToDisplay, myProfile);
+        } else {
+          setClassReportData([]);
+          setClassReportStats(null);
+          setAllSubjectsInReport([]);
+          setStreamAnalysis([]);
+          setClassReportExam(examToDisplay);
+        }
+
+        // Skills: deferred so it never blocks the paint
         setTimeout(() => {
           loadSkillsData(myProfile.classAssigned, myProfile.streamAssigned, examToDisplay);
         }, 0);
       }
 
-    } catch (error) {
-      console.error('Error loading data:', error);
+    } catch (err) {
+      console.error('loadData error:', err);
       toast.error('Failed to load data');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
   // ============================================================
-  // BUILD CLASS REPORT from server-aggregated data (sync)
+  // BUILD CLASS REPORT from aggregated server payload
   // ============================================================
   const buildClassReportFromServer = (classData, exam, profile) => {
     const subjects = classData.subjects || [];
@@ -669,20 +706,16 @@ const ClassPerformance = () => {
 
     let performance = (classData.students || []).map(s => {
       const hasMissing = s.subjectsWithMarks < totalSubjects;
-      const averageScore = totalSubjects > 0
-        ? Math.round(s.totalMarks / totalSubjects) : 0;
+      const averageScore = totalSubjects > 0 ? Math.round(s.totalMarks / totalSubjects) : 0;
       const comp = getCompetencyFromMarks(averageScore);
       return {
-        ...s,
-        averageScore,
-        hasMissingMarks: hasMissing,
+        ...s, averageScore, hasMissingMarks: hasMissing,
         grade: hasMissing ? 'X' : getGradeFromMarks(averageScore),
         competency: comp || competencyLevels[4],
         recommendation: getRecommendation(averageScore),
       };
     });
 
-    // Rank
     const complete = performance.filter(s => !s.hasMissingMarks);
     const sortedComplete = [...complete].sort((a, b) => b.totalMarks - a.totalMarks);
     let rank = 1;
@@ -711,9 +744,7 @@ const ClassPerformance = () => {
       completeCount: complete.length,
       incompleteCount: incomplete.length,
       passRate,
-      examName: exam.title,
-      term: exam.term,
-      year: exam.year,
+      examName: exam.title, term: exam.term, year: exam.year,
     });
 
     if (profile?.streamAssigned || performance.some(s => s.stream)) {
@@ -746,11 +777,9 @@ const ClassPerformance = () => {
       });
 
       return {
-        stream,
-        count: students.length,
+        stream, count: students.length,
         completeCount: students.filter(s => !s.hasMissingMarks).length,
-        mean,
-        grade: getGradeFromMarks(mean),
+        mean, grade: getGradeFromMarks(mean),
         competency: getCompetencyFromMarks(mean),
         subjectMeans,
       };
@@ -817,12 +846,10 @@ const ClassPerformance = () => {
     const scored = CAREER_DB.map(career => {
       let subjScore = 0, subjCount = 0;
       const matchedSubjects = [];
-
       career.subjects.forEach(req => {
         const sc = getScore(req);
         if (sc !== null) {
-          subjScore += sc;
-          subjCount++;
+          subjScore += sc; subjCount++;
           matchedSubjects.push({ name: req, score: sc });
         }
       });
@@ -844,48 +871,35 @@ const ClassPerformance = () => {
       const finalScore = Math.min(100, academicScore + skillBoost);
 
       return {
-        career: career.name,
-        field: career.field,
-        icon: career.icon,
+        career: career.name, field: career.field, icon: career.icon,
         match: Math.round(finalScore * 10) / 10,
         academicScore: Math.round(academicScore),
         skillBoost: Math.round(skillBoost),
-        matchedSubjects,
-        matchedSkillsForField,
+        matchedSubjects, matchedSkillsForField,
         coveragePercent: Math.round(coverageFactor * 100),
       };
     });
 
-    return scored
-      .sort((a, b) => b.match - a.match)
-      .slice(0, 3)
-      .map(c => {
-        const parts = [];
-        if (c.matchedSubjects.length > 0) {
-          const subjList = c.matchedSubjects
-            .slice(0, 2)
-            .map(m => `${m.name} (${Math.round(m.score)}%)`)
-            .join(', ');
-          parts.push(`Strong in ${subjList}`);
-        }
-        if (c.matchedSkillsForField.length > 0) {
-          const names = c.matchedSkillsForField
-            .slice(0, 2)
-            .map(sk => getSkillName(sk))
-            .filter(Boolean);
-          if (names.length > 0) parts.push(`Talent in ${names.join(' & ')}`);
-        }
-        if (c.coveragePercent < 100 && c.matchedSubjects.length > 0) {
-          parts.push(`(${c.coveragePercent}% subjects)`);
-        }
-        const rationale = parts.length > 0
-          ? parts.join(' • ')
-          : 'Matches overall performance';
-        return { ...c, rationale };
-      });
+    return scored.sort((a, b) => b.match - a.match).slice(0, 3).map(c => {
+      const parts = [];
+      if (c.matchedSubjects.length > 0) {
+        const subjList = c.matchedSubjects.slice(0, 2)
+          .map(m => `${m.name} (${Math.round(m.score)}%)`).join(', ');
+        parts.push(`Strong in ${subjList}`);
+      }
+      if (c.matchedSkillsForField.length > 0) {
+        const names = c.matchedSkillsForField.slice(0, 2)
+          .map(sk => getSkillName(sk)).filter(Boolean);
+        if (names.length > 0) parts.push(`Talent in ${names.join(' & ')}`);
+      }
+      if (c.coveragePercent < 100 && c.matchedSubjects.length > 0) {
+        parts.push(`(${c.coveragePercent}% subjects)`);
+      }
+      const rationale = parts.length > 0 ? parts.join(' • ') : 'Matches overall performance';
+      return { ...c, rationale };
+    });
   };
 
-  // Build career insights whenever class report data or skills change
   useEffect(() => {
     if (!classReportData.length) { setCareerInsights({}); return; }
     const map = {};
@@ -898,7 +912,7 @@ const ClassPerformance = () => {
   }, [classReportData, allSubjectsInReport, skillsSummary]);
 
   // ============================================================
-  // SUBJECT ANALYSIS (Detailed) — server-filtered /results
+  // SUBJECT ANALYSIS (server-filtered /results)
   // ============================================================
   const loadPerformanceData = async () => {
     if (!selectedClass) { toast.error('Please select a class'); return; }
@@ -907,13 +921,11 @@ const ClassPerformance = () => {
     if (!selectedExamName) { toast.error('Please select an exam name'); return; }
 
     setLoadingData(true);
-
     try {
       let classStudents = students.filter(s => (s.class === selectedClass || s.grade === selectedClass));
       if (selectedStream && selectedStream !== 'all' && selectedStream !== '') {
         classStudents = classStudents.filter(s => s.stream === selectedStream);
       }
-
       if (classStudents.length === 0) {
         toast.error(`No students found in ${selectedClass}${selectedStream ? ` - ${selectedStream}` : ''}`);
         setShowResults(false);
@@ -929,12 +941,11 @@ const ClassPerformance = () => {
           term: selectedTerm,
           year: selectedYear,
           stream: (selectedStream && selectedStream !== 'all') ? selectedStream : undefined,
-          subject: selectedSubject
-        }
+          subject: selectedSubject,
+        },
       });
 
       const filteredResults = response.data?.data || [];
-
       if (filteredResults.length === 0) {
         toast.error(`No performance data found for ${selectedSubject} in ${selectedClass}`);
         setShowResults(false);
@@ -952,16 +963,13 @@ const ClassPerformance = () => {
           const pId = student._id?._id || student._id || student.id;
           return String(pId) === String(pupilId);
         });
-
         const marks = studentResult?.marks || 0;
         const competency = getCompetencyFromMarks(marks);
-
         return {
-          ...student,
-          marks,
+          ...student, marks,
           competencyLevel: competency ? competency.level : 'Not Assessed',
           grade: getGradeFromMarks(marks),
-          remarks: getRemarksFromMarks(marks)
+          remarks: getRemarksFromMarks(marks),
         };
       }).sort((a, b) => b.marks - a.marks);
 
@@ -984,10 +992,8 @@ const ClassPerformance = () => {
         }
       });
       setTopStudent(topStudentData);
-
       setShowResults(true);
       toast.success(`Found ${studentPerformance.length} student records for ${selectedSubject}`);
-
     } catch (error) {
       console.error('Error loading performance data:', error);
       toast.error('Failed to load performance data');
@@ -1005,22 +1011,16 @@ const ClassPerformance = () => {
     setSelectedSubject('');
     setSelectedYear(new Date().getFullYear());
     setPerformanceData([]);
-    setHistoricalData([]);
     setShowResults(false);
     toast.success('Filters reset');
   };
 
   // ============================================================
-  // DOWNLOAD FUNCTIONS (Subject Analysis)
+  // EXPORTS — Subject Analysis
   // ============================================================
   const downloadResultsExcel = () => {
-    if (performanceData.length === 0) {
-      toast.error('No data to download');
-      return;
-    }
-
+    if (performanceData.length === 0) { toast.error('No data to download'); return; }
     const streamLabel = selectedStream && selectedStream !== 'all' ? selectedStream : 'All Streams';
-
     const worksheetData = [
       [`${schoolInfo.name || 'School Name'}`],
       [`Subject Performance Report - ${selectedSubject}`],
@@ -1044,48 +1044,35 @@ const ClassPerformance = () => {
       [`Highest Score: ${Math.max(...performanceData.map(s => s.marks))}%`],
       [`Lowest Score: ${Math.min(...performanceData.map(s => s.marks))}%`],
     ];
-
     const ws = XLSX.utils.aoa_to_sheet(worksheetData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, `${selectedSubject}_Performance`);
     XLSX.writeFile(wb, `${schoolInfo.name}_${selectedClass}_${streamLabel}_${selectedSubject}_${selectedExamName}_${selectedYear}.xlsx`);
-    toast.success('Excel report downloaded successfully');
+    toast.success('Excel report downloaded');
   };
 
   const downloadResultsWord = async () => {
-    if (performanceData.length === 0) {
-      toast.error('No data to download');
-      return;
-    }
-
+    if (performanceData.length === 0) { toast.error('No data to download'); return; }
     try {
       const thinBorder = { style: BorderStyle.SINGLE, size: 4, color: '999999' };
       const cellBorders = { top: thinBorder, bottom: thinBorder, left: thinBorder, right: thinBorder };
       const streamLabel = selectedStream && selectedStream !== 'all' ? selectedStream : 'All Streams';
-
       const children = [];
-
       children.push(...buildWordLogoParagraph(schoolInfo, { schoolNameSize: 26 }));
-
       children.push(
         new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 150, after: 100 }, children: [new TextRun({ text: 'SUBJECT PERFORMANCE REPORT', bold: true, size: 24 })] }),
         new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 150 }, children: [new TextRun({ text: selectedSubject, bold: true, size: 22 })] }),
         new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 200 }, children: [new TextRun({ text: `${selectedClass} — ${streamLabel} | Year: ${selectedYear} | Term: ${selectedTerm || 'All Terms'} | Exam: ${selectedExamName}`, size: 18 })] }),
       );
 
-      const headerCells = [
-        new TableCell({ borders: cellBorders, shading: { fill: 'F0F0F0' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: '#', bold: true, size: 18 })] })] }),
-        new TableCell({ borders: cellBorders, shading: { fill: 'F0F0F0' }, children: [new Paragraph({ children: [new TextRun({ text: 'Student Name', bold: true, size: 18 })] })] }),
-        new TableCell({ borders: cellBorders, shading: { fill: 'F0F0F0' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Adm No', bold: true, size: 18 })] })] }),
-        new TableCell({ borders: cellBorders, shading: { fill: 'F0F0F0' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Stream', bold: true, size: 18 })] })] }),
-        new TableCell({ borders: cellBorders, shading: { fill: 'E0EEFF' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Marks (%)', bold: true, size: 18 })] })] }),
-        new TableCell({ borders: cellBorders, shading: { fill: 'F0F0F0' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Grade', bold: true, size: 18 })] })] }),
-        new TableCell({ borders: cellBorders, shading: { fill: 'E0FFE0' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Competency', bold: true, size: 18 })] })] }),
-        new TableCell({ borders: cellBorders, shading: { fill: 'F0F0F0' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Remarks', bold: true, size: 18 })] })] }),
-      ];
-
+      const headerCells = ['#','Student Name','Adm No','Stream','Marks (%)','Grade','Competency','Remarks'].map((h, i) =>
+        new TableCell({
+          borders: cellBorders,
+          shading: { fill: i === 4 ? 'E0EEFF' : i === 6 ? 'E0FFE0' : 'F0F0F0' },
+          children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: h, bold: true, size: 18 })] })],
+        })
+      );
       const tableHeader = new TableRow({ children: headerCells });
-
       const bodyRows = performanceData.map((s, idx) => new TableRow({
         children: [
           new TableCell({ borders: cellBorders, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(idx + 1), size: 18 })] })] }),
@@ -1099,13 +1086,7 @@ const ClassPerformance = () => {
         ],
       }));
 
-      const resultsTable = new Table({
-        width: { size: 100, type: WidthType.PERCENTAGE },
-        rows: [tableHeader, ...bodyRows],
-      });
-
-      children.push(resultsTable);
-
+      children.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [tableHeader, ...bodyRows] }));
       children.push(
         new Paragraph({ spacing: { before: 300 }, children: [] }),
         new Paragraph({ children: [new TextRun({ text: 'SUMMARY', bold: true, size: 22 })] }),
@@ -1113,9 +1094,6 @@ const ClassPerformance = () => {
         new Paragraph({ children: [new TextRun({ text: `Class Average: ${classAverage.toFixed(1)}%`, size: 18 })] }),
         new Paragraph({ children: [new TextRun({ text: `Highest Score: ${Math.max(...performanceData.map(s => s.marks)).toFixed(1)}%`, size: 18 })] }),
         new Paragraph({ children: [new TextRun({ text: `Lowest Score: ${Math.min(...performanceData.map(s => s.marks)).toFixed(1)}%`, size: 18 })] }),
-      );
-
-      children.push(
         new Paragraph({ spacing: { before: 300 }, children: [] }),
         new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `Generated on ${new Date().toLocaleString()}`, size: 16, italics: true })] }),
       );
@@ -1125,44 +1103,34 @@ const ClassPerformance = () => {
       const safeName = (schoolInfo.name || 'School').replace(/[^a-z0-9]/gi, '_');
       const safeSubject = selectedSubject.replace(/[^a-z0-9]/gi, '_');
       saveAs(blob, `${safeName}_${selectedClass}_${streamLabel}_${safeSubject}_${selectedYear}.docx`);
-      toast.success('Word report downloaded successfully');
+      toast.success('Word report downloaded');
     } catch (error) {
-      console.error('Error generating Word document:', error);
-      toast.error('Failed to generate Word document: ' + error.message);
+      console.error('Word error:', error);
+      toast.error('Failed: ' + error.message);
     }
   };
 
   // ============================================================
-  // EXPORT FUNCTIONS FOR MY CLASS RESULTS (Full Class)
+  // EXPORTS — Full Class
   // ============================================================
   const downloadFullClassExcel = () => {
     if (!classReportData.length) return toast.error('No data');
-
     const headers = [
       '#', 'Name', 'Adm',
       ...allSubjectsInReport.map(s => s.substring(0, 4).toUpperCase()),
       'Tot', 'Avg%', 'Gr', 'Comp'
     ];
-
     const rows = classReportData.map(s => [
-      s.classPosition,
-      s.name,
-      s.admNo,
+      s.classPosition, s.name, s.admNo,
       ...allSubjectsInReport.map(subj => s.subjectMarks[subj] !== undefined ? s.subjectMarks[subj] : 'X'),
-      s.totalMarks,
-      s.averageScore,
-      s.grade,
-      s.competency?.level || 'N/A',
+      s.totalMarks, s.averageScore, s.grade, s.competency?.level || 'N/A',
     ]);
-
     const wsData = [
       [schoolInfo.name || 'School'],
       [`Full Class Results - ${teacherProfile?.classAssigned}${teacherProfile?.streamAssigned ? ` / ${teacherProfile.streamAssigned}` : ''}`],
       [`Exam: ${classReportExam?.title || 'N/A'} | Term: ${classReportExam?.term || 'N/A'} | Year: ${classReportExam?.year || 'N/A'}`],
-      [],
-      headers, ...rows
+      [], headers, ...rows,
     ];
-
     const ws = XLSX.utils.aoa_to_sheet(wsData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Results');
@@ -1176,9 +1144,7 @@ const ClassPerformance = () => {
       const thinBorder = { style: BorderStyle.SINGLE, size: 4, color: '999999' };
       const cellBorders = { top: thinBorder, bottom: thinBorder, left: thinBorder, right: thinBorder };
       const children = [];
-
       children.push(...buildWordLogoParagraph(schoolInfo, { schoolNameSize: 30 }));
-
       children.push(
         new Paragraph({ alignment: AlignmentType.CENTER, spacing: { before: 200, after: 100 }, children: [new TextRun({ text: 'CLASS EXAM RESULTS', bold: true, size: 26 })] }),
         new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 200 }, children: [new TextRun({ text: `${teacherProfile?.classAssigned}${teacherProfile?.streamAssigned ? ` ${teacherProfile.streamAssigned}` : ''} | Year: ${classReportExam?.year} | Term: ${classReportExam?.term}`, size: 20 })] }),
@@ -1189,7 +1155,6 @@ const ClassPerformance = () => {
         new TableCell({ borders: cellBorders, shading: { fill: 'F0F0F0' }, children: [new Paragraph({ children: [new TextRun({ text: 'Name', bold: true, size: 18 })] })] }),
         new TableCell({ borders: cellBorders, shading: { fill: 'F0F0F0' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Adm', bold: true, size: 18 })] })] }),
       ];
-
       const showStreamCol = !!teacherProfile?.streamAssigned || classReportData.some(s => s.stream);
       if (showStreamCol) {
         baseHeaders.push(new TableCell({ borders: cellBorders, shading: { fill: 'F0F0F0' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Str', bold: true, size: 18 })] })] }));
@@ -1214,9 +1179,7 @@ const ClassPerformance = () => {
           new TableCell({ borders: cellBorders, children: [new Paragraph({ children: [new TextRun({ text: s.name, size: 18 })] })] }),
           new TableCell({ borders: cellBorders, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: s.admNo, size: 18 })] })] }),
         ];
-        if (showStreamCol) {
-          cells.push(new TableCell({ borders: cellBorders, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: s.stream || '-', size: 18 })] })] }));
-        }
+        if (showStreamCol) cells.push(new TableCell({ borders: cellBorders, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: s.stream || '-', size: 18 })] })] }));
         allSubjectsInReport.forEach(subj => {
           const m = s.subjectMarks[subj];
           cells.push(new TableCell({ borders: cellBorders, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: m !== undefined ? String(m) : 'X', size: 18 })] })] }));
@@ -1236,7 +1199,6 @@ const ClassPerformance = () => {
         subjectAverages[subj] = arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
       });
       const avgTotal = Math.round(classReportData.reduce((sum, s) => sum + s.totalMarks, 0) / classReportData.length);
-
       const averagesCells = [
         new TableCell({ borders: cellBorders, shading: { fill: 'F5F5F5' }, columnSpan: showStreamCol ? 4 : 3, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'AVERAGE', bold: true, size: 18 })] })] }),
         ...allSubjectsInReport.map(subj => new TableCell({ borders: cellBorders, shading: { fill: 'F5F5F5' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(subjectAverages[subj] || 0), bold: true, size: 18 })] })] })),
@@ -1255,13 +1217,9 @@ const ClassPerformance = () => {
           new Paragraph({ spacing: { before: 400 }, children: [] }),
           new Paragraph({ children: [new TextRun({ text: 'STREAM ANALYSIS (Best → Lowest)', bold: true, size: 22 })] }),
         );
-
         const sHeaders = ['Stream', 'Students', 'Mean', 'Grade', ...allSubjectsInReport.map(s => s.substring(0, 4).toUpperCase())];
         const sHeaderRow = new TableRow({
-          children: sHeaders.map(h => new TableCell({
-            borders: cellBorders, shading: { fill: 'E0EEFF' },
-            children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: h, bold: true, size: 18 })] })]
-          }))
+          children: sHeaders.map(h => new TableCell({ borders: cellBorders, shading: { fill: 'E0EEFF' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: h, bold: true, size: 18 })] })] }))
         });
         const sBodyRows = streamAnalysis.map(sa => new TableRow({
           children: [
@@ -1269,17 +1227,10 @@ const ClassPerformance = () => {
             new TableCell({ borders: cellBorders, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(sa.count), size: 18 })] })] }),
             new TableCell({ borders: cellBorders, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(sa.mean), bold: true, size: 18 })] })] }),
             new TableCell({ borders: cellBorders, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: sa.grade, bold: true, size: 18 })] })] }),
-            ...allSubjectsInReport.map(subj => new TableCell({
-              borders: cellBorders,
-              children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(sa.subjectMeans[subj] || 0), size: 18 })] })]
-            }))
+            ...allSubjectsInReport.map(subj => new TableCell({ borders: cellBorders, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(sa.subjectMeans[subj] || 0), size: 18 })] })] })),
           ]
         }));
-
-        children.push(new Table({
-          width: { size: 100, type: WidthType.PERCENTAGE },
-          rows: [sHeaderRow, ...sBodyRows]
-        }));
+        children.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [sHeaderRow, ...sBodyRows] }));
       }
 
       children.push(
@@ -1299,7 +1250,7 @@ const ClassPerformance = () => {
       toast.success('Class Word downloaded');
     } catch (err) {
       console.error(err);
-      toast.error('Failed to generate Word document: ' + err.message);
+      toast.error('Failed: ' + err.message);
     }
   };
 
@@ -1316,17 +1267,16 @@ const ClassPerformance = () => {
     );
   }
 
-  const hasSummaryResults = totalResults > 0 && (displayExamStatus === 'active' || displayExamStatus === 'completed');
-
+  const hasSummaryResults = subjectPerformance.length > 0;
   const overallMean = subjectPerformance.length > 0
     ? (subjectPerformance.reduce((sum, s) => sum + parseFloat(s.averageScore || 0), 0) / subjectPerformance.length).toFixed(1)
     : '0.0';
-  const totalStudentsInExam = subjectPerformance.reduce((sum, s) => sum + s.students, 0);
+  const totalStudentsInExam = subjectPerformance.reduce((sum, s) => sum + (s.students || 0), 0);
 
   return (
     <Layout title="Subject Performance" subtitle="View and analyze subject-specific performance">
 
-      {/* Header — includes school name */}
+      {/* Header */}
       <div className={`bg-gradient-to-r from-green-600 to-blue-600 rounded-xl ${deviceInfo.isMobile ? 'p-3' : 'p-5'} mb-4 text-white`}>
         <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'items-center gap-3'}`}>
           <div className="flex items-center gap-3">
@@ -1340,8 +1290,13 @@ const ClassPerformance = () => {
               </p>
             </div>
           </div>
-          <button onClick={loadData} className={`${deviceInfo.isMobile ? 'w-full mt-2' : 'ml-auto'} bg-white/20 hover:bg-white/30 text-white rounded-lg flex items-center justify-center gap-2 px-3 py-2 text-sm`}>
-            <FiRefreshCw className="w-4 h-4" /> Refresh
+          <button
+            onClick={() => loadData(true)}
+            disabled={refreshing}
+            className={`${deviceInfo.isMobile ? 'w-full mt-2' : 'ml-auto'} bg-white/20 hover:bg-white/30 text-white rounded-lg flex items-center justify-center gap-2 px-3 py-2 text-sm disabled:opacity-60`}
+          >
+            <FiRefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+            {refreshing ? 'Refreshing…' : 'Refresh'}
           </button>
         </div>
       </div>
@@ -1366,9 +1321,6 @@ const ClassPerformance = () => {
               {displayExamStatus === 'active' ? 'Active' : displayExamStatus === 'completed' ? 'Completed' : 'Upcoming'}
               {displayExam.endDateTime && ` • ${new Date(displayExam.endDateTime).toLocaleDateString()}`}
             </span>
-            {displayExamStatus === 'upcoming' && (
-              <span className="text-xs block mt-1 text-gray-500">Results will appear once this exam starts.</span>
-            )}
           </div>
         </div>
       ) : (
@@ -1379,44 +1331,43 @@ const ClassPerformance = () => {
       )}
 
       {/* ======================= MY SUBJECT PERFORMANCE ======================= */}
-      {hasSummaryResults && displayExam && (
+      {hasSummaryResults && (
         <div className={`bg-white rounded-lg shadow-md ${responsive.cardPadding} mb-6`}>
           <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
             <h3 className={`${responsive.headingSize} font-bold text-gray-800 flex items-center gap-2`}>
               <FiBookOpen className="text-green-600" /> My Subject Performance
             </h3>
-            <span className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded-full font-semibold">
-              Exam: <strong>{displayExam.title}</strong>
-            </span>
+            {displayExam && (
+              <span className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded-full font-semibold">
+                Exam: <strong>{displayExam.title}</strong>
+              </span>
+            )}
           </div>
 
-          {subjectPerformance.length > 0 && (
-            <div className="bg-gradient-to-r from-green-50 to-blue-50 border border-blue-200 rounded-lg p-4 mb-5">
-              <div className="grid grid-cols-3 gap-4 text-center">
-                <div>
-                  <p className="text-[10px] text-gray-500 uppercase tracking-wider font-semibold">Subjects Logged</p>
-                  <p className="text-2xl font-bold text-blue-700 mt-1">{subjectPerformance.length}</p>
-                </div>
-                <div>
-                  <p className="text-[10px] text-gray-500 uppercase tracking-wider font-semibold">Mean Score</p>
-                  <p className={`text-2xl font-bold mt-1 ${
-                    parseFloat(overallMean) >= 80 ? 'text-purple-600' :
-                    parseFloat(overallMean) >= 60 ? 'text-green-600' :
-                    parseFloat(overallMean) >= 40 ? 'text-blue-600' : 'text-red-600'
-                  }`}>{overallMean}%</p>
-                </div>
-                <div>
-                  <p className="text-[10px] text-gray-500 uppercase tracking-wider font-semibold">Total Uploads</p>
-                  <p className="text-2xl font-bold text-green-700 mt-1">{totalStudentsInExam}</p>
-                </div>
+          <div className="bg-gradient-to-r from-green-50 to-blue-50 border border-blue-200 rounded-lg p-4 mb-5">
+            <div className="grid grid-cols-3 gap-4 text-center">
+              <div>
+                <p className="text-[10px] text-gray-500 uppercase tracking-wider font-semibold">Subjects Logged</p>
+                <p className="text-2xl font-bold text-blue-700 mt-1">{subjectPerformance.length}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-gray-500 uppercase tracking-wider font-semibold">Mean Score</p>
+                <p className={`text-2xl font-bold mt-1 ${
+                  parseFloat(overallMean) >= 80 ? 'text-purple-600' :
+                  parseFloat(overallMean) >= 60 ? 'text-green-600' :
+                  parseFloat(overallMean) >= 40 ? 'text-blue-600' : 'text-red-600'
+                }`}>{overallMean}%</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-gray-500 uppercase tracking-wider font-semibold">Total Uploads</p>
+                <p className="text-2xl font-bold text-green-700 mt-1">{totalStudentsInExam}</p>
               </div>
             </div>
-          )}
+          </div>
 
           <div className="space-y-4">
             {subjectPerformance.map((subject, index) => {
               const mean = parseFloat(subject.averageScore);
-
               return (
                 <div key={index} className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
                   <div className={`p-4 border-l-4 ${mean >= 60 ? 'border-green-500 bg-green-50/30' : mean >= 50 ? 'border-yellow-500 bg-yellow-50/30' : 'border-red-500 bg-red-50/30'}`}>
@@ -1428,8 +1379,8 @@ const ClassPerformance = () => {
                         </h4>
                         <p className="text-xs text-gray-500 mt-1">
                           {subject.class}
-                          {subject.stream && subject.stream !== '' ? ` • Stream ${subject.stream}` : ''}
-                          {' • '}{subject.examName}
+                          {subject.stream ? ` • Stream ${subject.stream}` : ''}
+                          {subject.examName ? ` • ${subject.examName}` : ''}
                         </p>
                       </div>
                       <div className="text-right">
@@ -1485,12 +1436,8 @@ const ClassPerformance = () => {
             <>
               <div className={`bg-gradient-to-r from-green-600 to-blue-600 rounded-lg ${deviceInfo.isMobile ? 'p-2' : 'p-3'} mb-3 text-white`}>
                 <h2 className={`${deviceInfo.isMobile ? 'text-base' : 'text-lg'} font-bold`}>{teacherProfile?.classAssigned} {teacherProfile?.streamAssigned ? `- ${teacherProfile.streamAssigned}` : ''}</h2>
-                <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} font-semibold mt-1`}>
-                  Exam: {classReportExam.title}
-                </p>
-                <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} opacity-90`}>
-                  Term: {classReportExam.term} | Year: {classReportExam.year}
-                </p>
+                <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} font-semibold mt-1`}>Exam: {classReportExam.title}</p>
+                <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} opacity-90`}>Term: {classReportExam.term} | Year: {classReportExam.year}</p>
               </div>
 
               <div className={`grid ${responsive.statsGrid} ${deviceInfo.isMobile ? 'gap-1' : 'gap-2'} mb-3`}>
@@ -1600,7 +1547,7 @@ const ClassPerformance = () => {
             <div className="bg-white border rounded-lg p-12 text-center shadow-sm">
               <FiBarChart2 className="w-12 h-12 text-gray-300 mx-auto mb-3" />
               <h3 className="text-lg font-semibold text-gray-800 mb-1">No results uploaded yet</h3>
-              <p className="text-sm text-gray-500">Results for your assigned class/stream will automatically appear here once uploaded.</p>
+              <p className="text-sm text-gray-500">Results for your assigned class/stream will appear here once uploaded.</p>
             </div>
           )}
         </div>
@@ -1613,7 +1560,6 @@ const ClassPerformance = () => {
             <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-3 flex items-center gap-2`}>
               <FiFilter className="text-blue-600" /> Filter Subject Analysis
             </h2>
-
             <div className={`grid ${responsive.filterGrid} ${responsive.gridGap}`}>
               <div>
                 <label className={`block text-gray-700 font-medium mb-1 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>Year</label>
@@ -1621,7 +1567,6 @@ const ClassPerformance = () => {
                   {years.map(year => <option key={year} value={year}>{year}</option>)}
                 </select>
               </div>
-
               <div>
                 <label className={`block text-gray-700 font-medium mb-1 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>Class</label>
                 <select value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)} className={`input-field w-full ${deviceInfo.isMobile ? 'text-base' : ''}`}>
@@ -1629,7 +1574,6 @@ const ClassPerformance = () => {
                   {availableClasses.map(cls => <option key={cls} value={cls}>{cls}</option>)}
                 </select>
               </div>
-
               {selectedClass && availableStreams.length > 0 && (
                 <div>
                   <label className={`block text-gray-700 font-medium mb-1 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>Stream</label>
@@ -1639,7 +1583,6 @@ const ClassPerformance = () => {
                   </select>
                 </div>
               )}
-
               <div>
                 <label className={`block text-gray-700 font-medium mb-1 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>Exam Type</label>
                 <select value={selectedExamType} onChange={(e) => setSelectedExamType(e.target.value)} className={`input-field w-full ${deviceInfo.isMobile ? 'text-base' : ''}`}>
@@ -1647,7 +1590,6 @@ const ClassPerformance = () => {
                   {availableExamTypes.map(type => <option key={type} value={type}>{type}</option>)}
                 </select>
               </div>
-
               <div>
                 <label className={`block text-gray-700 font-medium mb-1 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>Exam Name</label>
                 <select value={selectedExamName} onChange={(e) => setSelectedExamName(e.target.value)} className={`input-field w-full ${deviceInfo.isMobile ? 'text-base' : ''}`} disabled={!selectedExamType}>
@@ -1655,7 +1597,6 @@ const ClassPerformance = () => {
                   {availableExamNames.map(name => <option key={name} value={name}>{name}</option>)}
                 </select>
               </div>
-
               <div>
                 <label className={`block text-gray-700 font-medium mb-1 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>Subject</label>
                 <select value={selectedSubject} onChange={(e) => setSelectedSubject(e.target.value)} className={`input-field w-full ${deviceInfo.isMobile ? 'text-base' : ''}`} disabled={!selectedClass}>
@@ -1664,14 +1605,11 @@ const ClassPerformance = () => {
                 </select>
               </div>
             </div>
-
             <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'gap-3'} mt-4`}>
               <button onClick={loadPerformanceData} disabled={loadingData} className={`btn-primary flex items-center justify-center gap-2 disabled:opacity-50 ${deviceInfo.isMobile ? 'w-full py-2.5 text-sm' : ''}`}>
                 <FiBarChart2 /> {loadingData ? 'Loading...' : 'VIEW DETAILED'}
               </button>
-              <button onClick={resetFilters} className={`bg-gray-500 hover:bg-gray-600 text-white rounded-lg ${deviceInfo.isMobile ? 'w-full px-4 py-2.5 text-sm' : 'px-4 py-2'}`}>
-                RESET
-              </button>
+              <button onClick={resetFilters} className={`bg-gray-500 hover:bg-gray-600 text-white rounded-lg ${deviceInfo.isMobile ? 'w-full px-4 py-2.5 text-sm' : 'px-4 py-2'}`}>RESET</button>
             </div>
           </div>
 
@@ -1717,11 +1655,11 @@ const ClassPerformance = () => {
                     return (
                       <div key={level.level}>
                         <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-0.5' : 'justify-between'} text-sm mb-0.5`}>
-                          <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'}`}>{deviceInfo.isMobile ? level.level.split(' ')[0] : level.level}</span>
+                          <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'}`}>{level.level}</span>
                           <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} font-bold`}>{count} ({percentage.toFixed(1)}%)</span>
                         </div>
                         <div className="w-full bg-gray-200 rounded-full h-1.5">
-                          <div className={`rounded-full h-1.5 ${level.level.includes('Exceeding') ? 'bg-purple-500' : level.level.includes('Meeting') ? 'bg-green-500' : level.level.includes('Approaching') ? 'bg-blue-500' : level.level.includes('Below') ? 'bg-yellow-500' : 'bg-red-500'}`} style={{ width: `${percentage}%` }} />
+                          <div className={`rounded-full h-1.5 ${level.level === 'EE' ? 'bg-purple-500' : level.level === 'ME' ? 'bg-green-500' : level.level === 'AE' ? 'bg-blue-500' : level.level === 'BE' ? 'bg-yellow-500' : 'bg-red-500'}`} style={{ width: `${percentage}%` }} />
                         </div>
                       </div>
                     );
@@ -1733,10 +1671,10 @@ const ClassPerformance = () => {
                 <div className={`${deviceInfo.isMobile ? 'px-3 py-2' : 'px-6 py-4'} border-b border-gray-200 flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'justify-between items-center'} flex-wrap`}>
                   <h3 className={`${deviceInfo.isMobile ? 'text-sm' : 'text-lg'} font-bold text-gray-800`}>{selectedSubject} - Students</h3>
                   <div className="flex gap-2 flex-wrap">
-                    <button onClick={downloadResultsExcel} className={`bg-green-600 hover:bg-green-700 text-white rounded-lg flex items-center justify-center gap-1 transition-colors ${deviceInfo.isMobile ? 'flex-1 px-2 py-1.5 text-xs' : 'px-4 py-2 text-sm'}`}>
+                    <button onClick={downloadResultsExcel} className={`bg-green-600 hover:bg-green-700 text-white rounded-lg flex items-center justify-center gap-1 ${deviceInfo.isMobile ? 'flex-1 px-2 py-1.5 text-xs' : 'px-4 py-2 text-sm'}`}>
                       <FiDownload className={deviceInfo.isMobile ? 'w-3 h-3' : 'w-4 h-4'} /> Excel
                     </button>
-                    <button onClick={downloadResultsWord} className={`bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center justify-center gap-1 transition-colors ${deviceInfo.isMobile ? 'flex-1 px-2 py-1.5 text-xs' : 'px-4 py-2 text-sm'}`}>
+                    <button onClick={downloadResultsWord} className={`bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center justify-center gap-1 ${deviceInfo.isMobile ? 'flex-1 px-2 py-1.5 text-xs' : 'px-4 py-2 text-sm'}`}>
                       <FiFileText className={deviceInfo.isMobile ? 'w-3 h-3' : 'w-4 h-4'} /> Word
                     </button>
                   </div>
@@ -1765,9 +1703,7 @@ const ClassPerformance = () => {
                             <td className={`${deviceInfo.isMobile ? 'px-2 py-1.5 text-[10px]' : 'px-4 py-3 text-sm'} text-center font-semibold`}>{student.marks.toFixed(1)}%</td>
                             <td className={`${deviceInfo.isMobile ? 'px-2 py-1.5 text-[10px]' : 'px-4 py-3 text-sm'} text-center font-bold`}>{student.grade}</td>
                             <td className={`${deviceInfo.isMobile ? 'px-2 py-1.5 text-[10px]' : 'px-4 py-3 text-sm'}`}>
-                              {competency ? <span className={`px-1.5 py-0.5 text-[10px] rounded-full ${competency.color}`}>
-                                {deviceInfo.isMobile ? competency.level.split(' ')[0] : competency.level}
-                              </span> : '-'}
+                              {competency ? <span className="px-1.5 py-0.5 text-[10px] rounded-full" style={{ backgroundColor: competency.color, color: '#fff' }}>{competency.level}</span> : '-'}
                             </td>
                             {!deviceInfo.isMobile && (
                               <td className={`px-4 py-3 text-sm font-semibold ${student.marks >= 80 ? 'text-purple-600' : student.marks >= 60 ? 'text-green-600' : student.marks >= 40 ? 'text-blue-600' : 'text-red-600'}`}>
@@ -1803,14 +1739,13 @@ const ClassPerformance = () => {
         </div>
       )}
 
+      {/* Competency Guide */}
       <div className={`mt-4 bg-white rounded-lg shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-4'}`}>
         <h3 className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} font-semibold text-gray-700 mb-2`}>CBE Competency Levels</h3>
         <div className={`grid ${deviceInfo.isMobile ? 'grid-cols-2 gap-1' : 'grid-cols-2 md:grid-cols-5 gap-2'}`}>
           {competencyLevels.map(level => (
             <div key={level.level} className={`flex items-center gap-1 ${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'}`}>
-              <span className={`px-1.5 py-0.5 text-[10px] rounded-full ${level.color}`}>
-                {deviceInfo.isMobile ? level.level.split(' ')[0] : level.level}
-              </span>
+              <span className="px-1.5 py-0.5 text-[10px] rounded-full text-white" style={{ backgroundColor: level.color }}>{level.level}</span>
               <span className="text-gray-500">{level.minScore}-{level.maxScore}%</span>
             </div>
           ))}
@@ -1819,10 +1754,7 @@ const ClassPerformance = () => {
 
       {showReportCard && selectedStudent && (
         <ReportCard
-          student={{
-            ...selectedStudent,
-            ...selectedStudent.subjectMarks
-          }}
+          student={{ ...selectedStudent, ...selectedStudent.subjectMarks }}
           schoolInfo={schoolInfo}
           selectedClass={teacherProfile?.classAssigned}
           selectedStream={teacherProfile?.streamAssigned}

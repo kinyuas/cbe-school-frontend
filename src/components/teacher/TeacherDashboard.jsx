@@ -270,139 +270,287 @@ const TeacherDashboard = () => {
     }
   }, []);
 
-  // ============================================================
-  // ⚡ FAST DATA LOADER
-  // - All base fetches in parallel (no full /results fetch)
-  // - Subject performance comes from the aggregated endpoint
-  //   (small payload; ~30 grouped rows max instead of every result)
-  // - Skills coverage loaded separately so it never blocks paint
-  // ============================================================
   const loadDashboardData = useCallback(async () => {
     setLoading(true);
     try {
-      // ---------- 1. Parallel base fetches (all non-blocking) ----------
-      const [
-        pupilsRes,
-        examsRes,
-        teachersRes,
-        eventsRes,
-        scholarshipsRes,
-        schoolRes,
-      ] = await Promise.all([
-        api.get('/pupils').catch(() => ({ data: { data: [] } })),
-        api.get('/exams').catch(() => ({ data: { data: [] } })),
-        api.get('/teachers').catch(() => ({ data: { data: [] } })),
-        api.get('/events').catch(() => ({ data: { data: [] } })),
-        api.get('/public/scholarships-events').catch(() => ({ data: { data: [] } })),
-        api.get('/school/settings').catch(() => ({ data: { data: null } })),
+      console.log('📊 Loading teacher dashboard...');
+
+      let learners = [];
+      let allResults = [];
+      let events = [];
+      let examsData = [];
+      let myProfile = null;
+      let skillsData = [];
+      let scholarshipsData = [];
+
+      // Execute all API calls in parallel for maximum speed
+      await Promise.all([
+        api.get('/pupils').then(res => { if (res.data?.success) learners = res.data.data || []; }).catch(err => console.error('Pupils:', err)),
+        api.get('/results').then(res => { if (res.data?.success) allResults = res.data.data || []; }).catch(err => console.error('Results:', err)),
+        api.get('/events').then(res => { if (res.data?.success) events = res.data.data || []; }).catch(err => console.error('Events:', err)),
+        api.get('/exams').then(res => { if (res.data?.success) examsData = res.data.data || []; }).catch(err => console.error('Exams:', err)),
+        api.get('/teachers').then(res => {
+          if (res.data?.success) {
+            myProfile = (res.data.data || []).find(t => t.email === user?.email);
+          }
+        }).catch(err => console.error('Teacher Profile:', err)),
+        // ⭐ Scholarships & Big Events
+        api.get('/public/scholarships-events').then(res => {
+          scholarshipsData = res.data?.data || [];
+        }).catch(err => console.error('Scholarships:', err))
       ]);
 
-      const learners = pupilsRes.data?.data || [];
-      const examsData = examsRes.data?.data || [];
-      const events = eventsRes.data?.data || [];
-      const scholarshipsData = scholarshipsRes.data?.data || [];
-
-      // School info (used in subtitle)
-      const s = schoolRes.data?.data;
-      if (s) {
-        setSchoolInfo({
-          name: s.schoolName || s.name || '',
-          classes: s.classes || [],
-        });
-      }
-
       setPupils(learners);
-
-      // Teacher profile
-      const myProfile = (teachersRes.data?.data || []).find(t => t.email === user?.email);
       setTeacherProfile(myProfile);
 
-      // Scholarships: last 3, newest first
+      // ⭐ Store the last 3 scholarships, newest first
       const sortedScholarships = [...scholarshipsData].sort(
         (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
       );
       setScholarships(sortedScholarships.slice(0, 3));
 
-      // ---------- 2. Assigned student count (cheap, local) ----------
-      let totalAssignedStudents = 0;
-      if (myProfile?.classAssigned) {
-        totalAssignedStudents = learners.filter(p =>
-          p.class === myProfile.classAssigned &&
-          (!myProfile.streamAssigned || p.stream === myProfile.streamAssigned)
-        ).length;
+      // Fetch skills for the assigned class (silently in background)
+      if (myProfile && myProfile.classAssigned) {
+        try {
+          const skillsRes = await api.get('/skills', {
+            params: {
+              class: myProfile.classAssigned,
+              stream: myProfile.streamAssigned || undefined
+            }
+          });
+          if (skillsRes.data?.success) {
+            skillsData = skillsRes.data.data || [];
+          }
+        } catch (err) {
+          console.error('Error fetching skills:', err);
+        }
       }
 
-      // ---------- 3. Exam window ----------
-      const { exam: examToDisplay, status: examStatus } = getCurrentDisplayExam(examsData);
+      // Calculate Skills Coverage
+      let totalAssignedStudents = 0;
+      if (myProfile && myProfile.classAssigned) {
+        const assignedPupils = learners.filter(p =>
+          p.class === myProfile.classAssigned &&
+          (!myProfile.streamAssigned || p.stream === myProfile.streamAssigned)
+        );
+
+        totalAssignedStudents = assignedPupils.length;
+        const uniqueStudentsWithSkills = new Set(
+          skillsData.map(s => s.pupilId?._id || s.pupilId).filter(Boolean)
+        ).size;
+
+        const percentage = totalAssignedStudents > 0 ? Math.round((uniqueStudentsWithSkills / totalAssignedStudents) * 100) : 0;
+
+        setSkillsCoverage({
+          totalStudents: totalAssignedStudents,
+          studentsWithSkills: uniqueStudentsWithSkills,
+          percentage
+        });
+      } else {
+        setSkillsCoverage({ totalStudents: 0, studentsWithSkills: 0, percentage: 0 });
+      }
+
+      // ============================================================
+      // TEACHER'S OWN RESULTS ONLY
+      // ============================================================
+      let teacherResultsData = [];
+      if (teacherId) {
+        teacherResultsData = allResults.filter(result => {
+          const recordedBy = result.recordedBy || result.teacherId || result.createdBy;
+          return recordedBy === teacherId;
+        });
+      }
+
+      if (teacherResultsData.length === 0 && teacherName) {
+        teacherResultsData = allResults.filter(result => {
+          const submittedBy = result.submittedBy || result.updatedBy || result.createdBy || '';
+          return submittedBy === teacherName || submittedBy.includes(teacherName);
+        });
+      }
+
+      setAllTeacherResults(teacherResultsData);
+
+      // ============================================================
+      // WHICH EXAM TO SHOW
+      // ============================================================
+      const { exam: examToDisplay, status: examStatus, nextExam: nextScheduled } = getCurrentDisplayExam(examsData);
+
       setDisplayExam(examToDisplay);
       setDisplayExamStatus(examStatus);
 
-      const nextUpcoming = getNextUpcomingExam(examsData);
-      setNextExam(nextUpcoming);
+      // ============================================================
+      // ACTIVE + NEXT EXAM
+      // ============================================================
+      const currentActiveExam = getActiveExam(examsData);
+      const nextUpcomingExam = getNextUpcomingExam(examsData);
+
+      setNextExam(nextUpcomingExam);
+
+      // ============================================================
+      // FILTER RESULTS FOR THE DISPLAY EXAM
+      // ============================================================
+      let uploadedResultsCount = 0;
+      let competenciesCount = 0;
+      let classesTaughtCount = 0;
+      let performanceData = [];
+      let filteredResults = [];
 
       const showData = examToDisplay && (examStatus === 'active' || examStatus === 'completed');
 
-      // ---------- 4. FAST: aggregated subject performance ----------
-      let perf = [];
-      if (showData) {
-        const perfRes = await api.get('/reports/teacher-subject-performance', {
-          params: {
-            teacherId,
-            teacherName,
-            examName: examToDisplay.title,
-            examType: examToDisplay.type,
-            term: examToDisplay.term,
-            year: examToDisplay.year,
-          },
-        }).catch(() => ({ data: { data: [] } }));
-        perf = perfRes.data?.data || [];
+      if (showData && examToDisplay) {
+        filteredResults = teacherResultsData.filter(result =>
+          resultBelongsToExam(result, examToDisplay)
+        );
+
+        const uniqueUploadKeys = new Set();
+        filteredResults.forEach(r => {
+          const pid = r.pupilId?._id || r.pupilId;
+          if (pid) {
+            uniqueUploadKeys.add(`${pid}-${r.subject}`);
+          }
+        });
+        uploadedResultsCount = uniqueUploadKeys.size;
+
+        // CLASSES
+        const uniqueClasses = new Set();
+        filteredResults.forEach(r => {
+          const pupilId = r.pupilId?._id || r.pupilId;
+          if (pupilId) {
+            const pupil = findPupilById(pupilId, learners);
+            if (pupil) {
+              const className = pupil.class || pupil.grade || pupil.className;
+              if (className) uniqueClasses.add(className);
+            }
+          }
+        });
+        classesTaughtCount = uniqueClasses.size;
+        setTeacherClasses([...uniqueClasses]);
+
+        // SUBJECTS
+        const uniqueSubjects = new Set();
+        filteredResults.forEach(r => {
+          const subject = r.subject || r.subjectName || r.learningArea;
+          if (subject) uniqueSubjects.add(subject);
+        });
+        setTeacherSubjects([...uniqueSubjects]);
+        competenciesCount = filteredResults.length;
+
+        // ============================================================
+        // GROUP BY SUBJECT + CLASS + STREAM
+        // ============================================================
+        const grouped = {};
+
+        filteredResults.forEach(result => {
+          const subject = result.subject || result.subjectName || result.learningArea || 'Unknown Subject';
+          const marks = parseFloat(result.marks || result.score || result.marksObtained || 0);
+          if (isNaN(marks)) return;
+
+          const pupilId = result.pupilId?._id || result.pupilId;
+          let className = 'Unknown Class';
+          let stream = '';
+
+          if (pupilId) {
+            const pupil = findPupilById(pupilId, learners);
+            if (pupil) {
+              className = pupil.class || pupil.grade || pupil.className || 'Unknown Class';
+              stream = pupil.stream || '';
+            }
+          }
+
+          const key = `${subject}|${className}|${stream || 'no-stream'}`;
+
+          if (!grouped[key]) {
+            grouped[key] = {
+              subject,
+              class: className,
+              stream: stream || null,
+              examName: examToDisplay.title,
+              examType: examToDisplay.type,
+              term: examToDisplay.term,
+              year: examToDisplay.year,
+              totalMarks: 0,
+              count: 0,
+              passing: 0,
+              average: 0,
+              belowAvg: 0,
+              studentIds: new Set()
+            };
+          }
+
+          grouped[key].totalMarks += marks;
+          grouped[key].count += 1;
+
+          if (marks >= 60) grouped[key].passing += 1;
+          else if (marks >= 50) grouped[key].average += 1;
+          else grouped[key].belowAvg += 1;
+
+          if (pupilId) grouped[key].studentIds.add(String(pupilId));
+        });
+
+        performanceData = Object.values(grouped).map(g => ({
+          subject: g.subject,
+          class: g.class,
+          stream: g.stream,
+          examName: g.examName,
+          examType: g.examType,
+          term: g.term,
+          year: g.year,
+          averageScore: g.count > 0 ? (g.totalMarks / g.count).toFixed(1) : '0.0',
+          students: g.studentIds.size,
+          totalResults: g.count,
+          passing: g.passing,
+          average: g.average,
+          belowAvg: g.belowAvg
+        }));
+
+        performanceData.sort((a, b) => {
+          const subj = a.subject.localeCompare(b.subject);
+          if (subj !== 0) return subj;
+          const cls = a.class.localeCompare(b.class);
+          if (cls !== 0) return cls;
+          return (a.stream || '').localeCompare(b.stream || '');
+        });
+
+        setSubjectPerformance(performanceData);
+
+      } else {
+        setSubjectPerformance([]);
+        setTeacherClasses([]);
+        setTeacherSubjects([]);
       }
 
-      setSubjectPerformance(perf);
-
-      // Keep allTeacherResults in sync for any consumer that still reads it
-      setAllTeacherResults(perf);
-
-      const uniqueClasses = new Set(perf.map(p => p.class).filter(Boolean));
-      const uniqueSubjects = new Set(perf.map(p => p.subject).filter(Boolean));
-      setTeacherClasses([...uniqueClasses]);
-      setTeacherSubjects([...uniqueSubjects]);
-
-      const uploadedResultsCount = perf.reduce((s2, p) => s2 + (p.students || 0), 0);
-      const competenciesCount = perf.reduce((s2, p) => s2 + (p.totalResults || 0), 0);
-
-      // ---------- 5. Exams & events lists ----------
+      // ---- FILTER ACTIVE AND UPCOMING EXAMS ----
       const now = new Date();
       const activeAndUpcomingExams = examsData.filter(e => {
         if (e.isActive === false || !e.startDateTime) return false;
         const start = new Date(e.startDateTime);
         return start >= now || (e.endDateTime && new Date(e.endDateTime) >= now);
       });
-      const sortedExams = [...activeAndUpcomingExams]
-        .sort((a, b) => new Date(a.startDateTime) - new Date(b.startDateTime));
+      const sortedExams = [...activeAndUpcomingExams].sort((a, b) => new Date(a.startDateTime) - new Date(b.startDateTime));
 
+      // ---- FILTER ACTIVE AND UPCOMING EVENTS ----
       const nowDate = new Date();
       nowDate.setHours(0, 0, 0, 0);
       const activeAndUpcomingEvents = events.filter(e => {
         if (!e.date || e.isActive === false) return false;
-        const d = new Date(e.date);
-        d.setHours(0, 0, 0, 0);
-        return d >= nowDate;
+        const eventDate = new Date(e.date);
+        eventDate.setHours(0, 0, 0, 0);
+        return eventDate >= nowDate;
       }).sort((a, b) => new Date(a.date) - new Date(b.date));
 
-      const strictlyUpcomingExams = activeAndUpcomingExams.filter(
-        e => new Date(e.startDateTime) > now
-      );
+      const strictlyUpcomingExams = activeAndUpcomingExams.filter(e => {
+        const start = new Date(e.startDateTime);
+        return start > now;
+      });
 
-      // ---------- 6. Stats ----------
       setStats({
         totalLearners: totalAssignedStudents,
         uploadedResults: uploadedResultsCount,
         competenciesRecorded: competenciesCount,
-        classesTaught: uniqueClasses.size,
+        classesTaught: classesTaughtCount,
         UpcomingExams: strictlyUpcomingExams.length,
         attendance: 92,
-        events: activeAndUpcomingEvents.length,
+        events: activeAndUpcomingEvents.length
       });
 
       setExams(sortedExams.slice(0, 5));
@@ -423,44 +571,6 @@ const TeacherDashboard = () => {
       setRefreshing(false);
     }
   }, [user, teacherId, teacherName]);
-
-  // ============================================================
-  // Skills Coverage — separate non-blocking effect
-  // Runs once profile + pupils are ready; never delays first paint
-  // ============================================================
-  const loadSkillsCoverage = useCallback(async () => {
-    if (!teacherProfile?.classAssigned) {
-      setSkillsCoverage({ totalStudents: 0, studentsWithSkills: 0, percentage: 0 });
-      return;
-    }
-    try {
-      const res = await api.get('/skills', {
-        params: {
-          class: teacherProfile.classAssigned,
-          stream: teacherProfile.streamAssigned || undefined,
-        },
-      }).catch(() => ({ data: { data: [] } }));
-
-      const skillsData = res.data?.data || [];
-
-      const total = pupils.filter(p =>
-        p.class === teacherProfile.classAssigned &&
-        (!teacherProfile.streamAssigned || p.stream === teacherProfile.streamAssigned)
-      ).length;
-
-      const withSkills = new Set(
-        skillsData.map(s => s.pupilId?._id || s.pupilId).filter(Boolean)
-      ).size;
-
-      setSkillsCoverage({
-        totalStudents: total,
-        studentsWithSkills: withSkills,
-        percentage: total > 0 ? Math.round((withSkills / total) * 100) : 0,
-      });
-    } catch (err) {
-      console.warn('Skills coverage load failed:', err.message);
-    }
-  }, [teacherProfile, pupils]);
 
   const checkExamAlerts = useCallback((examsData) => {
     const now = new Date();
@@ -515,7 +625,6 @@ const TeacherDashboard = () => {
     setShowTimeAlert(alerts.length > 0);
   }, [exams]);
 
-  // Timers
   useEffect(() => {
     const updateTimers = () => {
       if (exams.length > 0) {
@@ -531,7 +640,6 @@ const TeacherDashboard = () => {
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, [exams]);
 
-  // Alerts
   useEffect(() => {
     const checkAlerts = () => { checkExamAlerts(); };
     checkAlerts();
@@ -539,16 +647,10 @@ const TeacherDashboard = () => {
     return () => { if (alertIntervalRef.current) clearInterval(alertIntervalRef.current); };
   }, [checkExamAlerts]);
 
-  // Initial load
   useEffect(() => {
     loadDashboardData();
     loadUnreadMessages();
   }, [loadDashboardData, loadUnreadMessages]);
-
-  // Skills coverage (separate so it doesn't block first paint)
-  useEffect(() => {
-    loadSkillsCoverage();
-  }, [loadSkillsCoverage]);
 
   // 🆕 Poll for new unread messages every 30s
   useEffect(() => {
@@ -560,7 +662,7 @@ const TeacherDashboard = () => {
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([loadDashboardData(), loadUnreadMessages(), loadSkillsCoverage()]);
+    await Promise.all([loadDashboardData(), loadUnreadMessages()]);
     toast.success('Refreshed');
   };
 
