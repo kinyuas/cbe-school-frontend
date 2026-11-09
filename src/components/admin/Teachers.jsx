@@ -41,6 +41,7 @@ const Teachers = () => {
     classAssigned: '', streamAssigned: '', canRecordSkills: true
   });
   const [editLoading, setEditLoading] = useState(false);
+  const [editErrors, setEditErrors] = useState({}); // 🆕 Track field errors
   
   // Available options for edit modal
   const [availableClasses, setAvailableClasses] = useState([]);
@@ -104,12 +105,25 @@ const Teachers = () => {
         setIsModalOpen(false);
       }
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Error adding teacher');
+      // 🆕 If it's a duplicate error, throw it back to the Modal so it can highlight the fields without closing
+      const errorMsg = error.response?.data?.message || 'Error adding teacher';
+      const validationErrors = error.response?.data?.errors || [];
+      
+      if (validationErrors.length > 0) {
+        throw { fieldErrors: validationErrors, message: errorMsg };
+      } else if (errorMsg.includes('email')) {
+        throw { fieldErrors: [{ param: 'email', msg: errorMsg }], message: errorMsg };
+      } else if (errorMsg.includes('TSC')) {
+        throw { fieldErrors: [{ param: 'tscNumber', msg: errorMsg }], message: errorMsg };
+      } else {
+        throw { message: errorMsg };
+      }
     }
   };
 
   const handleEditClick = (teacher) => {
     setEditingTeacherId(teacher._id);
+    setEditErrors({}); // Reset errors
     setEditFormData({
       name: teacher.name || '', subject: teacher.subject || '', email: teacher.email || '',
       phone: teacher.phoneNumber || '', tscNumber: teacher.tscNumber || '',
@@ -122,6 +136,16 @@ const Teachers = () => {
 
   const handleEditChange = (e) => {
     const { name, value, type, checked } = e.target;
+    
+    // Clear error for this field when the user types
+    if (editErrors[name]) {
+      setEditErrors(prev => {
+        const next = { ...prev };
+        delete next[name];
+        return next;
+      });
+    }
+
     if (name === 'classAssigned') {
       const cls = availableClasses.find(c => c.name === value);
       setAvailableStreams(cls?.streams || []);
@@ -132,9 +156,16 @@ const Teachers = () => {
   };
 
   const handleUpdateTeacher = async (teacherId) => {
-    if (!editFormData.name.trim() || !editFormData.email.trim() || !editFormData.tscNumber.trim()) {
-      return toast.error('Name, Email, and TSC are required');
+    const newErrors = {};
+    if (!editFormData.name.trim()) newErrors.name = 'Name is required';
+    if (!editFormData.email.trim()) newErrors.email = 'Email is required';
+    if (!editFormData.tscNumber.trim()) newErrors.tscNumber = 'TSC Number is required';
+
+    if (Object.keys(newErrors).length > 0) {
+      setEditErrors(newErrors);
+      return toast.error('Please fix the highlighted fields');
     }
+
     setEditLoading(true);
     try {
       const response = await api.put(`/teachers/${teacherId}`, {
@@ -148,7 +179,20 @@ const Teachers = () => {
         setEditingTeacherId(null);
       }
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Error updating');
+      const errorMsg = error.response?.data?.message || 'Error updating';
+      const validationErrors = error.response?.data?.errors || [];
+      
+      if (validationErrors.length > 0) {
+        const backendErrs = {};
+        validationErrors.forEach(err => { backendErrs[err.param] = err.msg; });
+        setEditErrors(backendErrs);
+      } else if (errorMsg.includes('email')) {
+        setEditErrors({ email: 'This email is already in use by another teacher' });
+      } else if (errorMsg.includes('TSC')) {
+        setEditErrors({ tscNumber: 'This TSC number is already in use' });
+      } else {
+        toast.error(errorMsg);
+      }
     } finally {
       setEditLoading(false);
     }
@@ -383,17 +427,35 @@ const Teachers = () => {
           <div key={teacher._id} className={`bg-white rounded-xl shadow-md p-6 border-l-4 ${teacher.isActive === false ? 'border-red-500 opacity-75' : 'border-green-500'}`}>
             {editingTeacherId === teacher._id ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <input type="text" name="name" value={editFormData.name} onChange={handleEditChange} placeholder="Name" className="input-field" />
-                <input type="text" name="subject" value={editFormData.subject} onChange={handleEditChange} placeholder="Subject" className="input-field" />
-                <input type="email" name="email" value={editFormData.email} onChange={handleEditChange} placeholder="Email" className="input-field" />
-                <input type="tel" name="phone" value={editFormData.phone} onChange={handleEditChange} placeholder="Phone" className="input-field" />
-                <input type="text" name="tscNumber" value={editFormData.tscNumber} onChange={handleEditChange} placeholder="TSC Number" className="input-field" />
+                <div>
+                  <input type="text" name="name" value={editFormData.name} onChange={handleEditChange} placeholder="Name" className={`input-field w-full ${editErrors.name ? 'border-red-500 ring-1 ring-red-500' : ''}`} />
+                  {editErrors.name && <p className="text-xs text-red-500 mt-1">{editErrors.name}</p>}
+                </div>
                 
-                <select name="classAssigned" value={editFormData.classAssigned} onChange={handleEditChange} className="input-field">
+                <div>
+                  <input type="text" name="subject" value={editFormData.subject} onChange={handleEditChange} placeholder="Subject" className="input-field w-full" />
+                </div>
+                
+                <div>
+                  <input type="email" name="email" value={editFormData.email} onChange={handleEditChange} placeholder="Email" className={`input-field w-full ${editErrors.email ? 'border-red-500 ring-1 ring-red-500' : ''}`} />
+                  {editErrors.email && <p className="text-xs text-red-500 mt-1">{editErrors.email}</p>}
+                </div>
+
+                <div>
+                  <input type="tel" name="phone" value={editFormData.phone} onChange={handleEditChange} placeholder="Phone" className="input-field w-full" />
+                </div>
+                
+                <div>
+                  <input type="text" name="tscNumber" value={editFormData.tscNumber} onChange={handleEditChange} placeholder="TSC Number" className={`input-field w-full ${editErrors.tscNumber ? 'border-red-500 ring-1 ring-red-500' : ''}`} />
+                  {editErrors.tscNumber && <p className="text-xs text-red-500 mt-1">{editErrors.tscNumber}</p>}
+                </div>
+                
+                <select name="classAssigned" value={editFormData.classAssigned} onChange={handleEditChange} className="input-field w-full">
                   <option value="">— No Class Assigned —</option>
                   {availableClasses.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
                 </select>
-                <select name="streamAssigned" value={editFormData.streamAssigned} onChange={handleEditChange} className="input-field" disabled={!editFormData.classAssigned || availableStreams.length === 0}>
+                
+                <select name="streamAssigned" value={editFormData.streamAssigned} onChange={handleEditChange} className="input-field w-full" disabled={!editFormData.classAssigned || availableStreams.length === 0}>
                   <option value="">— All Streams —</option>
                   {availableStreams.map(s => <option key={s} value={s}>Stream {s}</option>)}
                 </select>
@@ -401,7 +463,7 @@ const Teachers = () => {
                 <div className="md:col-span-2 flex justify-end gap-2 mt-2">
                   <button onClick={() => setEditingTeacherId(null)} className="btn-secondary">Cancel</button>
                   <button onClick={() => handleUpdateTeacher(teacher._id)} className="btn-primary" disabled={editLoading}>
-                    {editLoading ? 'Saving...' : 'Save'}
+                    {editLoading ? 'Saving...' : 'Save Changes'}
                   </button>
                 </div>
               </div>
@@ -451,7 +513,11 @@ const Teachers = () => {
         ))}
       </div>
 
-      <AddTeacherModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSave={handleAddTeacher} />
+      <AddTeacherModal 
+        isOpen={isModalOpen} 
+        onClose={() => setIsModalOpen(false)} 
+        onSave={handleAddTeacher} 
+      />
 
       {/* ==================== COMBINED ANALYTICS MODAL ==================== */}
       {showAnalyticsModal && selectedTeacher && (
