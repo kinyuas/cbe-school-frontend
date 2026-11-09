@@ -118,26 +118,39 @@ export default function ParentHub() {
 
   // ── Mark specific parent's messages as read when selected ──
   useEffect(() => {
-    if (!selectedParent) return;
+    if (!selectedParent || activeTab !== 'messages') return;
     
-    const unreadMsgs = messages.filter(
-      m => m.senderRole === 'parent' && 
-           !m.isRead && 
-           String(m.senderId) === String(selectedParent.parentIdNumber)
-    );
+    // 1. Get all pupil IDs associated with this parent
+    const pupilIds = selectedParent.pupils.map(p => String(p._id));
+    const parentIdStr = String(selectedParent.parentIdNumber);
+
+    // 2. Find unread messages from this parent (matching pupil ID OR parent ID)
+    const unreadMsgs = messages.filter(m => {
+      if (m.senderRole !== 'parent' || m.isRead) return false;
+      
+      const msgPupilId = String(m.pupilId?._id || m.pupilId);
+      const msgSenderId = String(m.senderId);
+      
+      return pupilIds.includes(msgPupilId) || msgSenderId === parentIdStr;
+    });
 
     if (unreadMsgs.length > 0) {
+      // 3. Optimistically update the UI so the red dots disappear instantly
+      setMessages(prev => prev.map(m => 
+        unreadMsgs.find(u => u._id === m._id) ? { ...m, isRead: true } : m
+      ));
+
+      // 4. Send the read status to the server
       Promise.all(unreadMsgs.map(m => api.put(`/teacher-hub/messages/${m._id}/read`)))
         .then(() => {
+          // Refresh the global unread badge count
           fetchUnread();
-          // Silently update local state
-          setMessages(prev => prev.map(m => 
-            unreadMsgs.find(u => u._id === m._id) ? { ...m, isRead: true } : m
-          ));
         })
-        .catch(() => {});
+        .catch((err) => {
+          console.error('Failed to mark messages as read:', err);
+        });
     }
-  }, [selectedParent, messages]);
+  }, [selectedParent, messages, activeTab, fetchUnread]);
 
   // ── Filter Parents for the Sidebar ──
   const filteredParents = parents.filter(p => 
@@ -148,11 +161,19 @@ export default function ParentHub() {
   // ── Filter Messages for the Active Chat ──
   const activeChatMessages = useMemo(() => {
     if (!selectedParent) return [];
-    // Filter by sender/receiver matching this parent
-    return messages.filter(m => 
-      String(m.senderId) === String(selectedParent.parentIdNumber) ||
-      String(m.receiverId) === String(selectedParent.parentIdNumber)
-    ).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    
+    const pupilIds = selectedParent.pupils.map(p => String(p._id));
+    const parentIdStr = String(selectedParent.parentIdNumber);
+
+    return messages.filter(m => {
+      const msgPupilId = String(m.pupilId?._id || m.pupilId);
+      const msgSenderId = String(m.senderId);
+      const msgReceiverId = String(m.receiverId);
+
+      return pupilIds.includes(msgPupilId) || 
+             msgSenderId === parentIdStr || 
+             msgReceiverId === parentIdStr;
+    }).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
   }, [messages, selectedParent]);
 
   return (
@@ -250,11 +271,15 @@ export default function ParentHub() {
                   const isSelected = selectedParent?.parentIdNumber === p.parentIdNumber;
                   
                   // Calculate if this parent has unread messages
-                  const hasUnread = messages.some(
-                    m => m.senderRole === 'parent' && 
-                         !m.isRead && 
-                         String(m.senderId) === String(p.parentIdNumber)
-                  );
+                  const pupilIds = p.pupils.map(pupil => String(pupil._id));
+                  const parentIdStr = String(p.parentIdNumber);
+                  
+                  const hasUnread = messages.some(m => {
+                    if (m.senderRole !== 'parent' || m.isRead) return false;
+                    const msgPupilId = String(m.pupilId?._id || m.pupilId);
+                    const msgSenderId = String(m.senderId);
+                    return pupilIds.includes(msgPupilId) || msgSenderId === parentIdStr;
+                  });
 
                   return (
                     <button

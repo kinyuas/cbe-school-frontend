@@ -1019,7 +1019,7 @@ const TeacherDashboard = () => {
       <div className="bg-white rounded-lg shadow-md p-4 mb-4 border-l-4 border-yellow-500">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-base font-bold text-gray-800 flex items-center gap-2">
-            <FiAward className="text-yellow-500" /> Scholarships & Big Events
+            <FiAward className="text-yellow-500" /> Scholarships & National Events
           </h2>
           <span className="text-[10px] bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full font-semibold">
             Recent
