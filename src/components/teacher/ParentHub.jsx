@@ -103,7 +103,7 @@ export default function ParentHub() {
     try {
       await api.post('/teacher-hub/messages', { pupilId, body: replyText });
       setReplyText('');
-      fetchMessagesAndParents();
+      fetchMessagesAndParents(); // Refresh chat
     } catch (e) {
       toast.error('Failed to send message');
     }
@@ -116,35 +116,41 @@ export default function ParentHub() {
     }
   }, [messages, selectedParent]);
 
-  // ── Mark specific parent's messages as read when selected ──
+  // ============================================================
+  // BULLETPROOF "MARK AS READ" ENGINE
+  // ============================================================
   useEffect(() => {
     if (!selectedParent || activeTab !== 'messages') return;
     
-    // 1. Get all pupil IDs associated with this parent
+    // Get all pupil IDs associated with this parent
     const pupilIds = selectedParent.pupils.map(p => String(p._id));
-    const parentIdStr = String(selectedParent.parentIdNumber);
 
-    // 2. Find unread messages from this parent (matching pupil ID OR parent ID)
+    // Find any UNREAD messages sent by the parent for these pupils
     const unreadMsgs = messages.filter(m => {
       if (m.senderRole !== 'parent' || m.isRead) return false;
       
       const msgPupilId = String(m.pupilId?._id || m.pupilId);
-      const msgSenderId = String(m.senderId);
-      
-      return pupilIds.includes(msgPupilId) || msgSenderId === parentIdStr;
+      return pupilIds.includes(msgPupilId);
     });
 
+    // If there are unread messages, mark them as read
     if (unreadMsgs.length > 0) {
-      // 3. Optimistically update the UI so the red dots disappear instantly
+      
+      // 1. Instantly update local state so the red dots disappear
       setMessages(prev => prev.map(m => 
         unreadMsgs.find(u => u._id === m._id) ? { ...m, isRead: true } : m
       ));
 
-      // 4. Send the read status to the server
+      // 2. Send read receipts to the backend
       Promise.all(unreadMsgs.map(m => api.put(`/teacher-hub/messages/${m._id}/read`)))
         .then(() => {
-          // Refresh the global unread badge count
+          // 3. Force update the global notification count in the sidebar/dashboard
           fetchUnread();
+          
+          // 4. Force a fresh fetch to ensure the database and UI are 100% in sync
+          setTimeout(() => {
+            fetchMessagesAndParents();
+          }, 500);
         })
         .catch((err) => {
           console.error('Failed to mark messages as read:', err);
@@ -163,16 +169,11 @@ export default function ParentHub() {
     if (!selectedParent) return [];
     
     const pupilIds = selectedParent.pupils.map(p => String(p._id));
-    const parentIdStr = String(selectedParent.parentIdNumber);
 
+    // Filter messages where the pupil ID matches any of this parent's children
     return messages.filter(m => {
       const msgPupilId = String(m.pupilId?._id || m.pupilId);
-      const msgSenderId = String(m.senderId);
-      const msgReceiverId = String(m.receiverId);
-
-      return pupilIds.includes(msgPupilId) || 
-             msgSenderId === parentIdStr || 
-             msgReceiverId === parentIdStr;
+      return pupilIds.includes(msgPupilId);
     }).sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
   }, [messages, selectedParent]);
 
@@ -270,15 +271,13 @@ export default function ParentHub() {
                 filteredParents.map((p) => {
                   const isSelected = selectedParent?.parentIdNumber === p.parentIdNumber;
                   
-                  // Calculate if this parent has unread messages
+                  // Calculate if this parent has unread messages based on pupil IDs
                   const pupilIds = p.pupils.map(pupil => String(pupil._id));
-                  const parentIdStr = String(p.parentIdNumber);
                   
                   const hasUnread = messages.some(m => {
                     if (m.senderRole !== 'parent' || m.isRead) return false;
                     const msgPupilId = String(m.pupilId?._id || m.pupilId);
-                    const msgSenderId = String(m.senderId);
-                    return pupilIds.includes(msgPupilId) || msgSenderId === parentIdStr;
+                    return pupilIds.includes(msgPupilId);
                   });
 
                   return (
