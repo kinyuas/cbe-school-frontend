@@ -29,14 +29,12 @@ const AddPupilModal = ({
   const [formData, setFormData] = useState(EMPTY_FORM);
   const [availableClasses, setAvailableClasses] = useState([]);
   const [availableStreams, setAvailableStreams] = useState([]);
-  
-  // UI State
+
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
   const [errorField, setErrorField] = useState('');
 
-  // Load school data from API on mount
   useEffect(() => {
     if (isOpen) {
       setErrorMsg('');
@@ -45,7 +43,6 @@ const AddPupilModal = ({
     }
   }, [isOpen]);
 
-  // Load pupil data if editing OR hydrate from retained data
   useEffect(() => {
     if (editingPupil && isOpen) {
       loadPupilData();
@@ -130,7 +127,6 @@ const AddPupilModal = ({
     const { name, value } = e.target;
     const next = { ...formData, [name]: value };
 
-    // Clear error when user starts typing
     if (errorMsg) {
       setErrorMsg('');
       setErrorField('');
@@ -154,10 +150,10 @@ const AddPupilModal = ({
     setErrorMsg('');
     setErrorField('');
 
-    // Frontend validation
     if (!formData.name.trim()) return toast.error('Please enter student name');
     if (!formData.class) return toast.error('Please select a class');
     if (!formData.admNo.trim()) return toast.error('Please enter admission number');
+    if (!formData.birthCertNumber.trim()) return toast.error('Please enter birth certificate number');
     if (!formData.gender) return toast.error('Please select gender');
 
     setLoading(true);
@@ -176,17 +172,23 @@ const AddPupilModal = ({
       };
 
       await onSave(pupilData);
-      
-      // Parent component will close the modal on success
-      // If we reach here without error, it worked
     } catch (error) {
-      // Catch the error thrown from the parent component (Pupils.jsx)
-      const msg = error.message || 'Failed to save pupil';
-      setErrorMsg(msg);
+      // The parent (Pupils.jsx) re-throws the backend error.
+      // Some backends return `{ success: false, field: 'admNo', message: '...' }`
+      const responseData = error.response?.data || {};
+      const msg =
+        responseData.message ||
+        error.message ||
+        'Failed to save pupil';
+      const field = responseData.field || '';
 
-      // Highlight the field if it's a duplicate
-      if (msg.toLowerCase().includes('admission') || msg.toLowerCase().includes('admno')) {
+      setErrorMsg(msg);
+      if (field === 'admNo' || field === 'birthCertNumber') {
+        setErrorField(field);
+      } else if (msg.toLowerCase().includes('admission')) {
         setErrorField('admNo');
+      } else if (msg.toLowerCase().includes('birth')) {
+        setErrorField('birthCertNumber');
       }
       toast.error(msg);
     } finally {
@@ -195,7 +197,14 @@ const AddPupilModal = ({
   };
 
   const handleClose = () => {
-    if (formData.name || formData.admNo || formData.parentName) {
+    // Don't nag when nothing has been typed
+    const dirty =
+      formData.name.trim() ||
+      formData.admNo.trim() ||
+      formData.parentName.trim() ||
+      formData.birthCertNumber.trim();
+
+    if (dirty) {
       if (!window.confirm('You have unsaved data. Close anyway?')) return;
     }
     setFormData(EMPTY_FORM);
@@ -225,8 +234,6 @@ const AddPupilModal = ({
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="p-6">
-            
-            {/* Error Banner */}
             {errorMsg && (
               <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-start gap-2">
                 <FiAlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
@@ -320,7 +327,7 @@ const AddPupilModal = ({
 
               {/* Birth Cert */}
               <div>
-                <label className="block text-gray-700 font-medium mb-2">Birth Certificate Number</label>
+                <label className="block text-gray-700 font-medium mb-2">Birth Certificate Number *</label>
                 <div className="relative">
                   <FiAward className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
                   <input
@@ -328,10 +335,16 @@ const AddPupilModal = ({
                     name="birthCertNumber"
                     value={formData.birthCertNumber}
                     onChange={handleChange}
-                    placeholder="Optional — pupil portal login"
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="e.g., 1234567"
+                    className={`w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                      errorField === 'birthCertNumber' ? 'border-red-500 bg-red-50' : 'border-gray-300'
+                    }`}
+                    required
                   />
                 </div>
+                {errorField === 'birthCertNumber' && (
+                  <p className="text-xs text-red-600 mt-1">This birth certificate number is already in use.</p>
+                )}
               </div>
 
               {/* Gender */}
