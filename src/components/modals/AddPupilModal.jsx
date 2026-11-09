@@ -1,12 +1,11 @@
 // src/components/modals/AddPupilModal.jsx
 import React, { useState, useEffect } from 'react';
 import {
-  FiX, FiUser, FiHash, FiBookOpen, FiUsers, FiAward, FiPhone, FiKey
+  FiX, FiUser, FiHash, FiBookOpen, FiUsers, FiAward, FiPhone, FiKey, FiAlertCircle
 } from 'react-icons/fi';
 import toast from 'react-hot-toast';
 import api from '../../services/api';
 
-// Blank form shape — used both for init & reset
 const EMPTY_FORM = {
   name: '',
   class: '',
@@ -28,26 +27,29 @@ const AddPupilModal = ({
   onDataChange = null,
 }) => {
   const [formData, setFormData] = useState(EMPTY_FORM);
-
   const [availableClasses, setAvailableClasses] = useState([]);
   const [availableStreams, setAvailableStreams] = useState([]);
+  
+  // UI State
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(true);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [errorField, setErrorField] = useState('');
 
   // Load school data from API on mount
   useEffect(() => {
     if (isOpen) {
+      setErrorMsg('');
+      setErrorField('');
       loadSchoolDataFromAPI();
     }
   }, [isOpen]);
 
-  // Load pupil data if editing
+  // Load pupil data if editing OR hydrate from retained data
   useEffect(() => {
     if (editingPupil && isOpen) {
       loadPupilData();
     } else if (!editingPupil && isOpen && retainedData) {
-      // Hydrate from retained data (Add mode) — used when a previous
-      // submission failed & admin doesn't want to re-type.
       setFormData((prev) => ({
         ...prev,
         ...Object.fromEntries(
@@ -66,17 +68,13 @@ const AddPupilModal = ({
     setLoadingData(true);
     try {
       const response = await api.get('/school/settings');
-
       if (response.data.success && response.data.data) {
         const school = response.data.data;
-
         const activeClasses = (school.classes || [])
           .filter((c) => c.isActive !== false)
           .map((c) => c.name);
-
         setAvailableClasses(activeClasses);
 
-        // If a class is selected, load its streams
         const currentClass = formData.class || editingPupil?.class;
         if (currentClass) {
           const classData = (school.classes || []).find((c) => c.name === currentClass);
@@ -84,12 +82,9 @@ const AddPupilModal = ({
             setAvailableStreams(classData.streams);
           }
         }
-      } else {
-        toast.error('Failed to load school data');
       }
     } catch (error) {
       console.error('Error loading school data:', error);
-      toast.error('Failed to load school data from server');
     } finally {
       setLoadingData(false);
     }
@@ -97,14 +92,11 @@ const AddPupilModal = ({
 
   const loadPupilData = () => {
     if (!editingPupil) return;
-
-    // Support both new (birthCertNumber) & legacy (birthCertNo) field names
     const hydrated = {
       name: editingPupil.name || '',
       class: editingPupil.class || '',
       admNo: editingPupil.admNo || '',
-      birthCertNumber:
-        editingPupil.birthCertNumber || editingPupil.birthCertNo || '',
+      birthCertNumber: editingPupil.birthCertNumber || editingPupil.birthCertNo || '',
       gender: editingPupil.gender || '',
       parentName: editingPupil.parentName || '',
       parentPhone: editingPupil.parentPhone || '',
@@ -112,7 +104,6 @@ const AddPupilModal = ({
       stream: editingPupil.stream || '',
     };
     setFormData(hydrated);
-
     if (hydrated.class) {
       loadStreamsForClass(hydrated.class);
     }
@@ -131,7 +122,6 @@ const AddPupilModal = ({
         }
       }
     } catch (error) {
-      console.error('Error loading streams:', error);
       setAvailableStreams([]);
     }
   };
@@ -140,7 +130,12 @@ const AddPupilModal = ({
     const { name, value } = e.target;
     const next = { ...formData, [name]: value };
 
-    // Load streams when class changes
+    // Clear error when user starts typing
+    if (errorMsg) {
+      setErrorMsg('');
+      setErrorField('');
+    }
+
     if (name === 'class') {
       next.stream = '';
       setFormData(next);
@@ -149,7 +144,6 @@ const AddPupilModal = ({
       setFormData(next);
     }
 
-    // Bubble up to parent for retained-data persistence (Add mode only)
     if (!editingPupil && typeof onDataChange === 'function') {
       onDataChange(next);
     }
@@ -157,26 +151,18 @@ const AddPupilModal = ({
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setErrorMsg('');
+    setErrorField('');
 
-    // ── Core validation (required for backend model) ──
+    // Frontend validation
     if (!formData.name.trim()) return toast.error('Please enter student name');
     if (!formData.class) return toast.error('Please select a class');
     if (!formData.admNo.trim()) return toast.error('Please enter admission number');
     if (!formData.gender) return toast.error('Please select gender');
 
-    // ── Optional parent fields: warn only if partially filled ──
-    // (No hard requirement — schools may not use the Parent/Pupil portal.)
-    if (formData.parentIdNumber.trim() && !formData.parentName.trim()) {
-      return toast.error('Please provide parent name if parent ID is set');
-    }
-    if (formData.parentPhone.trim() && !formData.parentName.trim()) {
-      return toast.error('Please provide parent name if parent phone is set');
-    }
-
     setLoading(true);
 
     try {
-      // ✨ Normalise payload to match backend Pupil model
       const pupilData = {
         name: formData.name.trim(),
         admNo: formData.admNo.trim(),
@@ -190,28 +176,42 @@ const AddPupilModal = ({
       };
 
       await onSave(pupilData);
-      handleClose();
+      
+      // Parent component will close the modal on success
+      // If we reach here without error, it worked
     } catch (error) {
-      console.error('Error saving pupil:', error);
-      toast.error(error?.response?.data?.message || 'Failed to save pupil');
+      // Catch the error thrown from the parent component (Pupils.jsx)
+      const msg = error.message || 'Failed to save pupil';
+      setErrorMsg(msg);
+
+      // Highlight the field if it's a duplicate
+      if (msg.toLowerCase().includes('admission') || msg.toLowerCase().includes('admno')) {
+        setErrorField('admNo');
+      }
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
   };
 
   const handleClose = () => {
+    if (formData.name || formData.admNo || formData.parentName) {
+      if (!window.confirm('You have unsaved data. Close anyway?')) return;
+    }
     setFormData(EMPTY_FORM);
     setAvailableStreams([]);
+    setErrorMsg('');
+    setErrorField('');
     onClose();
   };
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto">
-      <div className="bg-white rounded-xl w-full max-w-2xl m-4 my-8 max-h-[90vh] overflow-y-auto">
-        <div className="sticky top-0 bg-white border-b border-gray-200 p-4 flex justify-between items-center">
-          <h2 className="text-2xl font-bold text-gray-800">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto p-4">
+      <div className="bg-white rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div className="sticky top-0 bg-white border-b border-gray-200 p-4 flex justify-between items-center z-10">
+          <h2 className="text-xl font-bold text-gray-800">
             {editingPupil ? 'Edit Student' : 'Add New Student'}
           </h2>
           <button onClick={handleClose} className="text-gray-500 hover:text-gray-700">
@@ -221,17 +221,26 @@ const AddPupilModal = ({
 
         {loadingData ? (
           <div className="flex justify-center items-center h-64">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
-            <p className="ml-4 text-gray-600">Loading school data from database...</p>
+            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-green-600"></div>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="p-6">
+            
+            {/* Error Banner */}
+            {errorMsg && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-start gap-2">
+                <FiAlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold">Could not save student</p>
+                  <p>{errorMsg}</p>
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {/* Student Name */}
               <div className="md:col-span-2">
-                <label className="block text-gray-700 font-medium mb-2">
-                  Learner Name *
-                </label>
+                <label className="block text-gray-700 font-medium mb-2">Learner Name *</label>
                 <div className="relative">
                   <FiUser className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
                   <input
@@ -246,7 +255,7 @@ const AddPupilModal = ({
                 </div>
               </div>
 
-              {/* Class Selection */}
+              {/* Class */}
               <div>
                 <label className="block text-gray-700 font-medium mb-2">Class *</label>
                 <div className="relative">
@@ -266,7 +275,7 @@ const AddPupilModal = ({
                 </div>
               </div>
 
-              {/* Stream (only if class has streams) */}
+              {/* Stream */}
               {availableStreams.length > 0 && (
                 <div>
                   <label className="block text-gray-700 font-medium mb-2">Stream</label>
@@ -287,11 +296,9 @@ const AddPupilModal = ({
                 </div>
               )}
 
-              {/* Admission Number */}
+              {/* Adm No */}
               <div>
-                <label className="block text-gray-700 font-medium mb-2">
-                  Admission Number *
-                </label>
+                <label className="block text-gray-700 font-medium mb-2">Admission Number *</label>
                 <div className="relative">
                   <FiHash className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
                   <input
@@ -300,17 +307,20 @@ const AddPupilModal = ({
                     value={formData.admNo}
                     onChange={handleChange}
                     placeholder="Enter admission number"
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className={`w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                      errorField === 'admNo' ? 'border-red-500 bg-red-50' : 'border-gray-300'
+                    }`}
                     required
                   />
                 </div>
+                {errorField === 'admNo' && (
+                  <p className="text-xs text-red-600 mt-1">This admission number is already in use.</p>
+                )}
               </div>
 
-              {/* Birth Certificate Number (used as pupil login password) */}
+              {/* Birth Cert */}
               <div>
-                <label className="block text-gray-700 font-medium mb-2">
-                  Birth Certificate Number
-                </label>
+                <label className="block text-gray-700 font-medium mb-2">Birth Certificate Number</label>
                 <div className="relative">
                   <FiAward className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
                   <input
@@ -318,7 +328,7 @@ const AddPupilModal = ({
                     name="birthCertNumber"
                     value={formData.birthCertNumber}
                     onChange={handleChange}
-                    placeholder="Optional — used for pupil portal login"
+                    placeholder="Optional — pupil portal login"
                     className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
@@ -339,12 +349,11 @@ const AddPupilModal = ({
                     <option value="">Select Gender</option>
                     <option value="Male">Male</option>
                     <option value="Female">Female</option>
-                    <option value="Other">Other</option>
                   </select>
                 </div>
               </div>
 
-              {/* ───────── PARENT SECTION ───────── */}
+              {/* Parent Section */}
               <div className="md:col-span-2 mt-2">
                 <div className="border-t pt-3">
                   <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">
@@ -353,11 +362,8 @@ const AddPupilModal = ({
                 </div>
               </div>
 
-              {/* Parent Name */}
               <div className="md:col-span-2">
-                <label className="block text-gray-700 font-medium mb-2">
-                  Parent Name
-                </label>
+                <label className="block text-gray-700 font-medium mb-2">Parent Name</label>
                 <div className="relative">
                   <FiUser className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
                   <input
@@ -371,11 +377,8 @@ const AddPupilModal = ({
                 </div>
               </div>
 
-              {/* Parent Phone */}
               <div>
-                <label className="block text-gray-700 font-medium mb-2">
-                  Parent Phone Number
-                </label>
+                <label className="block text-gray-700 font-medium mb-2">Parent Phone Number</label>
                 <div className="relative">
                   <FiPhone className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
                   <input
@@ -389,11 +392,8 @@ const AddPupilModal = ({
                 </div>
               </div>
 
-              {/* Parent ID Number (login credential) */}
               <div>
-                <label className="block text-gray-700 font-medium mb-2">
-                  Parent ID Number
-                </label>
+                <label className="block text-gray-700 font-medium mb-2">Parent ID Number</label>
                 <div className="relative">
                   <FiKey className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
                   <input
@@ -411,12 +411,11 @@ const AddPupilModal = ({
               </div>
             </div>
 
-            {/* Form Actions */}
             <div className="flex space-x-3 mt-6 pt-4 border-t">
               <button
                 type="button"
                 onClick={handleClose}
-                className="flex-1 bg-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-400 transition-colors"
+                className="flex-1 bg-gray-200 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-300 transition-colors"
               >
                 CANCEL
               </button>

@@ -95,25 +95,28 @@ const Teachers = () => {
     }
   };
 
-  const handleAddTeacher = async (teacherData) => {
+   const handleAddTeacher = async (teacherData) => {
     try {
       const response = await api.post('/teachers', teacherData);
       if (response.data.success) {
         setTeachers([...teachers, response.data.data]);
         setFilteredTeachers([...teachers, response.data.data]);
         toast.success('Teacher added successfully');
-        setIsModalOpen(false);
+        
+        // Note: Do NOT close the modal here. 
+        // The AddTeacherModal will close itself ONLY on success.
       }
     } catch (error) {
-      // 🆕 If it's a duplicate error, throw it back to the Modal so it can highlight the fields without closing
+      // Parse the error message and validation errors from the backend
       const errorMsg = error.response?.data?.message || 'Error adding teacher';
       const validationErrors = error.response?.data?.errors || [];
       
+      // Throw the structured error back to the Modal so it can highlight the fields
       if (validationErrors.length > 0) {
         throw { fieldErrors: validationErrors, message: errorMsg };
-      } else if (errorMsg.includes('email')) {
+      } else if (errorMsg.toLowerCase().includes('email')) {
         throw { fieldErrors: [{ param: 'email', msg: errorMsg }], message: errorMsg };
-      } else if (errorMsg.includes('TSC')) {
+      } else if (errorMsg.toLowerCase().includes('tsc')) {
         throw { fieldErrors: [{ param: 'tscNumber', msg: errorMsg }], message: errorMsg };
       } else {
         throw { message: errorMsg };

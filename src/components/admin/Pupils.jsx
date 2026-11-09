@@ -422,7 +422,7 @@ const admNumeric = (s) => {
 };
 
 // ============================================================
-// ✅ HELPER — Sanitise pupil payload for backend (handle optional parent fields)
+// ✅ HELPER — Sanitise pupil payload for backend
 // ============================================================
 const buildPupilPayload = (formData) => {
   const payload = { ...formData };
@@ -432,13 +432,10 @@ const buildPupilPayload = (formData) => {
   delete payload.__v;
   delete payload.createdAt;
   delete payload.updatedAt;
-  delete payload.schoolId;
   delete payload.parentIdPassword;
   delete payload.birthCertPassword;
 
   // The backend model requires `parentIdNumber` & `birthCertNumber` as strings.
-  // If a school chooses not to use the parent/pupil portal, we must still
-  // satisfy model validation — generate a safe unique placeholder.
   const uniqueSuffix = `${Date.now()}${Math.floor(Math.random() * 10000)}`;
 
   if (!payload.parentIdNumber || !String(payload.parentIdNumber).trim()) {
@@ -452,7 +449,7 @@ const buildPupilPayload = (formData) => {
 };
 
 // ============================================================
-// ✅ REBUILT RESULTS MODAL
+// ✅ RESULTS MODAL
 // ============================================================
 const ResultsModal = ({ viewingPupilResults, pupilResults, loadingResults, onClose }) => {
   if (!viewingPupilResults) return null;
@@ -1015,7 +1012,6 @@ const Pupils = () => {
   const [studentActionData, setStudentActionData] = useState(null);
   const [studentActionType, setStudentActionType] = useState('promote');
 
-  // Retained data for "Add Pupil" — now includes parentIdNumber
   const [retainedData, setRetainedData] = useState({
     studentName: '', admNo: '', birthCertNumber: '', dateOfBirth: '',
     gender: '', className: '', stream: '', parentName: '',
@@ -1053,6 +1049,7 @@ const Pupils = () => {
     setRetainedData(next);
     try { localStorage.setItem('retainedStudentData', JSON.stringify(next)); } catch (e) {}
   };
+  
   const clearRetainedData = () => {
     setRetainedData({
       studentName: '', admNo: '', birthCertNumber: '', dateOfBirth: '', gender: '',
@@ -1067,7 +1064,6 @@ const Pupils = () => {
       const saved = localStorage.getItem('retainedStudentData');
       if (saved) {
         const parsed = JSON.parse(saved);
-        // Migrate old keys gracefully
         if (parsed.birthCertNo && !parsed.birthCertNumber) parsed.birthCertNumber = parsed.birthCertNo;
         if (parsed.studentName && !parsed.name) parsed.name = parsed.studentName;
         setRetainedData(prev => ({ ...prev, ...parsed }));
@@ -1202,20 +1198,26 @@ const Pupils = () => {
 
   const handleAddPupil = async (pupilData) => {
     try {
-      if (!pupilData.name?.trim()) return toast.error('Name required');
-      if (!pupilData.admNo?.trim()) return toast.error('Adm required');
+      if (!pupilData.name?.trim()) throw new Error('Name is required');
+      if (!pupilData.admNo?.trim()) throw new Error('Admission Number is required');
 
       const payload = buildPupilPayload(pupilData);
       const res = await api.post('/pupils', payload);
+      
       if (res.data.success) {
-        toast.success('Student added');
+        toast.success('Student added successfully');
         clearRetainedData();
         loadData();
         setIsModalOpen(false);
       }
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to add');
+      const errorMsg = err.response?.data?.message || err.message || 'Failed to add student';
+      
+      // Save data so the user doesn't lose it
       saveRetainedData(pupilData);
+      
+      // Throw the error so the AddPupilModal can catch it and display inline errors
+      throw new Error(errorMsg); 
     }
   };
 
@@ -1686,12 +1688,20 @@ const Pupils = () => {
       )}
 
       {/* Modals */}
-      <AddPupilModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)}
-        onSave={handleAddPupil} retainedData={retainedData} onDataChange={saveRetainedData} />
+      <AddPupilModal 
+        isOpen={isModalOpen} 
+        onClose={() => setIsModalOpen(false)}
+        onSave={handleAddPupil} 
+        retainedData={retainedData} 
+        onDataChange={saveRetainedData} 
+      />
 
-      <AddPupilModal isOpen={isEditModalOpen}
+      <AddPupilModal 
+        isOpen={isEditModalOpen}
         onClose={() => { setIsEditModalOpen(false); setEditingPupil(null); }}
-        onSave={handleUpdatePupil} editingPupil={editingPupil} />
+        onSave={handleUpdatePupil} 
+        editingPupil={editingPupil} 
+      />
 
       {showPromoteModal && (
         <PromoteModal promoteClassData={promoteClassData} promoteAction={promoteAction}

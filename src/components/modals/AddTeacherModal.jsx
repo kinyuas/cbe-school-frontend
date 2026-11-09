@@ -1,6 +1,6 @@
 // src/components/modals/AddTeacherModal.jsx
 import React, { useState, useEffect } from 'react';
-import { FiX, FiAward } from 'react-icons/fi';
+import { FiX, FiAward, FiAlertCircle } from 'react-icons/fi';
 import api from '../../services/api';
 
 const AddTeacherModal = ({ isOpen, onClose, onSave }) => {
@@ -12,10 +12,17 @@ const AddTeacherModal = ({ isOpen, onClose, onSave }) => {
   const [availableClasses, setAvailableClasses] = useState([]);
   const [loadingClasses, setLoadingClasses] = useState(false);
   const [availableStreams, setAvailableStreams] = useState([]);
+  
+  // UI State for error handling
+  const [saving, setSaving] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [errorField, setErrorField] = useState('');
 
   useEffect(() => {
     if (isOpen) {
       loadAvailableClasses();
+      setErrorMsg(''); // Clear errors on open
+      setErrorField('');
     }
   }, [isOpen]);
 
@@ -47,14 +54,38 @@ const AddTeacherModal = ({ isOpen, onClose, onSave }) => {
     }
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    onSave(formData);
-    setFormData({
-      name: '', subject: '', email: '', phone: '', tscNumber: '',
-      classAssigned: '', streamAssigned: '', canRecordSkills: true
-    });
-    setAvailableStreams([]);
+    setErrorMsg('');
+    setErrorField('');
+    setSaving(true);
+
+    try {
+      // Wait for the parent onSave function to complete
+      await onSave(formData);
+      
+      // Only clear data IF successful
+      setFormData({
+        name: '', subject: '', email: '', phone: '', tscNumber: '',
+        classAssigned: '', streamAssigned: '', canRecordSkills: true
+      });
+      setAvailableStreams([]);
+      onClose();
+    } catch (err) {
+      // Error occurred: keep the data in the form fields!
+      const msg = err.response?.data?.message || err.message || 'Failed to add teacher';
+      setErrorMsg(msg);
+
+      // Highlight the field if it's a duplicate
+      const lowerMsg = msg.toLowerCase();
+      if (lowerMsg.includes('tsc')) {
+        setErrorField('tscNumber');
+      } else if (lowerMsg.includes('email')) {
+        setErrorField('email');
+      }
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleChange = (e) => {
@@ -63,6 +94,12 @@ const AddTeacherModal = ({ isOpen, onClose, onSave }) => {
       ...prev,
       [name]: type === 'checkbox' ? checked : value
     }));
+    
+    // Clear error when user starts typing again
+    if (errorMsg) {
+      setErrorMsg('');
+      setErrorField('');
+    }
   };
 
   const handleClassChange = (e) => {
@@ -76,6 +113,8 @@ const AddTeacherModal = ({ isOpen, onClose, onSave }) => {
       classAssigned: '', streamAssigned: '', canRecordSkills: true
     });
     setAvailableStreams([]);
+    setErrorMsg('');
+    setErrorField('');
     onClose();
   };
 
@@ -89,6 +128,17 @@ const AddTeacherModal = ({ isOpen, onClose, onSave }) => {
           <button onClick={handleCancel} className="text-gray-500 hover:text-gray-700"><FiX className="w-6 h-6" /></button>
         </div>
 
+        {/* Error Banner */}
+        {errorMsg && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-start gap-2">
+            <FiAlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold">Could not save teacher</p>
+              <p>{errorMsg}</p>
+            </div>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit}>
           <div className="space-y-4">
             <div>
@@ -101,7 +151,15 @@ const AddTeacherModal = ({ isOpen, onClose, onSave }) => {
             </div>
             <div>
               <label className="block text-gray-700 font-medium mb-2">Email Address *</label>
-              <input type="email" name="email" value={formData.email} onChange={handleChange} className="input-field w-full" required />
+              <input 
+                type="email" 
+                name="email" 
+                value={formData.email} 
+                onChange={handleChange} 
+                className={`input-field w-full ${errorField === 'email' ? 'border-red-500 bg-red-50' : ''}`} 
+                required 
+              />
+              {errorField === 'email' && <p className="text-xs text-red-600 mt-1">This email is already in use.</p>}
             </div>
             <div>
               <label className="block text-gray-700 font-medium mb-2">Phone Number *</label>
@@ -109,8 +167,19 @@ const AddTeacherModal = ({ isOpen, onClose, onSave }) => {
             </div>
             <div>
               <label className="block text-gray-700 font-medium mb-2">TSC Number *</label>
-              <input type="text" name="tscNumber" value={formData.tscNumber} onChange={handleChange} className="input-field w-full" required />
-              <p className="text-xs text-green-600 mt-1">🔑 Last 6 digits will be the default password</p>
+              <input 
+                type="text" 
+                name="tscNumber" 
+                value={formData.tscNumber} 
+                onChange={handleChange} 
+                className={`input-field w-full ${errorField === 'tscNumber' ? 'border-red-500 bg-red-50' : ''}`} 
+                required 
+              />
+              {errorField === 'tscNumber' ? (
+                <p className="text-xs text-red-600 mt-1">This TSC number is already registered.</p>
+              ) : (
+                <p className="text-xs text-green-600 mt-1">🔑 Last 6 digits will be the default password</p>
+              )}
             </div>
 
             {/* Class Assignment Section */}
@@ -148,7 +217,13 @@ const AddTeacherModal = ({ isOpen, onClose, onSave }) => {
           </div>
 
           <div className="flex space-x-3 mt-6">
-            <button type="submit" className="flex-1 btn-primary">Save Teacher</button>
+            <button 
+              type="submit" 
+              className="flex-1 btn-primary disabled:opacity-50" 
+              disabled={saving}
+            >
+              {saving ? 'Saving...' : 'Save Teacher'}
+            </button>
             <button type="button" onClick={handleCancel} className="flex-1 btn-secondary">Cancel</button>
           </div>
         </form>
