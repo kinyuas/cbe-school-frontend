@@ -66,6 +66,29 @@ const ParentDashboard = () => {
     })();
   }, []);
 
+  // ----------------------------------------------------------------
+  // 🆕 Deep-link support: /parent/dashboard?tab=communication&subTab=messages
+  // Runs ONCE on mount — reads ?tab= and ?subTab= from the URL so
+  // notifications from the bell can open the right tab directly.
+  // ----------------------------------------------------------------
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const tab = params.get('tab');
+      const subTab = params.get('subTab');
+
+      if (tab && TABS.some((t) => t.key === tab)) {
+        setActiveTab(tab);
+      }
+      if (subTab) {
+        setCommunicationSubTab(subTab);
+      }
+    } catch (e) {
+      /* ignore */
+    }
+   
+  }, []);
+
   const selectedChild = children.find((c) => c._id === selectedChildId);
 
   // ----------------------------------------------------------------

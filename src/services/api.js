@@ -71,27 +71,39 @@ api.interceptors.response.use(
     }
 
     const status = error.response?.status;
+    const code = error.response?.data?.code;
     const url = error.config?.url || '';
 
-    if (status === 401) {
-      const isLoginPage =
-        window.location.pathname === '/login' ||
-        window.location.pathname === '/' ||
-        window.location.pathname === '/sys-admin-login';
-      const isVerificationPage = window.location.pathname.includes('verify');
-      const isAuthRoute =
-        url.includes('/auth/') ||
-        url.includes('/school/bursar/login') ||
-        url.includes('/administrator/login-');
+    const isLoginPage =
+      window.location.pathname === '/login' ||
+      window.location.pathname === '/' ||
+      window.location.pathname === '/sys-admin-login';
+    const isVerificationPage = window.location.pathname.includes('verify');
+    const isAuthRoute =
+      url.includes('/auth/') ||
+      url.includes('/school/bursar/login') ||
+      url.includes('/administrator/login-');
 
-      if (!isLoginPage && !isVerificationPage && !isAuthRoute) {
-        if (!didBounceForAuth) {
-          didBounceForAuth = true;
-          localStorage.removeItem('token');
-          localStorage.removeItem('user');
-          localStorage.removeItem('superAdminToken');
-          window.location.href = '/login';
-        }
+    // 🆕 2-device limit: server returned SESSION_REVOKED
+    if (status === 401 && code === 'SESSION_REVOKED' && !isLoginPage) {
+      if (!didBounceForAuth) {
+        didBounceForAuth = true;
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        // Let AuthContext show a toast + navigate (avoids hard reload)
+        window.dispatchEvent(new CustomEvent('session-revoked'));
+      }
+      return Promise.reject(error);
+    }
+
+    // Normal 401 (expired token / invalid credentials)
+    if (status === 401 && !isLoginPage && !isVerificationPage && !isAuthRoute) {
+      if (!didBounceForAuth) {
+        didBounceForAuth = true;
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        localStorage.removeItem('superAdminToken');
+        window.location.href = '/login';
       }
     }
 

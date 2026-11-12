@@ -2,6 +2,7 @@
 import React, { createContext, useState, useContext, useEffect, useRef, useCallback } from 'react';
 import api from '../services/api';
 import toast from 'react-hot-toast';
+import usePushNotifications from '../hooks/usePushNotifications';
 
 const AuthContext = createContext();
 
@@ -18,6 +19,10 @@ const IDLE_TIMEOUT_MS = 60 * 60 * 1000;        // 1 hour
 const IDLE_WARNING_MS = 55 * 60 * 1000;        // 55 min
 const ACTIVITY_THROTTLE_MS = 30 * 1000;        // 30s
 const LAST_ACTIVITY_KEY = 'lastActivityAt';
+const FCM_TOKEN_KEY = 'fcmToken';               // 🆕
+
+// Roles that keep the original 1h idle logout
+const IDLE_ENFORCED_ROLES = ['admin', 'bursar', 'superadmin'];
 
 // ============================================================
 // ROLE HOME ROUTES
@@ -25,7 +30,7 @@ const LAST_ACTIVITY_KEY = 'lastActivityAt';
 const ROLE_HOME = {
   admin: '/admin/dashboard',
   teacher: '/teacher/dashboard',
-  bursar: '/bursar/dashboard', // 👈 Routes to the new Modular Bursar Portal
+  bursar: '/bursar/dashboard',
   parent: '/parent/dashboard',
   pupil: '/pupil/dashboard',
   superadmin: '/sys-admin-dashboard',
@@ -49,6 +54,17 @@ const isNetworkError = (error) => {
 const isAuthError = (error) => {
   const status = error?.response?.status;
   return status === 401 || status === 403;
+};
+
+// 🆕 Best-effort unregister of this device's FCM token
+const unregisterPushToken = () => {
+  try {
+    const token = localStorage.getItem(FCM_TOKEN_KEY);
+    if (!token) return;
+    // fire-and-forget; backend removes it from DeviceToken for this user
+    api.delete('/notifications/unregister-device', { data: { token } }).catch(() => {});
+    localStorage.removeItem(FCM_TOKEN_KEY);
+  } catch (_) {}
 };
 
 // ===== AI Device Detection Hook =====
@@ -111,6 +127,16 @@ export const AuthProvider = ({ children }) => {
 
   const deviceInfo = useDeviceDetection();
 
+  // 🔔 Register FCM token + attach push listeners.
+  // IMPORTANT: must be called with `user` so it re-registers on login/user change.
+  usePushNotifications({
+    user,
+    onNavigate: (link) => {
+      // Same-tab navigation is safe from anywhere
+      try { window.location.href = link; } catch (_) {}
+    },
+  });
+
   const idleTimerRef = useRef(null);
   const warningTimerRef = useRef(null);
   const lastActivityWriteRef = useRef(0);
@@ -121,6 +147,12 @@ export const AuthProvider = ({ children }) => {
   // LOGOUT
   // ============================================================
   const logout = useCallback((reason = 'manual') => {
+    // 🆕 Unregister push for this device before clearing credentials
+    unregisterPushToken();
+
+    // Fire-and-forget server-side session revoke
+    api.post('/auth/logout').catch(() => {});
+
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     localStorage.removeItem(LAST_ACTIVITY_KEY);
@@ -134,6 +166,32 @@ export const AuthProvider = ({ children }) => {
     } else if (reason === 'manual') {
       toast.success('Logged out successfully');
     }
+  }, []);
+
+  // ============================================================
+  // SESSION REVOKED LISTENER (2-device enforcement)
+  // ============================================================
+  useEffect(() => {
+    const handler = () => {
+      unregisterPushToken();
+
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      localStorage.removeItem(LAST_ACTIVITY_KEY);
+      delete api.defaults.headers.common['Authorization'];
+      setUser(null);
+      setLoginStep('credentials');
+      setTempLoginData(null);
+      toast.error(
+        'You were signed out because your account logged in on another device.',
+        { duration: 8000, icon: '🔒' }
+      );
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login';
+      }
+    };
+    window.addEventListener('session-revoked', handler);
+    return () => window.removeEventListener('session-revoked', handler);
   }, []);
 
   // ============================================================
@@ -178,6 +236,13 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     if (!user) { clearIdleTimers(); return; }
+
+    // Teacher / parent / pupil → no idle auto-logout.
+    // Admin / bursar / superadmin keep the 1h idle policy.
+    if (!IDLE_ENFORCED_ROLES.includes(user.role)) {
+      clearIdleTimers();
+      return;
+    }
 
     let elapsed = 0;
     try {
@@ -236,6 +301,12 @@ export const AuthProvider = ({ children }) => {
       setUser(null);
       setLoading(false);
     } catch (error) {
+      const code = error?.response?.data?.code;
+      if (code === 'SESSION_REVOKED') {
+        setLoading(false);
+        return;
+      }
+
       if (isAuthError(error)) {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
@@ -279,9 +350,7 @@ export const AuthProvider = ({ children }) => {
   }, [validateToken]);
 
   // ============================================================
-  // SET SESSION  👈 NEW
-  // Used by parent/pupil direct-API login in Login.jsx to sync
-  // token + user state + auth header + idle timers in one call.
+  // SET SESSION
   // ============================================================
   const setSession = useCallback((token, userObj) => {
     if (!token || !userObj) return;
@@ -298,7 +367,7 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   // ============================================================
-  // LOGIN FLOW  (admin / teacher / bursar)
+  // LOGIN FLOW
   // ============================================================
   const login = async (identifier, password, role) => {
     try {
@@ -313,12 +382,10 @@ export const AuthProvider = ({ children }) => {
         schoolCode,
         email,
         password,
-        loginType
+        loginType,
       });
 
       if (response.data?.requireCode) {
-        // Store the correct role (admin vs bursar)
-        // If the portal is 'admin', we store 'admin', the backend will resolve it to bursar if found.
         setTempLoginData({ schoolCode, email, role: role || 'admin' });
         setLoginStep('verification');
         toast.success(response.data.message || 'Verification code sent!');
@@ -339,7 +406,6 @@ export const AuthProvider = ({ children }) => {
       const message = response.data?.message || 'Login failed';
       toast.error(message);
       return { success: false, message };
-
     } catch (error) {
       console.error('Login error:', error);
       if (isNetworkError(error) || error.code === 'ECONNABORTED') {
@@ -363,14 +429,13 @@ export const AuthProvider = ({ children }) => {
     }
 
     try {
-      // The backend expects 'staff' for both Admin and Bursar logins
       const backendLoginType = (tempLoginData.role === 'admin' || tempLoginData.role === 'bursar') ? 'staff' : tempLoginData.role;
 
       const response = await api.post('/auth/verify-code', {
         schoolCode: tempLoginData.schoolCode,
         email: tempLoginData.email,
         code: verificationCode,
-        loginType: backendLoginType
+        loginType: backendLoginType,
       });
 
       if (response.data.success) {
@@ -389,7 +454,6 @@ export const AuthProvider = ({ children }) => {
       const message = response.data.message || 'Verification failed';
       toast.error(message);
       return { success: false, message };
-
     } catch (error) {
       console.error('Verification error:', error);
       const message = error.response?.data?.message || 'Verification failed. Please try again.';
@@ -416,13 +480,13 @@ export const AuthProvider = ({ children }) => {
     login,
     completeLogin,
     logout,
-    setSession,              // 👈 NEW — used by parent/pupil login in Login.jsx
+    setSession,
     isAuthenticated,
     isAdmin,
     isTeacher,
     isBursar,
-    isParent,                // 👈 NEW (optional convenience)
-    isPupil,                 // 👈 NEW (optional convenience)
+    isParent,
+    isPupil,
     getHomeRoute,
     loginStep,
     setLoginStep,

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1075329106016",
+    "project_id": "cbe-school-system-61642",
+    "storage_bucket": "cbe-school-system-61642.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1075329106016:android:f1d513c795a4cf78560305",
+        "android_client_info": {
+          "package_name": "com.stancylus.cbeschool"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBgSh-LjFc2Owsy19sSLQgsf7G8IVwQWVA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -16,7 +16,7 @@ import TransferredAlumni from './components/admin/TransferredAlumni';        // 
 import ModifyResults from './components/admin/ModifyResults';
 import Reports from './components/admin/Reports';
 import SchoolSettings from './components/admin/SchoolSettings';
-import FeeManagement from './components/admin/FeeManagement';
+// ❌ Removed: import FeeManagement from './components/admin/FeeManagement';
 
 // Teacher Components
 import TeacherDashboard from './components/teacher/TeacherDashboard';
@@ -25,7 +25,7 @@ import UpdateResults from './components/teacher/UpdateResults';
 import ClassPerformance from './components/teacher/ClassPerformance';
 import Announcements from './components/teacher/Announcements';
 
-// 👇 NEW: Teacher Hubs
+// 👇 Teacher Hubs
 import ParentHub from './components/teacher/ParentHub';
 import PupilHub from './components/teacher/PupilHub';
 
@@ -46,6 +46,9 @@ import ParentDashboard from './pages/parent/ParentDashboard';
 
 // Pupil Portal
 import PupilDashboard from './pages/pupil/PupilDashboard';
+
+// 🆕 Notifications Page (used by all three bell-enabled roles)
+import NotificationsPage from './pages/common/NotificationsPage';
 
 // Route Protection
 import PrivateRoute from './components/common/PrivateRoute';
@@ -92,8 +95,8 @@ function App() {
 
             <Route path="modify-results" element={<ModifyResults />} />
             <Route path="reports" element={<Reports />} />
-            <Route path="fees" element={<FeeManagement />} />
             <Route path="settings" element={<SchoolSettings />} />
+            {/* ❌ Removed: <Route path="fees" element={<FeeManagement />} /> */}
           </Route>
 
           {/* ============================================================ */}
@@ -109,6 +112,9 @@ function App() {
             {/* 👇 Teacher Hubs */}
             <Route path="parent-hub" element={<ParentHub />} />
             <Route path="pupil-hub" element={<PupilHub />} />
+
+            {/* 🔔 Notifications (bell → "See all") */}
+            <Route path="notifications" element={<NotificationsPage />} />
           </Route>
 
           {/* ============================================================ */}
@@ -129,6 +135,10 @@ function App() {
           {/* ============================================================ */}
           <Route path="/parent" element={<PrivateRoute role="parent" />}>
             <Route path="dashboard" element={<ParentDashboard />} />
+
+            {/* 🔔 Notifications (bell → "See all") */}
+            <Route path="notifications" element={<NotificationsPage />} />
+
             <Route index element={<Navigate to="/parent/dashboard" replace />} />
           </Route>
 
@@ -137,6 +147,10 @@ function App() {
           {/* ============================================================ */}
           <Route path="/pupil" element={<PrivateRoute role="pupil" />}>
             <Route path="dashboard" element={<PupilDashboard />} />
+
+            {/* 🔔 Notifications (bell → "See all") */}
+            <Route path="notifications" element={<NotificationsPage />} />
+
             <Route index element={<Navigate to="/pupil/dashboard" replace />} />
           </Route>
 

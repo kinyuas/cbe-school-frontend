@@ -1,16 +1,17 @@
-// src/pages/admin/ModifyRecords.jsx (or src/components/admin/ModifyRecords.jsx - check your path)
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+// src/pages/admin/ModifyRecords.jsx
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import Layout from '../common/Layout';
 import toast from 'react-hot-toast';
 import { 
   FiSearch, FiFilter, FiSave, FiX, FiAward, FiTarget, 
   FiBookOpen, FiFileText, FiLock, FiEdit2, FiRefreshCw,
-  FiCheck, FiAlertCircle, FiStar, FiPlus, FiTrash2, FiUser
+  FiCheck, FiAlertCircle, FiStar, FiPlus, FiTrash2, FiUser,
+  FiClock
 } from 'react-icons/fi';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
 
-// ===== CLASS ORDER DEFINITION =====
+// ===== CLASS ORDER =====
 const CLASS_ORDER = [
   'Play Group', 'Pre-Primary 1', 'Pre-Primary 2',
   'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6',
@@ -25,6 +26,24 @@ const DEFAULT_SKILL_CATEGORIES = [
 const DEFAULT_PROFICIENCY_LEVELS = [
   'Beginner', 'Developing', 'Proficient', 'Advanced', 'Exceptional'
 ];
+
+const CBE_SUBJECTS_BY_GRADE = {
+  'Play Group': ['Language', 'Mathematical', 'Environmental', 'Psychomotor', 'Creative'],
+  'Pre-Primary 1': ['Language', 'Mathematical', 'Environmental', 'Psychomotor', 'Creative'],
+  'Pre-Primary 2': ['Language', 'Mathematical', 'Environmental', 'Psychomotor', 'Creative'],
+  'Grade 1': ['English', 'Kiswahili', 'Mathematics', 'Environmental Activities', 'Hygiene and Nutrition', 'Religious Education', 'Creative Arts'],
+  'Grade 2': ['English', 'Kiswahili', 'Mathematics', 'Environmental Activities', 'Hygiene and Nutrition', 'Religious Education', 'Creative Arts'],
+  'Grade 3': ['English', 'Kiswahili', 'Mathematics', 'Environmental Activities', 'Hygiene and Nutrition', 'Religious Education', 'Creative Arts'],
+  'Grade 4': ['English', 'Kiswahili', 'Mathematics', 'Science and Technology', 'Social Studies', 'Religious Education', 'Creative Arts', 'Physical and Health Education'],
+  'Grade 5': ['English', 'Kiswahili', 'Mathematics', 'Science and Technology', 'Social Studies', 'Religious Education', 'Creative Arts', 'Physical and Health Education', 'Agriculture and Nutrition'],
+  'Grade 6': ['English', 'Kiswahili', 'Mathematics', 'Science and Technology', 'Social Studies', 'Religious Education', 'Creative Arts', 'Physical and Health Education', 'Agriculture and Nutrition'],
+  'Grade 7': ['English', 'Kiswahili', 'Mathematics', 'Integrated Science', 'Health Education', 'Pre-Technical Studies', 'Social Studies', 'Religious Education', 'Creative Arts and Sports', 'Business Studies', 'Agriculture', 'Computer Science'],
+  'Grade 8': ['English', 'Kiswahili', 'Mathematics', 'Integrated Science', 'Health Education', 'Pre-Technical Studies', 'Social Studies', 'Religious Education', 'Creative Arts and Sports', 'Business Studies', 'Agriculture', 'Computer Science'],
+  'Grade 9': ['English', 'Kiswahili', 'Mathematics', 'Integrated Science', 'Health Education', 'Pre-Technical Studies', 'Social Studies', 'Religious Education', 'Creative Arts and Sports', 'Business Studies', 'Agriculture', 'Computer Science'],
+  'Grade 10': ['English', 'Kiswahili', 'Mathematics', 'Biology', 'Chemistry', 'Physics', 'History', 'Geography', 'Religious Education', 'Business Studies', 'Computer Studies', 'Agriculture'],
+  'Grade 11': ['English', 'Kiswahili', 'Mathematics', 'Biology', 'Chemistry', 'Physics', 'History', 'Geography', 'Religious Education', 'Business Studies', 'Computer Studies', 'Agriculture'],
+  'Grade 12': ['English', 'Kiswahili', 'Mathematics', 'Biology', 'Chemistry', 'Physics', 'History', 'Geography', 'Religious Education', 'Business Studies', 'Computer Studies', 'Agriculture'],
+};
 
 const ModifyRecords = () => {
   const { user } = useAuth();
@@ -73,18 +92,9 @@ const ModifyRecords = () => {
   const [editingSkill, setEditingSkill] = useState(null);
   const [skillForm, setSkillForm] = useState({ category: '', skillName: '', proficiency: '', notes: '' });
 
-  // ===== SORTING FUNCTIONS =====
+  // ===== SORTING =====
   const getClassOrder = (className) => CLASS_ORDER.indexOf(className) !== -1 ? CLASS_ORDER.indexOf(className) : 999;
   const sortClassesByOrder = (classes) => [...classes].sort((a, b) => getClassOrder(a) - getClassOrder(b));
-
-  // CBE Subjects Fallback
-  const subjectsByGrade = {
-    'Grade 1': ['English', 'Kiswahili', 'Mathematics', 'Environmental Activities', 'Hygiene and Nutrition', 'Religious Education', 'Creative Arts'],
-    'Grade 4': ['English', 'Kiswahili', 'Mathematics', 'Science and Technology', 'Social Studies', 'Religious Education', 'Creative Arts', 'Physical and Health Education'],
-    'Grade 5': ['English', 'Kiswahili', 'Mathematics', 'Science and Technology', 'Social Studies', 'Religious Education', 'Creative Arts', 'Physical and Health Education', 'Agriculture and Nutrition'],
-    'Grade 7': ['English', 'Kiswahili', 'Mathematics', 'Integrated Science', 'Health Education', 'Pre-Technical Studies', 'Social Studies', 'Religious Education', 'Creative Arts and Sports', 'Business Studies', 'Agriculture', 'Computer Science'],
-    // Add other grades as needed...
-  };
 
   const competencyLevels = [
     { level: 'Exceeding Expectation (EE)', minScore: 80, maxScore: 100, color: 'bg-purple-100 text-purple-800' },
@@ -110,7 +120,6 @@ const ModifyRecords = () => {
   const loadAllData = async () => {
     setLoading(true);
     try {
-      // 1. Fetch School Setup
       const schoolRes = await api.get('/school/settings');
       if (schoolRes.data?.success && schoolRes.data?.data) {
         const school = schoolRes.data.data;
@@ -119,15 +128,12 @@ const ModifyRecords = () => {
         setAvailableClasses(sortClassesByOrder(activeClasses));
       }
       
-      // 2. Fetch Pupils
       const learnersRes = await api.get('/pupils');
       if (learnersRes.data?.success) setLearners(learnersRes.data.data || []);
       
-      // 3. Fetch ALL Results (to enable instant filtering)
       const resultsRes = await api.get('/results');
       if (resultsRes.data?.success) setGlobalResults(resultsRes.data.data || []);
       
-      // 4. Fetch Exams
       const examsRes = await api.get('/exams');
       if (examsRes.data?.success) {
         const examsData = examsRes.data.data || [];
@@ -163,79 +169,69 @@ const ModifyRecords = () => {
     } catch (err) { console.warn('Using default skills config'); }
   };
 
-  // ===== SYNCHRONOUS FILTER EFFECTS =====
-  
-  // Update available Exam Names when Exam Type changes
-  useEffect(() => {
-    if (selectedExamType) {
-      const filteredExams = exams.filter(e => e.type === selectedExamType);
-      setAvailableExamNames([...new Set(filteredExams.map(e => e.title).filter(Boolean))]);
-      setSelectedExamName('');
-    } else {
-      setAvailableExamNames([]);
-      setSelectedExamName('');
-    }
+  // ===== DERIVED FILTER DATA (Memoized to prevent unnecessary resets) =====
+  const filteredExamsByType = useMemo(() => {
+    if (!selectedExamType) return [];
+    return exams.filter(e => e.type === selectedExamType);
   }, [selectedExamType, exams]);
 
-  // Update available Streams when Class changes
+  useEffect(() => {
+    setAvailableExamNames([...new Set(filteredExamsByType.map(e => e.title).filter(Boolean))]);
+    // Don't reset selectedExamName unless absolutely necessary
+  }, [filteredExamsByType]);
+
+  const classHasStreams = useCallback((className) => {
+    const classData = schoolInfo?.classes?.find(c => c.name === className);
+    return classData?.streams && classData.streams.length > 0;
+  }, [schoolInfo]);
+
   useEffect(() => {
     if (selectedClass) {
       const learnersInClass = learners.filter(l => l.class === selectedClass);
       const streams = [...new Set(learnersInClass.map(l => l.stream).filter(Boolean))];
-      const classData = schoolInfo?.classes?.find(c => c.name === selectedClass);
-      const hasStreamsInConfig = classData?.streams && classData.streams.length > 0;
-      setAvailableStreams(hasStreamsInConfig ? streams : []);
-      setSelectedStream('');
+      const hasStreams = classHasStreams(selectedClass);
+      setAvailableStreams(hasStreams ? streams : []);
     } else {
       setAvailableStreams([]);
-      setSelectedStream('');
     }
-  }, [selectedClass, learners, schoolInfo]);
+  }, [selectedClass, learners, classHasStreams]);
 
-  // Update available Subjects dynamically based on Class AND existing Results/Exams
   useEffect(() => {
     if (!selectedClass) {
       setAvailableSubjects([]);
       return;
     }
-
-    // 1. Subjects from hardcoded fallback
-    const baseSubjects = subjectsByGrade[selectedClass] || [];
-
-    // 2. Subjects from exams configured for this class
+    const baseSubjects = CBE_SUBJECTS_BY_GRADE[selectedClass] || [];
     const examSubjects = exams.filter(e => e.class === selectedClass || e.classes?.includes(selectedClass))
                                .flatMap(e => e.subjects || []);
-
-    // 3. Subjects from existing results for this class
     const resultSubjects = globalResults.filter(r => r.pupilId?.class === selectedClass || r.class === selectedClass)
                                        .map(r => r.subject);
-
-    // Combine all unique subjects
     const allUnique = [...new Set([...baseSubjects, ...examSubjects, ...resultSubjects])].filter(Boolean).sort();
-    
     setAvailableSubjects(allUnique);
-    setSelectedSubject('');
   }, [selectedClass, exams, globalResults]);
 
-  // ===== INSTANT DATA COMPUTATION =====
-  const classHasStreams = (className) => {
-    const classData = schoolInfo?.classes?.find(c => c.name === className);
-    return classData?.streams && classData.streams.length > 0;
-  };
+  // Check if exam has started
+  const isExamStarted = useCallback((examType, examName, term, year) => {
+    if (!examType || !examName || !term || !year) return true;
+    const targetExam = exams.find(e => 
+      e.type === examType && e.title === examName && e.term === term && Number(e.year) === Number(year)
+    );
+    if (!targetExam || !targetExam.startDateTime) return true;
+    return new Date() >= new Date(targetExam.startDateTime);
+  }, [exams]);
 
-  // Memoized filtered results based on dropdowns
+  const canEdit = isAdmin && isExamStarted(selectedExamType, selectedExamName, selectedTerm, selectedYear);
+
+  // ===== ACTIVE RESULTS (only depends on filters, not globalResults directly) =====
   const activeResults = useMemo(() => {
     if (!selectedClass || !selectedSubject || !selectedTerm || !selectedExamName) return [];
 
-    // 1. Filter learners
-    let filteredLearners = learners.filter(l => l.class === selectedClass);
+    let filteredLearnersList = learners.filter(l => l.class === selectedClass);
     if (selectedStream && selectedStream !== 'all' && classHasStreams(selectedClass)) {
-      filteredLearners = filteredLearners.filter(l => l.stream === selectedStream);
+      filteredLearnersList = filteredLearnersList.filter(l => l.stream === selectedStream);
     }
 
-    // 2. Filter results that match the current criteria
     const matchingResults = globalResults.filter(r => {
-      const rPupilId = r.pupilId?._id || r.pupilId;
       const isSameExam = (r.examName === selectedExamName) && (r.term === selectedTerm) && (Number(r.year) === Number(selectedYear));
       const isSameSubject = r.subject === selectedSubject;
       return isSameExam && isSameSubject;
@@ -247,8 +243,7 @@ const ModifyRecords = () => {
       resultsMap.set(pid, r);
     });
 
-    // 3. Merge learners with their results
-    return filteredLearners.map(learner => {
+    return filteredLearnersList.map(learner => {
       const existingResult = resultsMap.get(learner._id);
       return {
         _id: existingResult?._id,
@@ -265,18 +260,23 @@ const ModifyRecords = () => {
         year: selectedYear
       };
     });
-  }, [selectedClass, selectedSubject, selectedTerm, selectedExamName, selectedYear, selectedStream, learners, globalResults, schoolInfo, selectedExamType]);
+  }, [selectedClass, selectedSubject, selectedTerm, selectedExamName, selectedYear, selectedStream, learners, globalResults, selectedExamType, classHasStreams]);
 
-  // Reset local edits when filters change
+  // SAFE: Only reset local scores when filters change (not on globalResults update)
+  const filterSignature = `${selectedClass}|${selectedSubject}|${selectedTerm}|${selectedExamName}|${selectedYear}|${selectedStream}`;
+  const lastFilterSignature = useRef(filterSignature);
+
   useEffect(() => {
-    const initialScores = {};
-    activeResults.forEach(r => {
-      initialScores[r.pupilId] = r.marks;
-    });
-    setLocalScores(initialScores);
-    setSaveStatus({});
-  }, [activeResults]);
-
+    if (lastFilterSignature.current !== filterSignature) {
+      lastFilterSignature.current = filterSignature;
+      const initialScores = {};
+      activeResults.forEach(r => {
+        initialScores[r.pupilId] = r.marks;
+      });
+      setLocalScores(initialScores);
+      setSaveStatus({});
+    }
+  }, [filterSignature, activeResults]);
 
   // ===== SAVE LOGIC =====
   const handleScoreChange = (pupilId, value) => {
@@ -293,7 +293,7 @@ const ModifyRecords = () => {
   };
 
   const handleBlurAutoSave = async (result, value) => {
-    if (!isAdmin) return;
+    if (!canEdit) return;
     const marks = parseFloat(value);
     if (isNaN(marks) || marks < 0 || marks > 100) return;
     if (marks === result.marks) return;
@@ -302,6 +302,7 @@ const ModifyRecords = () => {
 
     try {
       const competencyLevel = getCompetencyFromMarks(marks)?.level || 'Not Assessed';
+      
       const resultData = {
         pupilId: result.pupilId,
         subject: selectedSubject,
@@ -309,10 +310,10 @@ const ModifyRecords = () => {
         competencyLevel: competencyLevel,
         class: selectedClass,
         stream: selectedStream || result.stream || '',
-        examType: selectedExamType,
-        examName: selectedExamName,
+        examType: selectedExamType || 'End of Term', 
+        examName: selectedExamName || 'Exam',
         term: selectedTerm,
-        year: selectedYear,
+        year: parseInt(selectedYear, 10),
         updatedBy: user?.name || 'Admin'
       };
 
@@ -351,7 +352,7 @@ const ModifyRecords = () => {
   };
 
   const handleSaveAllChanges = async () => {
-    if (!isAdmin) return toast.error('Only administrators can save changes');
+    if (!canEdit) return toast.error('Cannot save. Check permissions or exam start time.');
     setSavingAll(true);
     let savedCount = 0;
     let errorCount = 0;
@@ -368,8 +369,8 @@ const ModifyRecords = () => {
         const resultData = {
           pupilId: result.pupilId, subject: selectedSubject, marks, competencyLevel,
           class: selectedClass, stream: selectedStream || result.stream || '',
-          examType: selectedExamType, examName: selectedExamName,
-          term: selectedTerm, year: selectedYear, updatedBy: user?.name || 'Admin'
+          examType: selectedExamType || 'End of Term', examName: selectedExamName || 'Exam',
+          term: selectedTerm, year: parseInt(selectedYear, 10), updatedBy: user?.name || 'Admin'
         };
 
         if (result._id) await api.put(`/results/${result._id}`, resultData);
@@ -380,7 +381,7 @@ const ModifyRecords = () => {
 
     if (savedCount > 0) {
       toast.success(`Saved ${savedCount} result(s)`);
-      await handleRefresh(); // Reload everything
+      await handleRefresh();
     } else if (errorCount > 0) {
       toast.error(`Failed to save ${errorCount} result(s)`);
     } else {
@@ -389,7 +390,7 @@ const ModifyRecords = () => {
     setSavingAll(false);
   };
 
-  // ====== SKILLS LOGIC ======
+  // ===== SKILLS =====
   const loadSkillsForClass = async () => {
     if (!selectedClass || !selectedTerm) return;
     try {
@@ -499,7 +500,7 @@ const ModifyRecords = () => {
       {isAdmin && (
         <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-6 flex items-start gap-3">
           <FiAward className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
-          <div><h3 className="font-semibold text-green-800">Administrator Access</h3><p className="text-sm text-green-700">Changes save automatically when you click away.</p></div>
+          <div><h3 className="font-semibold text-green-800">Administrator Access</h3><p className="text-sm text-green-700">Changes save automatically when you click away. However, you cannot edit marks before the exam has started.</p></div>
         </div>
       )}
 
@@ -568,6 +569,15 @@ const ModifyRecords = () => {
             </div>
           </div>
 
+          {selectedExamName && !canEdit && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 mb-4 flex items-center gap-3">
+              <FiClock className="w-5 h-5 text-yellow-600" />
+              <p className="text-sm text-yellow-800 font-medium">
+                The exam <strong>{selectedExamName}</strong> has not started yet. You can view but cannot edit results until {new Date(exams.find(e => e.title === selectedExamName)?.startDateTime).toLocaleString()}.
+              </p>
+            </div>
+          )}
+
           {!loading && activeResults.length > 0 && (
             <div className="bg-white rounded-lg shadow-md p-3 mb-4">
               <div className="relative">
@@ -619,9 +629,9 @@ const ModifyRecords = () => {
                                 value={currentScore}
                                 onChange={(e) => handleScoreChange(result.pupilId, e.target.value)}
                                 onBlur={(e) => handleBlurAutoSave(result, e.target.value)}
-                                className="w-24 px-3 py-1.5 text-center text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                className={`w-24 px-3 py-1.5 text-center text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 ${!canEdit ? 'bg-gray-100 cursor-not-allowed text-gray-500' : ''}`}
                                 placeholder="-"
-                                disabled={!isAdmin}
+                                disabled={!canEdit}
                               />
                               <div className="absolute -right-6 top-1/2 transform -translate-y-1/2 flex items-center justify-center w-5 h-5">
                                 {status === 'saving' && <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-gray-400"></div>}
@@ -644,7 +654,7 @@ const ModifyRecords = () => {
                 </table>
               </div>
               
-              {isAdmin && filteredBySearch.length > 0 && (
+              {canEdit && filteredBySearch.length > 0 && (
                 <div className="p-4 bg-gray-50 border-t flex justify-between items-center flex-wrap gap-2">
                   <div className="text-xs text-gray-500">Auto-save is active. Use this button as a failsafe.</div>
                   <button onClick={handleSaveAllChanges} disabled={savingAll} className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 disabled:opacity-50">

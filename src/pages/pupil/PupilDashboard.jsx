@@ -102,6 +102,22 @@ const PupilDashboard = () => {
     loadEvents();
   }, []);
 
+  // ----------------------------------------------------------------
+  // 🆕 Deep-link support: /pupil/dashboard?tab=assignments | resources | events | ...
+  // Runs ONCE on mount — reads ?tab= from the URL so notifications
+  // from the bell can open the right tab directly.
+  // ----------------------------------------------------------------
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const tab = params.get('tab');
+      const VALID = ['home', 'assignments', 'resources', 'events', 'opportunities', 'profile'];
+      if (tab && VALID.includes(tab)) setActiveTab(tab);
+    } catch (e) {
+      /* ignore */
+    }
+  }, []);
+
   const handleRefreshEvents = async () => {
     setEventsRefreshing(true);
     await loadEvents();

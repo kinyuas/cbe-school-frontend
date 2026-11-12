@@ -1,5 +1,5 @@
 // src/pages/SuperAdmin/SuperAdminDashboard.jsx
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
@@ -7,7 +7,7 @@ import {
   FiUsers, FiPlus, FiRefreshCw, FiPower, FiHome, FiUserCheck,
   FiDollarSign, FiLogOut, FiAlertCircle, FiShield, FiAward,
   FiSearch, FiX, FiFilter, FiBookOpen, FiTrendingUp, FiCheckCircle,
-  FiSlash, FiMail, FiChevronDown,
+  FiSlash, FiMail, FiChevronDown, FiDatabase // 🆕 Added
 } from 'react-icons/fi';
 
 const StatTile = ({ icon: Icon, label, value, accent }) => (
@@ -71,10 +71,22 @@ const SchoolCard = ({ school, onToggleStatus, onTogglePortal, onRefreshStats }) 
         </span>
       </div>
 
-      {/* Admin email */}
-      <div className="px-4 flex items-center gap-1.5 text-[11px] text-gray-400 truncate">
-        <FiMail className="w-3 h-3 flex-shrink-0 text-gray-500" />
-        <span className="truncate" title={school.adminEmail}>{school.adminEmail}</span>
+      {/* Admin email & Cluster Info */}
+      <div className="px-4 space-y-1 text-[11px] text-gray-400">
+        <div className="flex items-center gap-1.5 truncate">
+          <FiMail className="w-3 h-3 flex-shrink-0 text-gray-500" />
+          <span className="truncate" title={school.adminEmail}>{school.adminEmail}</span>
+        </div>
+        
+        {/* Display the Cluster Name from the Database */}
+        {school.clusterName && (
+          <div className="flex items-center gap-1.5 truncate">
+            <FiDatabase className="w-3 h-3 flex-shrink-0 text-indigo-400" />
+            <span className="truncate text-indigo-300" title={school.clusterName}>
+              {school.clusterName}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Compact stats row */}
@@ -200,7 +212,13 @@ const SuperAdminDashboard = () => {
       setFormData({ name: '', adminEmail: '' });
       fetchSchools();
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Failed to register school');
+      const msg = error.response?.data?.message || 'Failed to register school';
+      if (msg.includes('cluster') || msg.includes('Configuration')) {
+        // Show the long error message for 8 seconds so you can read it
+        toast.error(msg, { duration: 8000 }); 
+      } else {
+        toast.error(msg);
+      }
     } finally {
       setRegistering(false);
     }

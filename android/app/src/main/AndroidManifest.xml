@@ -1,6 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- ============================================================ -->
+    <!-- Permissions                                                   -->
+    <!-- ============================================================ -->
+
+    <!-- Internet (required for all API calls) -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Push notifications (Android 13+ runtime prompt) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Vibration for notification alerts -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- Optional: wake device for high-priority FCM pushes (already
+         present on most modern Android, but harmless to declare) -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- ============================================================ -->
+    <!-- Application                                                   -->
+    <!-- ============================================================ -->
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -33,9 +53,26 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths"></meta-data>
         </provider>
+
+        <!-- ============================================================ -->
+        <!-- 🆕 FCM default notification metadata                          -->
+        <!-- Used by the system when a push arrives while the app is      -->
+        <!-- closed. Without this, Android falls back to the app icon     -->
+        <!-- and default blue accent color — this makes the tray entry    -->
+        <!-- look correct and consistent.                                 -->
+        <!-- ============================================================ -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@mipmap/ic_launcher" />
+
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/colorPrimary" />
+
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="cbe_default" />
+
     </application>
 
-    <!-- Permissions -->
-
-    <uses-permission android:name="android.permission.INTERNET" />
 </manifest>

@@ -2,6 +2,7 @@
 import React from 'react';
 import { FiMenu } from 'react-icons/fi';
 import { useAuth } from '../../context/AuthContext';
+import NotificationBell from './NotificationBell';
 
 // ============================================================
 // ROLE → DISPLAY LABEL
@@ -10,12 +11,18 @@ const ROLE_LABELS = {
   admin: 'Administrator',
   teacher: 'Teacher',
   bursar: 'Bursar',
+  parent: 'Parent / Guardian',
+  pupil: 'Pupil',
 };
+
+// Roles that get the notification bell
+const BELL_ROLES = ['teacher', 'parent', 'pupil'];
 
 const Header = ({ title, subtitle, isMobile, onMenuToggle }) => {
   const { user } = useAuth();
 
   const roleLabel = ROLE_LABELS[user?.role] || 'User';
+  const showBell = !!user && BELL_ROLES.includes(user.role);
 
   return (
     <header className="bg-white shadow-sm border-b border-gray-200 flex-shrink-0">
@@ -32,11 +39,7 @@ const Header = ({ title, subtitle, isMobile, onMenuToggle }) => {
             </button>
           )}
           <div className="min-w-0 flex-1">
-            {/* 
-              FIX: Removed 'truncate'. 
-              Added 'whitespace-normal break-words leading-snug' 
-              so long titles wrap instead of being cut off.
-            */}
+            {/* Long titles wrap instead of being cut off */}
             <h1 className="text-lg font-semibold text-gray-800 whitespace-normal break-words leading-snug">
               {title || 'Dashboard'}
             </h1>
@@ -49,7 +52,11 @@ const Header = ({ title, subtitle, isMobile, onMenuToggle }) => {
         </div>
 
         {/* Right side */}
-        <div className="flex items-center gap-3 flex-shrink-0">
+        <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+          {/* 🔔 Notification bell (teacher / parent / pupil only) */}
+          {showBell && <NotificationBell />}
+
+          {/* Desktop user chip — unchanged */}
           {!isMobile && user && (
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-full bg-gradient-to-r from-green-500 to-blue-500 flex items-center justify-center shadow-md">
