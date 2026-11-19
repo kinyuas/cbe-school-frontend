@@ -13,9 +13,19 @@ const EMPTY_FORM = {
   birthCertNumber: '',
   gender: '',
   parentName: '',
-  parentPhone: '',
+  parentPhone: '',       // stored as +254XXXXXXXXX
   parentIdNumber: '',
   stream: '',
+};
+
+// ── Helper: strip +254 / 254 / 0 prefix, return 9-digit local part ──
+const toLocalDigits = (raw) => {
+  if (!raw) return '';
+  const digits = String(raw).replace(/\D/g, '');
+  if (digits.startsWith('254') && digits.length >= 12) return digits.slice(3, 12);
+  if (digits.startsWith('0') && digits.length >= 10) return digits.slice(1, 10);
+  if (digits.startsWith('7') || digits.startsWith('1')) return digits.slice(0, 9);
+  return digits.slice(0, 9);
 };
 
 const AddPupilModal = ({
@@ -27,6 +37,7 @@ const AddPupilModal = ({
   onDataChange = null,
 }) => {
   const [formData, setFormData] = useState(EMPTY_FORM);
+  const [parentPhoneLocal, setParentPhoneLocal] = useState(''); // 9 digits only
   const [availableClasses, setAvailableClasses] = useState([]);
   const [availableStreams, setAvailableStreams] = useState([]);
 
@@ -55,6 +66,10 @@ const AddPupilModal = ({
           )
         ),
       }));
+      // Strip +254 for display in the local-digits input
+      if (retainedData.parentPhone) {
+        setParentPhoneLocal(toLocalDigits(retainedData.parentPhone));
+      }
       if (retainedData.class) {
         loadStreamsForClass(retainedData.class);
       }
@@ -101,6 +116,8 @@ const AddPupilModal = ({
       stream: editingPupil.stream || '',
     };
     setFormData(hydrated);
+    // 🆕 Load the local 9 digits (without +254) so the input is clean
+    setParentPhoneLocal(toLocalDigits(hydrated.parentPhone));
     if (hydrated.class) {
       loadStreamsForClass(hydrated.class);
     }
@@ -145,6 +162,24 @@ const AddPupilModal = ({
     }
   };
 
+  // 🆕 Handle phone: keep local state (9 digits) + sync formData (+254...)
+  const handlePhoneChange = (e) => {
+    const digits = String(e.target.value).replace(/\D/g, '').slice(0, 9);
+    setParentPhoneLocal(digits);
+    const full = digits ? `+254${digits}` : '';
+    const next = { ...formData, parentPhone: full };
+    setFormData(next);
+
+    if (errorMsg) {
+      setErrorMsg('');
+      setErrorField('');
+    }
+
+    if (!editingPupil && typeof onDataChange === 'function') {
+      onDataChange(next);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMsg('');
@@ -155,6 +190,11 @@ const AddPupilModal = ({
     if (!formData.admNo.trim()) return toast.error('Please enter admission number');
     if (!formData.birthCertNumber.trim()) return toast.error('Please enter birth certificate number');
     if (!formData.gender) return toast.error('Please select gender');
+
+    // Phone validation (optional but if provided, must be 9 digits)
+    if (parentPhoneLocal && parentPhoneLocal.length !== 9) {
+      return toast.error('Phone number must be 9 digits after +254');
+    }
 
     setLoading(true);
 
@@ -167,14 +207,13 @@ const AddPupilModal = ({
         gender: formData.gender || 'Male',
         birthCertNumber: (formData.birthCertNumber || '').trim(),
         parentName: (formData.parentName || '').trim(),
-        parentPhone: (formData.parentPhone || '').trim(),
+        // Always send +254-prefixed if any digits, else empty
+        parentPhone: parentPhoneLocal ? `+254${parentPhoneLocal}` : '',
         parentIdNumber: (formData.parentIdNumber || '').trim(),
       };
 
       await onSave(pupilData);
     } catch (error) {
-      // The parent (Pupils.jsx) re-throws the backend error.
-      // Some backends return `{ success: false, field: 'admNo', message: '...' }`
       const responseData = error.response?.data || {};
       const msg =
         responseData.message ||
@@ -197,17 +236,18 @@ const AddPupilModal = ({
   };
 
   const handleClose = () => {
-    // Don't nag when nothing has been typed
     const dirty =
       formData.name.trim() ||
       formData.admNo.trim() ||
       formData.parentName.trim() ||
-      formData.birthCertNumber.trim();
+      formData.birthCertNumber.trim() ||
+      parentPhoneLocal;
 
     if (dirty) {
       if (!window.confirm('You have unsaved data. Close anyway?')) return;
     }
     setFormData(EMPTY_FORM);
+    setParentPhoneLocal('');
     setAvailableStreams([]);
     setErrorMsg('');
     setErrorField('');
@@ -390,19 +430,27 @@ const AddPupilModal = ({
                 </div>
               </div>
 
+              {/* 🆕 Parent Phone with +254 prefix */}
               <div>
                 <label className="block text-gray-700 font-medium mb-2">Parent Phone Number</label>
-                <div className="relative">
-                  <FiPhone className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                <div className="flex items-stretch border border-gray-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-blue-500">
+                  <span className="px-3 py-2 bg-gray-100 text-gray-700 text-sm font-semibold border-r border-gray-300 flex items-center gap-1">
+                    <FiPhone className="w-3.5 h-3.5 text-gray-500" />
+                    +254
+                  </span>
                   <input
                     type="tel"
-                    name="parentPhone"
-                    value={formData.parentPhone}
-                    onChange={handleChange}
-                    placeholder="e.g., 0712345678"
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    inputMode="numeric"
+                    value={parentPhoneLocal}
+                    onChange={handlePhoneChange}
+                    placeholder="712345678"
+                    maxLength={9}
+                    className="flex-1 px-3 py-2 text-sm outline-none border-0"
                   />
                 </div>
+                <p className="text-[11px] text-gray-500 mt-1">
+                  Enter the 9 digits only (e.g., 712345678). Full number will be +254712345678.
+                </p>
               </div>
 
               <div>

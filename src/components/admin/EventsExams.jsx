@@ -8,8 +8,11 @@ import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 import {
   FiCalendar, FiMapPin, FiTrash2, FiAlertCircle, FiPlus, FiEdit2,
-  FiClock, FiRefreshCw, FiZap, FiAward, FiBookOpen, FiList
+  FiClock, FiRefreshCw, FiZap, FiAward, FiBookOpen, FiList, FiSend
 } from 'react-icons/fi';
+
+// 🆕 SMS Composer
+import SmsComposer from './SmsComposer';
 
 // ===== AI Device Detection Hook =====
 const useDeviceDetection = () => {
@@ -114,8 +117,10 @@ const EventsExams = () => {
   })();
   const userName = user?.name || 'User';
   const isAdmin = !!isAdminFromContext || userRole === 'admin';
+  const isBursar = userRole === 'bursar';
+  const canSendSms = isAdmin || isBursar;
 
-  const [activeTab, setActiveTab] = useState('events'); // 'events' | 'exams' | 'opportunities'
+  const [activeTab, setActiveTab] = useState('events'); // 'events' | 'exams' | 'opportunities' | 'sms'
 
   // ---------- Events state ----------
   const [events, setEvents] = useState([]);
@@ -411,12 +416,13 @@ const EventsExams = () => {
     { key: 'events', label: 'Events', icon: FiCalendar, count: events.length },
     { key: 'exams', label: 'Exams', icon: FiBookOpen, count: exams.length },
     { key: 'opportunities', label: 'Scholarships & Big Events', icon: FiAward, count: null },
+    { key: 'sms', label: 'Send SMS', icon: FiSend, count: null },   // 🆕
   ];
 
   return (
     <Layout title="Events & Exams" subtitle="Manage school events, exams, and opportunities">
       {/* Permission Banner */}
-      {!isAdmin && (
+      {!canSendSms && (
         <div className="bg-yellow-50 border-l-4 border-yellow-400 rounded-lg p-3 mb-4">
           <div className="flex items-start">
             <FiAlertCircle className="w-5 h-5 text-yellow-400 flex-shrink-0 mt-0.5" />
@@ -659,6 +665,24 @@ const EventsExams = () => {
             </div>
           </div>
           <ScholarshipsAndEventsWidget title="Scholarships & Big Events (Kenya & Beyond)" />
+        </div>
+      )}
+
+      {/* ============ 🆕 SMS TAB ============ */}
+      {activeTab === 'sms' && (
+        <div>
+          {!canSendSms ? (
+            <div className="bg-yellow-50 border-l-4 border-yellow-400 rounded-lg p-4">
+              <div className="flex items-start gap-2">
+                <FiAlertCircle className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-yellow-800">
+                  Only administrators and bursars can send SMS.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <SmsComposer />
+          )}
         </div>
       )}
 

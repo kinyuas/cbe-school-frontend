@@ -84,6 +84,9 @@ const ModifyRecords = () => {
   const saveTimeouts = useRef({});
   const [savingAll, setSavingAll] = useState(false);
 
+  // 🆕 Custom Grading State
+  const [customGrading, setCustomGrading] = useState({ isCustom: false, rules: [] });
+
   // Skills States
   const [skillsConfig, setSkillsConfig] = useState({ categories: [], proficiencyLevels: [], requireEvidenceNotes: false });
   const [skillsData, setSkillsData] = useState({});
@@ -104,10 +107,27 @@ const ModifyRecords = () => {
     { level: 'Well Below Expectation (WBE)', minScore: 0, maxScore: 19, color: 'bg-red-100 text-red-800' }
   ];
 
+  // 🆕 Helper: Resolve Competency using Custom Grading if active
   const getCompetencyFromMarks = (marks) => {
     if (marks === null || marks === undefined || marks === '') return null;
     const score = parseFloat(marks);
     if (isNaN(score)) return null;
+    
+    // Use custom grading if enabled
+    if (customGrading.isCustom && customGrading.rules.length > 0) {
+      const sorted = [...customGrading.rules].sort((a, b) => b.maxScore - a.maxScore);
+      const match = sorted.find(r => score >= r.minScore && score <= r.maxScore);
+      if (match) {
+        return { 
+          level: match.grade, 
+          color: 'bg-gray-100 text-gray-800', // Default bg for table display
+          description: match.description 
+        };
+      }
+      return null;
+    }
+    
+    // Fallback to standard CBE
     return competencyLevels.find(l => score >= l.minScore && score <= l.maxScore);
   };
 
@@ -124,6 +144,12 @@ const ModifyRecords = () => {
       if (schoolRes.data?.success && schoolRes.data?.data) {
         const school = schoolRes.data.data;
         setSchoolInfo(school);
+        
+        // 🆕 Load custom grading rules
+        if (school.gradingSystem) {
+          setCustomGrading(school.gradingSystem);
+        }
+
         const activeClasses = (school.classes || []).filter(c => c.isActive !== false).map(c => c.name);
         setAvailableClasses(sortClassesByOrder(activeClasses));
       }
@@ -642,7 +668,9 @@ const ModifyRecords = () => {
                           </td>
                           <td className="px-4 py-3 text-sm">
                             {competency ? (
-                              <span className={`px-2 py-1 text-xs rounded-full ${competency.color}`}>{competency.level}</span>
+                              <span className={`px-2 py-1 text-xs rounded-full ${customGrading.isCustom ? 'border border-gray-300' : competency.color}`}>
+                                {competency.level}
+                              </span>
                             ) : (
                               <span className="text-gray-400 text-sm">Enter score</span>
                             )}
@@ -679,13 +707,30 @@ const ModifyRecords = () => {
             </div>
           )}
 
+          {/* 🆕 Custom Grading Guide */}
           <div className="mt-6 bg-white rounded-lg shadow-md p-4">
-            <h4 className="text-sm font-semibold text-gray-800 mb-3">CBE Competency Levels Guide</h4>
+            <h4 className="text-sm font-semibold text-gray-800 mb-3">
+              {customGrading.isCustom ? 'School Custom Grading Levels' : 'CBE Competency Levels Guide'}
+            </h4>
             <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-              {competencyLevels.map(level => (
-                <div key={level.level} className="text-center">
-                  <span className={`px-3 py-1 text-xs rounded-full ${level.color}`}>{level.level}</span>
-                  <p className="text-xs text-gray-500 mt-1">{level.minScore}-{level.maxScore}%</p>
+              {(customGrading.isCustom && customGrading.rules.length > 0 
+                ? customGrading.rules.map(r => ({ ...r, level: r.grade, color: r.color })) 
+                : competencyLevels
+              ).map((level, i) => (
+                <div key={i} className="text-center">
+                  <span 
+                    className="px-3 py-1 text-xs rounded-full border" 
+                    style={{ 
+                      backgroundColor: `${level.color || '#333'}20`, 
+                      color: level.color || '#333', 
+                      borderColor: level.color || '#333' 
+                    }}
+                  >
+                    {level.level}
+                  </span>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {level.description || (level.minScore !== undefined ? `${level.minScore}-${level.maxScore}%` : '')}
+                  </p>
                 </div>
               ))}
             </div>

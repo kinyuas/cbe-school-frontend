@@ -1,8 +1,18 @@
 // src/context/AuthContext.jsx
-import React, { createContext, useState, useContext, useEffect, useRef, useCallback } from 'react';
+import React, {
+  createContext,
+  useState,
+  useContext,
+  useEffect,
+  useRef,
+  useCallback,
+} from 'react';
 import api from '../services/api';
 import toast from 'react-hot-toast';
 import usePushNotifications from '../hooks/usePushNotifications';
+
+// 🆕 Import query client
+import queryClient from '../lib/queryClient';
 
 const AuthContext = createContext();
 
@@ -19,7 +29,7 @@ const IDLE_TIMEOUT_MS = 60 * 60 * 1000;        // 1 hour
 const IDLE_WARNING_MS = 55 * 60 * 1000;        // 55 min
 const ACTIVITY_THROTTLE_MS = 30 * 1000;        // 30s
 const LAST_ACTIVITY_KEY = 'lastActivityAt';
-const FCM_TOKEN_KEY = 'fcmToken';               // 🆕
+const FCM_TOKEN_KEY = 'fcmToken';
 
 // Roles that keep the original 1h idle logout
 const IDLE_ENFORCED_ROLES = ['admin', 'bursar', 'superadmin'];
@@ -54,6 +64,32 @@ const isNetworkError = (error) => {
 const isAuthError = (error) => {
   const status = error?.response?.status;
   return status === 401 || status === 403;
+};
+
+// 🆕 Classifies failures that must NOT cause a logout.
+// Any of these keep the user's session intact so cached data
+// continues to render (WhatsApp-style offline behaviour).
+const isNonAuthFailure = (error) => {
+  const status = error?.response?.status;
+  const code = error?.response?.data?.code;
+  const message = error?.response?.data?.message || '';
+
+  const isOffline =
+    typeof navigator !== 'undefined' && navigator.onLine === false;
+
+  // Any 5xx (including 503 DB_UNAVAILABLE from middleware) is a
+  // server-side/infrastructure problem — NOT an auth failure.
+  const isServerFailure = typeof status === 'number' && status >= 500;
+
+  const isDbFailure =
+    code === 'DB_ERROR' ||
+    code === 'DB_UNAVAILABLE' ||
+    code === 'SERVER_ERROR' ||
+    /ECONNREFUSED|ENOTFOUND|MongoServerSelectionError|MongoNetworkError|querySrv|TopologyDescription/i.test(
+      message
+    );
+
+  return isOffline || isServerFailure || isDbFailure || isNetworkError(error);
 };
 
 // 🆕 Best-effort unregister of this device's FCM token
@@ -127,12 +163,9 @@ export const AuthProvider = ({ children }) => {
 
   const deviceInfo = useDeviceDetection();
 
-  // 🔔 Register FCM token + attach push listeners.
-  // IMPORTANT: must be called with `user` so it re-registers on login/user change.
   usePushNotifications({
     user,
     onNavigate: (link) => {
-      // Same-tab navigation is safe from anywhere
       try { window.location.href = link; } catch (_) {}
     },
   });
@@ -144,14 +177,14 @@ export const AuthProvider = ({ children }) => {
   const validatingRef = useRef(false);
 
   // ============================================================
-  // LOGOUT
+  // LOGOUT (manual / idle / revoked only)
   // ============================================================
   const logout = useCallback((reason = 'manual') => {
-    // 🆕 Unregister push for this device before clearing credentials
     unregisterPushToken();
-
-    // Fire-and-forget server-side session revoke
     api.post('/auth/logout').catch(() => {});
+
+    // 🆕 CRITICAL: Clear TanStack Query cache to prevent cross-user data leaks
+    queryClient.clear();
 
     localStorage.removeItem('token');
     localStorage.removeItem('user');
@@ -173,7 +206,18 @@ export const AuthProvider = ({ children }) => {
   // ============================================================
   useEffect(() => {
     const handler = () => {
+      // 🆕 Defense-in-depth: ignore stale/queued events while offline.
+      // The `online` re-validation below will catch a genuine revocation
+      // the moment we reconnect.
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        console.warn('[auth] Ignored session-revoked while offline — keeping session');
+        return;
+      }
+
       unregisterPushToken();
+
+      // 🆕 CRITICAL: Clear cache on session revocation too
+      queryClient.clear();
 
       localStorage.removeItem('token');
       localStorage.removeItem('user');
@@ -289,24 +333,41 @@ export const AuthProvider = ({ children }) => {
     validatingRef.current = true;
 
     try {
-      const response = await api.get('/auth/validate', { timeout: 15000 });
+      const response = await api.get('/auth/validate', { timeout: 8000 });
       if (response.data?.success && response.data?.user) {
         setUser(response.data.user);
         localStorage.setItem('user', JSON.stringify(response.data.user));
         setLoading(false);
         return;
       }
+      // Server replied but said "no user" → treat as normal auth loss
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       setUser(null);
       setLoading(false);
     } catch (error) {
       const code = error?.response?.data?.code;
+
+      // Explicit server-side revocation → the session-revoked listener owns cleanup
       if (code === 'SESSION_REVOKED') {
         setLoading(false);
         return;
       }
 
+      // 🆕 Offline / network / DB / 5xx → NEVER log the user out.
+      // Keep the localStorage session intact so the parent stays logged in
+      // and resumes seamlessly when connectivity returns.
+      if (isNonAuthFailure(error)) {
+        console.warn(
+          '[auth] validateToken: non-auth failure, keeping session',
+          error?.response?.status,
+          code
+        );
+        setLoading(false);
+        return;
+      }
+
+      // Real 401/403 while genuinely online → session is dead
       if (isAuthError(error)) {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
@@ -315,11 +376,15 @@ export const AuthProvider = ({ children }) => {
         setLoading(false);
         return;
       }
+
+      // Last resort: transient error we didn't classify — retry a couple of times
       if (attempt < 2) {
         await sleep(1500 * (attempt + 1));
         validatingRef.current = false;
         return validateToken(attempt + 1);
       }
+
+      // Still not a real auth error → keep session
       setLoading(false);
     } finally {
       validatingRef.current = false;
@@ -337,7 +402,13 @@ export const AuthProvider = ({ children }) => {
       try {
         setUser(JSON.parse(storedUser));
         api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-        setTimeout(() => { validateToken(); }, 50);
+        // Skip network validation entirely while offline — trust the
+        // cached session and let the `online` listener below revalidate.
+        if (typeof navigator === 'undefined' || navigator.onLine !== false) {
+          setTimeout(() => { validateToken(); }, 50);
+        } else {
+          setLoading(false);
+        }
       } catch (error) {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
@@ -348,6 +419,21 @@ export const AuthProvider = ({ children }) => {
       setLoading(false);
     }
   }, [validateToken]);
+
+  // ============================================================
+  // 🆕 RE-VALIDATE WHEN CONNECTIVITY RETURNS
+  // ============================================================
+  useEffect(() => {
+    if (!user) return;
+
+    const handleOnline = () => {
+      console.log('[auth] Back online — revalidating token');
+      validateToken();
+    };
+
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, [user, validateToken]);
 
   // ============================================================
   // SET SESSION

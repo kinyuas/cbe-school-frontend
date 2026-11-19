@@ -1,12 +1,10 @@
 // src/components/admin/ClassPerformance.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import Layout from '../common/Layout';
 import {
-  FiFilter, FiDownload, FiBarChart2, FiCalendar, FiBookOpen,
-  FiFileText, FiUsers, FiAward, FiTrendingUp, FiTrendingDown,
-  FiMinus, FiAlertCircle, FiMonitor, FiSmartphone, FiTablet,
-  FiRefreshCw, FiCheckCircle, FiXCircle, FiInfo, FiChevronDown, FiChevronUp,
-  FiLayers, FiActivity, FiPrinter
+  FiFilter, FiDownload, FiBarChart2, FiBookOpen,
+  FiFileText, FiUsers, FiAward, FiAlertCircle,
+  FiRefreshCw, FiCheckCircle, FiInfo, FiActivity
 } from 'react-icons/fi';
 import toast from 'react-hot-toast';
 import api from '../../services/api';
@@ -14,20 +12,23 @@ import * as XLSX from 'xlsx';
 import { useAuth } from '../../context/AuthContext';
 import {
   Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
-  WidthType, AlignmentType, BorderStyle, PageBreak,
+  WidthType, AlignmentType, BorderStyle,
   ImageRun, VerticalAlign,
 } from 'docx';
 import { saveAs } from 'file-saver';
 import ReportCard from '../admin/ReportCard';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useDeviceDetection, useResponsiveClasses } from '../../hooks/useDeviceDetection';
 
-// ===== CLASS ORDER =====
+/* ============================================================
+   Constants (unchanged)
+   ============================================================ */
 const CLASS_ORDER = [
   'Play Group', 'Pre-Primary 1', 'Pre-Primary 2',
   'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6',
   'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10', 'Grade 11', 'Grade 12'
 ];
 
-// ===== CBE subjects per class =====
 const SUBJECTS_BY_CLASS = {
   'Play Group': ['Language Activities', 'Mathematical Activities', 'Environmental Activities', 'Psychomotor and Creative Activities', 'Religious Education Activities', 'Social Skills'],
   'Pre-Primary 1': ['Language Activities', 'Mathematical Activities', 'Environmental Activities', 'Psychomotor and Creative Activities', 'Religious Education Activities'],
@@ -46,9 +47,6 @@ const SUBJECTS_BY_CLASS = {
   'Grade 12': ['English', 'Kiswahili', 'Mathematics', 'Biology', 'Chemistry', 'Physics', 'History', 'Geography', 'Religious Education', 'Business Studies', 'Computer Studies', 'Agriculture']
 };
 
-/* ============================================================
-   ✅ SKILL → CAREER-FIELD BOOST
-   ============================================================ */
 const SKILL_BOOST = {
   'Sports':              { field: 'Sports & Recreation',         boost: 12 },
   'Music':               { field: 'Creative Arts',               boost: 12 },
@@ -63,9 +61,6 @@ const SKILL_BOOST = {
   'Technical/Practical': { field: 'ICT & Engineering',           boost: 12 }
 };
 
-/* ============================================================
-   ✅ CAREER DATABASE
-   ============================================================ */
 const CAREER_DB = [
   { name: 'Medicine & Surgery (MBChB)', field: 'Medicine & Health Sciences', icon: '🩺', subjects: ['Biology', 'Chemistry'], minAvg: 75 },
   { name: 'Pharmacy', field: 'Medicine & Health Sciences', icon: '💊', subjects: ['Biology', 'Chemistry'], minAvg: 70 },
@@ -94,78 +89,24 @@ const CAREER_DB = [
 ];
 
 const PROFICIENCY_MULTIPLIER = {
-  'Beginner': 0.3,
-  'Developing': 0.5,
-  'Proficient': 0.7,
-  'Advanced': 1.0,
-  'Exceptional': 1.3,
+  'Beginner': 0.3, 'Developing': 0.5, 'Proficient': 0.7, 'Advanced': 1.0, 'Exceptional': 1.3,
 };
 
-/* ============================================================
-   🔤 Helpers
-   ============================================================ */
 const normalizeSubjectName = (s) => (s || '').toString().toLowerCase().replace(/[^a-z0-9]/g, '').trim();
 const getSkillName = (s) => (s?.skill || s?.skillName || '').trim();
 
-// ===== AI Device Detection =====
-const useDeviceDetection = () => {
-  const [deviceInfo, setDeviceInfo] = useState({
-    type: 'desktop', isMobile: false, isTablet: false, isDesktop: true,
-    viewportWidth: 0, viewportHeight: 0, pixelRatio: 1, isTouchDevice: false
-  });
-
-  useEffect(() => {
-    const detectDevice = () => {
-      const ua = navigator.userAgent;
-      const width = window.innerWidth;
-      const height = window.innerHeight;
-      const pixelRatio = window.devicePixelRatio || 1;
-      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua) || width < 768;
-      const isTablet = /iPad|Android(?!.*Mobile)|Tablet/i.test(ua) || (width >= 768 && width < 1024);
-      const isDesktop = !isMobile && !isTablet;
-      const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-      let type = 'desktop';
-      if (isMobile) type = 'mobile';
-      else if (isTablet) type = 'tablet';
-      setDeviceInfo({ type, isMobile, isTablet, isDesktop, viewportWidth: width, viewportHeight: height, pixelRatio, isTouchDevice });
-    };
-    detectDevice();
-    window.addEventListener('resize', detectDevice);
-    return () => window.removeEventListener('resize', detectDevice);
-  }, []);
-
-  return deviceInfo;
-};
-
-// ===== AI Responsive Helper =====
-const useResponsiveClasses = (deviceInfo) => ({
-  cardPadding: deviceInfo.isMobile ? 'p-3' : 'p-5',
-  headingSize: deviceInfo.isMobile ? 'text-base' : 'text-lg',
-  textSize: deviceInfo.isMobile ? 'text-xs' : 'text-sm',
-  buttonSize: deviceInfo.isMobile ? 'px-3 py-1.5 text-xs' : 'px-4 py-2 text-sm',
-  gridGap: deviceInfo.isMobile ? 'gap-2' : 'gap-4',
-  statsGrid: deviceInfo.isMobile ? 'grid-cols-2' : 'grid-cols-2 md:grid-cols-4',
-  filterGrid: deviceInfo.isMobile ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3'
-});
-
-// ===== Sorting =====
 const getClassOrder = (className) => {
   const i = CLASS_ORDER.indexOf(className);
   return i !== -1 ? i : 999;
 };
 const sortClassesByOrder = (classes) => [...classes].sort((a, b) => getClassOrder(a) - getClassOrder(b));
 
-// ===== Normalizer =====
-const norm = (v) => String(v || '').trim().toLowerCase();
-
-// ===== Display exam rule (results persist until next exam starts) =====
 const getCurrentDisplayExam = (examsData) => {
   const now = new Date();
   const sorted = [...examsData]
     .filter(e => e.startDateTime && e.isActive !== false)
     .sort((a, b) => new Date(a.startDateTime) - new Date(b.startDateTime));
   if (sorted.length === 0) return { exam: null, nextExam: null, status: 'none' };
-
   for (let i = 0; i < sorted.length; i++) {
     const exam = sorted[i];
     const start = new Date(exam.startDateTime);
@@ -185,20 +126,11 @@ const getCurrentDisplayExam = (examsData) => {
   return { exam: null, nextExam: null, status: 'none' };
 };
 
-const getNextUpcomingExam = (examsData) => {
-  const now = new Date();
-  return [...examsData]
-    .filter(e => e.startDateTime && new Date(e.startDateTime) > now && e.isActive !== false)
-    .sort((a, b) => new Date(a.startDateTime) - new Date(b.startDateTime))[0] || null;
-};
-
-// ===== Word Header Builder =====
+/* ============================================================
+   Word header builder (unchanged)
+   ============================================================ */
 const buildWordLogoParagraph = (schoolInfo = {}, opts = {}) => {
-  const {
-    schoolNameSize = 28, contactSize = 16, mottoSize = 18,
-    logoWidth = 80, logoHeight = 80,
-  } = opts;
-
+  const { schoolNameSize = 28, contactSize = 16, mottoSize = 18, logoWidth = 80, logoHeight = 80 } = opts;
   const logoBase64 = schoolInfo?.schoolLogo || schoolInfo?.logo || '';
   const schoolName = (schoolInfo?.name || schoolInfo?.schoolName || 'School').toUpperCase();
   const motto = schoolInfo?.motto || '';
@@ -223,123 +155,117 @@ const buildWordLogoParagraph = (schoolInfo = {}, opts = {}) => {
       const bin = atob(base64Data);
       const bytes = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-
       logoChildren.push(new Paragraph({
-        alignment: AlignmentType.LEFT,
-        spacing: { before: 0, after: 0 },
-        children: [new ImageRun({
-          type: imageType, data: bytes,
-          transformation: { width: logoWidth, height: logoHeight },
-        })],
+        alignment: AlignmentType.LEFT, spacing: { before: 0, after: 0 },
+        children: [new ImageRun({ type: imageType, data: bytes, transformation: { width: logoWidth, height: logoHeight } })],
       }));
-    } catch (e) {
-      console.warn('⚠️ Logo embed failed:', e.message);
-    }
+    } catch (e) { console.warn('Logo embed failed:', e.message); }
   }
-  if (logoChildren.length === 0) {
-    logoChildren.push(new Paragraph({ children: [new TextRun({ text: '', size: 2 })] }));
-  }
+  if (logoChildren.length === 0) logoChildren.push(new Paragraph({ children: [new TextRun({ text: '', size: 2 })] }));
 
   const infoChildren = [];
   infoChildren.push(new Paragraph({
-    alignment: AlignmentType.LEFT,
-    spacing: { before: 0, after: 40 },
+    alignment: AlignmentType.LEFT, spacing: { before: 0, after: 40 },
     children: [new TextRun({ text: schoolName, bold: true, size: schoolNameSize, color: '1a365d' })],
   }));
-  if (motto) {
-    infoChildren.push(new Paragraph({
-      alignment: AlignmentType.LEFT,
-      spacing: { before: 0, after: 40 },
-      children: [new TextRun({ text: `"${motto}"`, italics: true, size: mottoSize, color: '6b7280' })],
-    }));
-  }
-  if (address) {
-    infoChildren.push(new Paragraph({
-      alignment: AlignmentType.LEFT,
-      spacing: { before: 0, after: 0 },
-      children: [new TextRun({ text: address, size: contactSize, color: '4b5563' })],
-    }));
-  }
+  if (motto) infoChildren.push(new Paragraph({
+    alignment: AlignmentType.LEFT, spacing: { before: 0, after: 40 },
+    children: [new TextRun({ text: `"${motto}"`, italics: true, size: mottoSize, color: '6b7280' })],
+  }));
+  if (address) infoChildren.push(new Paragraph({
+    alignment: AlignmentType.LEFT, spacing: { before: 0, after: 0 },
+    children: [new TextRun({ text: address, size: contactSize, color: '4b5563' })],
+  }));
   const contactLine = [phone, email].filter(Boolean).join(' · ');
-  if (contactLine) {
-    infoChildren.push(new Paragraph({
-      alignment: AlignmentType.LEFT,
-      spacing: { before: 0, after: 0 },
-      children: [new TextRun({ text: contactLine, size: contactSize, color: '4b5563' })],
-    }));
-  }
+  if (contactLine) infoChildren.push(new Paragraph({
+    alignment: AlignmentType.LEFT, spacing: { before: 0, after: 0 },
+    children: [new TextRun({ text: contactLine, size: contactSize, color: '4b5563' })],
+  }));
 
   const noBorder = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
-  const noBorders = {
-    top: noBorder, bottom: noBorder, left: noBorder, right: noBorder,
-    insideHorizontal: noBorder, insideVertical: noBorder,
-  };
+  const noBorders = { top: noBorder, bottom: noBorder, left: noBorder, right: noBorder, insideHorizontal: noBorder, insideVertical: noBorder };
 
   const innerTable = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
-    borders: noBorders,
-    alignment: AlignmentType.CENTER,
+    borders: noBorders, alignment: AlignmentType.CENTER,
     rows: [new TableRow({
       children: [
-        new TableCell({
-          width: { size: 25, type: WidthType.PERCENTAGE },
-          borders: noBorders, verticalAlign: VerticalAlign.CENTER,
-          margins: { top: 0, bottom: 0, left: 0, right: 200 },
-          children: logoChildren,
-        }),
-        new TableCell({
-          width: { size: 75, type: WidthType.PERCENTAGE },
-          borders: noBorders, verticalAlign: VerticalAlign.CENTER,
-          margins: { top: 0, bottom: 0, left: 0, right: 0 },
-          children: infoChildren,
-        }),
+        new TableCell({ width: { size: 25, type: WidthType.PERCENTAGE }, borders: noBorders, verticalAlign: VerticalAlign.CENTER, margins: { top: 0, bottom: 0, left: 0, right: 200 }, children: logoChildren }),
+        new TableCell({ width: { size: 75, type: WidthType.PERCENTAGE }, borders: noBorders, verticalAlign: VerticalAlign.CENTER, margins: { top: 0, bottom: 0, left: 0, right: 0 }, children: infoChildren }),
       ],
     })],
   });
-
   const outerTable = new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
-    borders: noBorders,
-    alignment: AlignmentType.CENTER,
+    width: { size: 100, type: WidthType.PERCENTAGE }, borders: noBorders, alignment: AlignmentType.CENTER,
     rows: [new TableRow({
       children: [
-        new TableCell({
-          width: { size: 18, type: WidthType.PERCENTAGE },
-          borders: noBorders,
-          children: [new Paragraph({ children: [new TextRun({ text: '', size: 2 })] })],
-        }),
-        new TableCell({
-          width: { size: 64, type: WidthType.PERCENTAGE },
-          borders: noBorders, verticalAlign: VerticalAlign.CENTER,
-          children: [innerTable],
-        }),
-        new TableCell({
-          width: { size: 18, type: WidthType.PERCENTAGE },
-          borders: noBorders,
-          children: [new Paragraph({ children: [new TextRun({ text: '', size: 2 })] })],
-        }),
+        new TableCell({ width: { size: 18, type: WidthType.PERCENTAGE }, borders: noBorders, children: [new Paragraph({ children: [new TextRun({ text: '', size: 2 })] })] }),
+        new TableCell({ width: { size: 64, type: WidthType.PERCENTAGE }, borders: noBorders, verticalAlign: VerticalAlign.CENTER, children: [innerTable] }),
+        new TableCell({ width: { size: 18, type: WidthType.PERCENTAGE }, borders: noBorders, children: [new Paragraph({ children: [new TextRun({ text: '', size: 2 })] })] }),
       ],
     })],
   });
-
   return [outerTable];
 };
 
-// ===== A4 Dimensions =====
 const A4_PAGE = {
   size: { width: 11906, height: 16838 },
   margin: { top: 720, right: 720, bottom: 720, left: 720 },
 };
 
+/* ============================================================
+   Fetchers
+   ============================================================ */
+const fetchConfig = async () => {
+  const [schoolRes, studentsRes, examsRes, teachersRes] = await Promise.all([
+    api.get('/school/settings').catch(() => ({ data: {} })),
+    api.get('/pupils').catch(() => ({ data: { data: [] } })),
+    api.get('/exams').catch(() => ({ data: { data: [] } })),
+    api.get('/teachers').catch(() => ({ data: { data: [] } })),
+  ]);
+
+  let schoolFromApi = schoolRes.data?.data || null;
+  if (!schoolFromApi) {
+    try {
+      const stored = localStorage.getItem('schoolInfo');
+      if (stored) schoolFromApi = JSON.parse(stored);
+    } catch { /* ignore */ }
+  }
+  const normalized = schoolFromApi
+    ? {
+        ...schoolFromApi,
+        name: schoolFromApi.schoolName || schoolFromApi.name || '',
+        phone: schoolFromApi.phoneNumber || schoolFromApi.phone || '',
+        email: schoolFromApi.schoolEmail || schoolFromApi.email || '',
+        poBox: schoolFromApi.poBox || schoolFromApi.address || '',
+        schoolLogo: schoolFromApi.schoolLogo || schoolFromApi.logo || '',
+      }
+    : null;
+
+  if (normalized) {
+    try { localStorage.setItem('schoolInfo', JSON.stringify(normalized)); } catch { /* ignore */ }
+  }
+
+  return {
+    schoolInfo: normalized,
+    students: studentsRes.data?.data || [],
+    exams: examsRes.data?.data || [],
+    teachers: teachersRes.data?.data || [],
+  };
+};
+
+/* ============================================================
+   Component
+   ============================================================ */
 const ClassPerformance = () => {
   const deviceInfo = useDeviceDetection();
   const responsive = useResponsiveClasses(deviceInfo);
+  const queryClient = useQueryClient();
 
   const { user } = useAuth();
   const teacherId = user?._id || user?.id || user?.teacherId;
   const teacherName = user?.name || user?.username || '';
 
-  // --- userRole read SYNCHRONOUSLY so loadData knows it immediately ---
   const [userRole] = useState(() => {
     try {
       const stored = JSON.parse(localStorage.getItem('user') || '{}');
@@ -347,408 +273,213 @@ const ClassPerformance = () => {
     } catch { return null; }
   });
 
-  const [teacherProfile, setTeacherProfile] = useState(null);
-  const [students, setStudents] = useState([]);
-  const [exams, setExams] = useState([]);
-  const [schoolInfo, setSchoolInfo] = useState({ name: '', classes: [], streams: [] });
+  const { isLowEnd, networkType } = deviceInfo;
+  const slowNet = isLowEnd && ['slow-2g', '2g'].includes(networkType);
 
-  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [subjectPerformance, setSubjectPerformance] = useState([]);
-  const [totalResults, setTotalResults] = useState(0);
-  const [displayExam, setDisplayExam] = useState(null);
-  const [displayExamStatus, setDisplayExamStatus] = useState('none');
-
-  // Active Tab: 'my-class' | 'subject-analysis'
   const [activeTab, setActiveTab] = useState('my-class');
 
-  const [availableClasses, setAvailableClasses] = useState([]);
-  const [availableExamNames, setAvailableExamNames] = useState([]);
-  const [availableSubjects, setAvailableSubjects] = useState([]);
-  const [availableExamTypes, setAvailableExamTypes] = useState([]);
-  const [availableStreams, setAvailableStreams] = useState([]);
+  /* ---------- Config query ---------- */
+  const {
+    data: config,
+    isLoading: configLoading,
+    isError: configError,
+  } = useQuery({
+    queryKey: ['admin', 'class-performance-config'],
+    queryFn: fetchConfig,
+    staleTime: 5 * 60 * 1000,
+    enabled: !slowNet,
+    placeholderData: (prev) => prev, 
+  });
 
-  // Filters for Subject Analysis
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
-  const [selectedClass, setSelectedClass] = useState('');
-  const [selectedStream, setSelectedStream] = useState('');
-  const [selectedTerm, setSelectedTerm] = useState('');
-  const [selectedExamType, setSelectedExamType] = useState('');
-  const [selectedExamName, setSelectedExamName] = useState('');
-  const [selectedSubject, setSelectedSubject] = useState('');
+  const schoolInfo = config?.schoolInfo || { name: '', classes: [], streams: [] };
+  const students = config?.students || [];
+  const exams = config?.exams || [];
+  const teachers = config?.teachers || [];
 
-  const [showResults, setShowResults] = useState(false);
-  const [loadingData, setLoadingData] = useState(false);
+  const teacherProfile = useMemo(() => {
+    if (userRole === 'admin' || !user?.email) return null;
+    return teachers.find(t => t.email === user.email) || null;
+  }, [teachers, userRole, user?.email]);
 
-  const [performanceData, setPerformanceData] = useState([]);
-  const [classAverage, setClassAverage] = useState(0);
-  const [topStudent, setTopStudent] = useState(null);
+  const displayExamResult = useMemo(() => getCurrentDisplayExam(exams), [exams]);
+  const displayExam = displayExamResult.exam;
+  const displayExamStatus = displayExamResult.status;
 
-  // For "My Class Results" tab - full report data
-  const [classReportData, setClassReportData] = useState([]);
-  const [classReportStats, setClassReportStats] = useState(null);
-  const [classReportExam, setClassReportExam] = useState(null);
-  const [allSubjectsInReport, setAllSubjectsInReport] = useState([]);
-  const [showReportCard, setShowReportCard] = useState(false);
-  const [selectedStudent, setSelectedStudent] = useState(null);
-  const [reportCardConfig] = useState({ showFeesOnReportCard: false });
-  const [skillsSummary, setSkillsSummary] = useState({});
-  const [careerInsights, setCareerInsights] = useState({});
+  const availableClasses = useMemo(() => {
+    const active = (schoolInfo.classes || []).filter(c => c.isActive !== false).map(c => c.name);
+    return sortClassesByOrder(active);
+  }, [schoolInfo]);
 
-  // Stream analysis for class report
-  const [streamAnalysis, setStreamAnalysis] = useState([]);
+  const availableExamTypes = useMemo(
+    () => [...new Set(exams.map(e => e.type).filter(Boolean))],
+    [exams]
+  );
 
-  const terms = ['Term 1', 'Term 2', 'Term 3'];
-  const years = [2023, 2024, 2025, 2026];
+  /* ---------- Class-report bundle (only class-report, subject perf removed) ---------- */
+  const examKey = displayExam
+    ? `${displayExam.title}|${displayExam.type}|${displayExam.term}|${displayExam.year}`
+    : 'none';
 
-  const competencyLevels = [
+  const {
+    data: classReportBundle,
+    isLoading: classReportLoading,
+  } = useQuery({
+    queryKey: [
+      'admin', 'class-report-bundle',
+      teacherId, teacherName, examKey,
+      teacherProfile?.classAssigned || '',
+      teacherProfile?.streamAssigned || '',
+    ],
+    queryFn: async () => {
+      if (!displayExam || !teacherProfile?.classAssigned) return null;
+
+      let classData = null;
+      const classRes = await api.get('/reports/class-report', {
+        params: {
+          className: teacherProfile.classAssigned,
+          stream: teacherProfile.streamAssigned || undefined,
+          examName: displayExam.title, examType: displayExam.type,
+          term: displayExam.term, year: displayExam.year,
+        },
+      }).catch(() => ({ data: { data: null } }));
+
+      classData = classRes.data?.data;
+
+      if (!classData || !classData.students || classData.students.length === 0) {
+        const fbClassRes = await api.get('/results', {
+          params: {
+            class: teacherProfile.classAssigned,
+            stream: teacherProfile.streamAssigned || undefined,
+            examName: displayExam.title, examType: displayExam.type,
+            term: displayExam.term, year: displayExam.year,
+          },
+        }).catch(() => ({ data: { data: [] } }));
+
+        const rawResults = fbClassRes.data?.data || [];
+        if (rawResults.length > 0) {
+          const subjectsSet = new Set();
+          const studentMap = new Map();
+          rawResults.forEach(r => {
+            const pid = String(r.pupilId?._id || r.pupilId);
+            const pupil = students.find(p => String(p._id) === pid);
+            if (!pupil) return;
+            const marks = parseFloat(r.marks ?? r.score ?? 0);
+            if (isNaN(marks)) return;
+            if (!studentMap.has(pid)) {
+              studentMap.set(pid, {
+                id: pid, name: pupil.name, admNo: pupil.admNo, stream: pupil.stream || '',
+                subjectMarks: {}, totalMarks: 0, subjectsWithMarks: 0,
+              });
+            }
+            const s = studentMap.get(pid);
+            const prev = s.subjectMarks[r.subject];
+            if (prev === undefined || marks > prev) {
+              if (prev === undefined) { s.totalMarks += marks; s.subjectsWithMarks += 1; }
+              else { s.totalMarks += (marks - prev); }
+              s.subjectMarks[r.subject] = marks;
+            }
+            subjectsSet.add(r.subject);
+          });
+          classData = {
+            subjects: [...subjectsSet],
+            students: Array.from(studentMap.values()).map(s => ({
+              ...s,
+              averageScore: subjectsSet.size > 0 ? Math.round(s.totalMarks / subjectsSet.size) : 0,
+            })),
+          };
+        }
+      }
+
+      return classData;
+    },
+    enabled: !slowNet && !!displayExam && !!teacherProfile?.classAssigned,
+    staleTime: 60_000,
+  });
+
+  const classData = classReportBundle || null;
+
+  /* ---------- Skills query (does not block paint) ---------- */
+  const skillsParams = useMemo(() => {
+    if (!teacherProfile?.classAssigned || !displayExam) return null;
+    return {
+      class: teacherProfile.classAssigned,
+      stream: teacherProfile.streamAssigned || undefined,
+      year: displayExam.year,
+      term: displayExam.term,
+    };
+  }, [teacherProfile, displayExam]);
+
+  const { data: skillsRaw = [] } = useQuery({
+    queryKey: ['admin', 'class-performance-skills', skillsParams],
+    queryFn: async () => {
+      const res = await api.get('/skills', { params: skillsParams });
+      return res.data?.data || [];
+    },
+    enabled: !slowNet && !!skillsParams,
+    staleTime: 60_000,
+  });
+
+  const skillsSummary = useMemo(() => {
+    const map = {};
+    skillsRaw.forEach(row => {
+      const sid = row.pupilId?._id || row.pupilId;
+      if (!sid) return;
+      if (!map[sid]) map[sid] = [];
+      map[sid].push(row);
+    });
+    return map;
+  }, [skillsRaw]);
+
+  /* ---------- Competency / grade helpers ---------- */
+  const competencyLevels = useMemo(() => [
     { level: 'EE', minScore: 80, maxScore: 100, color: '#9b59b6', description: 'Exceeding Expectation' },
     { level: 'ME', minScore: 60, maxScore: 79, color: '#27ae60', description: 'Meeting Expectation' },
     { level: 'AE', minScore: 40, maxScore: 59, color: '#3498db', description: 'Approaching Expectation' },
     { level: 'BE', minScore: 20, maxScore: 39, color: '#f1c40f', description: 'Below Expectation' },
-    { level: 'WBE', minScore: 0, maxScore: 19, color: '#e74c3c', description: 'Well Below Expectation' }
-  ];
+    { level: 'WBE', minScore: 0, maxScore: 19, color: '#e74c3c', description: 'Well Below Expectation' },
+  ], []);
 
-  const getCompetencyFromMarks = (marks) => {
+  const getCompetencyFromMarks = useCallback((marks) => {
     if (marks === null || marks === undefined) return null;
     const score = parseFloat(marks);
     if (isNaN(score)) return null;
     return competencyLevels.find(l => score >= l.minScore && score <= l.maxScore);
-  };
+  }, [competencyLevels]);
 
-  const getGradeFromMarks = (marks) => {
+  const getGradeFromMarks = useCallback((marks) => {
     if (marks >= 80) return 'A'; if (marks >= 75) return 'A-';
     if (marks >= 70) return 'B+'; if (marks >= 65) return 'B';
     if (marks >= 60) return 'B-'; if (marks >= 55) return 'C+';
     if (marks >= 50) return 'C'; if (marks >= 45) return 'C-';
     if (marks >= 40) return 'D+'; if (marks >= 35) return 'D';
     if (marks >= 30) return 'D-'; return 'E';
-  };
+  }, []);
 
-  const getRecommendation = (avg) => {
+  const getRecommendation = useCallback((avg) => {
     if (avg >= 80) return 'Excellent mastery. Continue challenging with advanced tasks.';
     if (avg >= 60) return 'Good understanding. Maintain and encourage more challenging tasks.';
     if (avg >= 40) return 'Approaching expectation. Provide extra practice and support.';
     if (avg >= 20) return 'Below expectation. Implement remedial support.';
     return 'Well below expectation. Immediate intensive intervention needed.';
-  };
+  }, []);
 
-  const getRemarksFromMarks = (marks) => {
+  const getRemarksFromMarks = useCallback((marks) => {
     if (marks >= 80) return 'Excellent';
     if (marks >= 60) return 'Good';
     if (marks >= 50) return 'Average';
     if (marks >= 40) return 'Satisfactory';
     return 'Needs Improvement';
-  };
+  }, []);
 
-  // ============================================================
-  // BOOTSTRAP (single effect, everything in parallel)
-  // ============================================================
-  useEffect(() => {
-    loadData();
-    // eslint-disable-next-line
-  }, [user?.email]);
-
-  // ============================================================
-  // SUBJECTS LIST — uses curriculum, no /results scan
-  // ============================================================
-  useEffect(() => {
-    if (!selectedClass) {
-      setAvailableSubjects([]);
-      setAvailableStreams([]);
-      setSelectedStream('');
-      return;
+  /* ---------- Build class report (verbatim algorithm) ---------- */
+  const { classReportData, classReportStats, classReportExam, allSubjectsInReport, streamAnalysis } = useMemo(() => {
+    if (!classData || !classData.students || classData.students.length === 0 || !displayExam || !teacherProfile?.classAssigned) {
+      return { classReportData: [], classReportStats: null, classReportExam: displayExam || null, allSubjectsInReport: [], streamAnalysis: [] };
     }
 
-    const curriculum = SUBJECTS_BY_CLASS[selectedClass] || [];
-    setAvailableSubjects(curriculum);
-    if (selectedSubject && !curriculum.includes(selectedSubject)) {
-      setSelectedSubject('');
-    }
-
-    const classData = schoolInfo.classes?.find(c => c.name === selectedClass);
-    const schoolStreams = classData?.streams || [];
-    const pupilStreams = [...new Set(
-      students
-        .filter(s => (s.class === selectedClass || s.grade === selectedClass) && s.stream)
-        .map(s => s.stream)
-    )];
-    setAvailableStreams([...new Set([...schoolStreams, ...pupilStreams])]);
-    // eslint-disable-next-line
-  }, [selectedClass, schoolInfo, students]);
-
-  // ============================================================
-  // EXAM NAMES
-  // ============================================================
-  useEffect(() => {
-    if (selectedExamType) {
-      const filtered = exams.filter(e =>
-        e.type === selectedExamType &&
-        (!selectedTerm || e.term === selectedTerm) &&
-        (!selectedYear || e.year === selectedYear)
-      );
-      const names = [...new Set(filtered.map(e => e.title))];
-      setAvailableExamNames(names);
-      setSelectedExamName('');
-    } else {
-      setAvailableExamNames([]);
-      setSelectedExamName('');
-    }
-    // eslint-disable-next-line
-  }, [selectedExamType, selectedTerm, selectedYear, exams]);
-
-  // ============================================================
-  // LOAD DATA — FAST
-  // ============================================================
-  const loadData = async (isRefresh = false) => {
-    if (isRefresh) setRefreshing(true);
-    else setLoading(true);
-
-    try {
-      const [schoolRes, studentsRes, examsRes, teachersRes] = await Promise.all([
-        api.get('/school/settings').catch(() => ({ data: {} })),
-        api.get('/pupils').catch(() => ({ data: { data: [] } })),
-        api.get('/exams').catch(() => ({ data: { data: [] } })),
-        api.get('/teachers').catch(() => ({ data: { data: [] } })),
-      ]);
-
-      // --- School info ---
-      let schoolFromApi = schoolRes.data?.data || null;
-      if (!schoolFromApi) {
-        try {
-          const stored = localStorage.getItem('schoolInfo');
-          if (stored) schoolFromApi = JSON.parse(stored);
-        } catch {}
-      }
-      if (schoolFromApi) {
-        const normalized = {
-          ...schoolFromApi,
-          name: schoolFromApi.schoolName || schoolFromApi.name || '',
-          phone: schoolFromApi.phoneNumber || schoolFromApi.phone || '',
-          email: schoolFromApi.schoolEmail || schoolFromApi.email || '',
-          poBox: schoolFromApi.poBox || schoolFromApi.address || '',
-          schoolLogo: schoolFromApi.schoolLogo || schoolFromApi.logo || '',
-        };
-        setSchoolInfo(normalized);
-        try { localStorage.setItem('schoolInfo', JSON.stringify(normalized)); } catch {}
-
-        const activeClasses = (normalized.classes || [])
-          .filter(c => c.isActive !== false)
-          .map(c => c.name);
-        setAvailableClasses(sortClassesByOrder(activeClasses));
-      }
-
-      // --- Students + exams ---
-      const studentsData = studentsRes.data?.data || [];
-      setStudents(studentsData);
-
-      const examsData = examsRes.data?.data || [];
-      setExams(examsData);
-      setAvailableExamTypes([...new Set(examsData.map(e => e.type).filter(Boolean))]);
-
-      // --- Teacher profile (only if not admin) ---
-      let myProfile = null;
-      if (userRole !== 'admin' && user?.email) {
-        const allTeachers = teachersRes.data?.data || [];
-        myProfile = allTeachers.find(t => t.email === user.email) || null;
-      }
-      if (myProfile) {
-        setTeacherProfile(myProfile);
-        setSelectedClass(myProfile.classAssigned || '');
-        setSelectedStream(myProfile.streamAssigned || '');
-      }
-
-      // --- Exam window ---
-      const { exam: examToDisplay, status: examStatus } = getCurrentDisplayExam(examsData);
-      setDisplayExam(examToDisplay);
-      setDisplayExamStatus(examStatus);
-
-      if (!examToDisplay) {
-        setSubjectPerformance([]);
-        setTotalResults(0);
-        setClassReportData([]);
-        setClassReportStats(null);
-        setAllSubjectsInReport([]);
-        setStreamAnalysis([]);
-        setLoading(false);
-        setRefreshing(false);
-        return;
-      }
-
-      // 1. Fetch Subject Performance
-      const perfRes = await api.get('/reports/teacher-subject-performance', {
-        params: {
-          teacherId,
-          teacherName,
-          examName: examToDisplay.title,
-          examType: examToDisplay.type,
-          term: examToDisplay.term,
-          year: examToDisplay.year,
-        },
-      }).catch(() => ({ data: { data: null } }));
-
-      let perf = perfRes?.data?.data;
-
-      // 🔁 Fallback for Subject Performance
-      if (perf === null || perf === undefined) {
-        const fallbackRes = await api.get('/results', {
-          params: {
-            examName: examToDisplay.title,
-            examType: examToDisplay.type,
-            term: examToDisplay.term,
-            year: examToDisplay.year,
-            recordedBy: teacherId,
-          },
-        }).catch(() => ({ data: { data: [] } }));
-        const rawResults = fallbackRes.data?.data || [];
-
-        const grouped = {};
-        const pupilIds = [...new Set(rawResults.map(r => String(r.pupilId?._id || r.pupilId)).filter(Boolean))];
-        const pupilMap = new Map(studentsData.filter(p => pupilIds.includes(String(p._id))).map(p => [String(p._id), p]));
-
-        rawResults.forEach(r => {
-          const marks = parseFloat(r.marks ?? r.score ?? 0);
-          if (isNaN(marks)) return;
-          const pupil = pupilMap.get(String(r.pupilId?._id || r.pupilId));
-          if (!pupil) return;
-          const subject = r.subject || 'Unknown';
-          const className = pupil.class || pupil.grade || 'Unknown Class';
-          const stream = pupil.stream || '';
-          const key = `${subject}|${className}|${stream || 'ns'}`;
-          
-          if (!grouped[key]) {
-            grouped[key] = {
-              subject, class: className, stream: stream || null,
-              examName: examToDisplay.title, examType: examToDisplay.type,
-              term: examToDisplay.term, year: examToDisplay.year,
-              totalMarks: 0, count: 0, passing: 0, average: 0, belowAvg: 0,
-              studentSet: new Set(),
-            };
-          }
-          const g = grouped[key];
-          g.totalMarks += marks; g.count += 1;
-          if (marks >= 60) g.passing += 1;
-          else if (marks >= 50) g.average += 1;
-          else g.belowAvg += 1;
-          g.studentSet.add(String(pupil._id));
-        });
-
-        perf = Object.values(grouped).map(g => ({
-          subject: g.subject, class: g.class, stream: g.stream,
-          examName: g.examName, examType: g.examType, term: g.term, year: g.year,
-          averageScore: g.count ? (g.totalMarks / g.count).toFixed(1) : '0.0',
-          students: g.studentSet.size, totalResults: g.count,
-          passing: g.passing, average: g.average, belowAvg: g.belowAvg,
-        }));
-      }
-
-      setSubjectPerformance(perf || []);
-      setTotalResults((perf || []).reduce((s, p) => s + (p.totalResults || 0), 0));
-
-      // 2. Fetch Class Report (My Class Results)
-      if (myProfile?.classAssigned) {
-        const classRes = await api.get('/reports/class-report', {
-          params: {
-            className: myProfile.classAssigned,
-            stream: myProfile.streamAssigned || undefined,
-            examName: examToDisplay.title,
-            examType: examToDisplay.type,
-            term: examToDisplay.term,
-            year: examToDisplay.year,
-          },
-        }).catch(() => ({ data: { data: null } }));
-
-        let classData = classRes.data?.data;
-
-        // 🔁 Fallback for Class Report if aggregate route fails or is missing
-        if (!classData || !classData.students || classData.students.length === 0) {
-          const fbClassRes = await api.get('/results', {
-            params: {
-              class: myProfile.classAssigned,
-              stream: myProfile.streamAssigned || undefined,
-              examName: examToDisplay.title,
-              examType: examToDisplay.type,
-              term: examToDisplay.term,
-              year: examToDisplay.year,
-            },
-          }).catch(() => ({ data: { data: [] } }));
-          
-          const rawResults = fbClassRes.data?.data || [];
-          if (rawResults.length > 0) {
-            const subjectsSet = new Set();
-            const studentMap = new Map();
-
-            rawResults.forEach(r => {
-              const pid = String(r.pupilId?._id || r.pupilId);
-              const pupil = studentsData.find(p => String(p._id) === pid);
-              if (!pupil) return;
-              
-              const marks = parseFloat(r.marks ?? r.score ?? 0);
-              if (isNaN(marks)) return;
-
-              if (!studentMap.has(pid)) {
-                studentMap.set(pid, {
-                  id: pid, name: pupil.name, admNo: pupil.admNo, stream: pupil.stream || '',
-                  subjectMarks: {}, totalMarks: 0, subjectsWithMarks: 0,
-                });
-              }
-              const s = studentMap.get(pid);
-              const prev = s.subjectMarks[r.subject];
-              if (prev === undefined || marks > prev) {
-                if (prev === undefined) {
-                  s.totalMarks += marks;
-                  s.subjectsWithMarks += 1;
-                } else {
-                  s.totalMarks += (marks - prev);
-                }
-                s.subjectMarks[r.subject] = marks;
-              }
-              subjectsSet.add(r.subject);
-            });
-
-            classData = {
-              subjects: [...subjectsSet],
-              students: Array.from(studentMap.values()).map(s => ({
-                ...s,
-                averageScore: subjectsSet.size > 0 ? Math.round(s.totalMarks / subjectsSet.size) : 0,
-              }))
-            };
-          }
-        }
-
-        if (classData?.students?.length > 0) {
-          buildClassReportFromServer(classData, examToDisplay, myProfile);
-        } else {
-          setClassReportData([]);
-          setClassReportStats(null);
-          setAllSubjectsInReport([]);
-          setStreamAnalysis([]);
-          setClassReportExam(examToDisplay);
-        }
-
-        // Skills: deferred so it never blocks the paint
-        setTimeout(() => {
-          loadSkillsData(myProfile.classAssigned, myProfile.streamAssigned, examToDisplay);
-        }, 0);
-      }
-
-    } catch (err) {
-      console.error('loadData error:', err);
-      toast.error('Failed to load data');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
-
-  // ============================================================
-  // BUILD CLASS REPORT from payload
-  // ============================================================
-  const buildClassReportFromServer = (classData, exam, profile) => {
     const subjects = classData.subjects || [];
     const totalSubjects = subjects.length;
-    setAllSubjectsInReport(subjects);
-    setClassReportExam(exam);
 
     let performance = (classData.students || []).map(s => {
       const hasMissing = s.subjectsWithMarks < totalSubjects;
@@ -773,100 +504,66 @@ const ClassPerformance = () => {
       }
       rank++;
     });
-    const incomplete = performance.filter(s => s.hasMissingMarks)
-      .sort((a, b) => b.totalMarks - a.totalMarks);
+    const incomplete = performance.filter(s => s.hasMissingMarks).sort((a, b) => b.totalMarks - a.totalMarks);
     incomplete.forEach(s => { s.classPosition = 'X'; });
     performance = [...sortedComplete, ...incomplete];
 
     const classAvg = complete.length > 0
-      ? Math.round(complete.reduce((sum, s) => sum + s.averageScore, 0) / complete.length) : 0;
+      ? Math.round(complete.reduce((sum, s) => sum + s.averageScore, 0) / complete.length)
+      : 0;
     const passRate = complete.length > 0
-      ? Math.round(complete.filter(s => s.averageScore >= 40).length / complete.length * 100) : 0;
+      ? Math.round(complete.filter(s => s.averageScore >= 40).length / complete.length * 100)
+      : 0;
 
-    setClassReportData(performance);
-    setClassReportStats({
+    const stats = {
       classAverage: classAvg,
       totalStudents: performance.length,
       completeCount: complete.length,
       incompleteCount: incomplete.length,
       passRate,
-      examName: exam.title, term: exam.term, year: exam.year,
-    });
+      examName: displayExam.title, term: displayExam.term, year: displayExam.year,
+    };
 
-    if (profile?.streamAssigned || performance.some(s => s.stream)) {
-      buildStreamAnalysis(performance, subjects);
-    } else {
-      setStreamAnalysis([]);
+    let streams = [];
+    if (teacherProfile?.streamAssigned || performance.some(s => s.stream)) {
+      const streamMap = {};
+      performance.forEach(s => {
+        const st = s.stream || 'No Stream';
+        if (!streamMap[st]) streamMap[st] = { stream: st, students: [] };
+        streamMap[st].students.push(s);
+      });
+      streams = Object.values(streamMap).map(({ stream, students }) => {
+        const validAverages = students.map(s => s.averageScore).filter(v => typeof v === 'number' && !isNaN(v));
+        const mean = validAverages.length
+          ? Math.round(validAverages.reduce((a, b) => a + b, 0) / validAverages.length)
+          : 0;
+        const subjectMeans = {};
+        subjects.forEach(subj => {
+          const arr = students.map(s => s.subjectMarks[subj]).filter(v => typeof v === 'number');
+          subjectMeans[subj] = arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
+        });
+        return {
+          stream, count: students.length,
+          completeCount: students.filter(s => !s.hasMissingMarks).length,
+          mean, grade: getGradeFromMarks(mean),
+          competency: getCompetencyFromMarks(mean),
+          subjectMeans,
+        };
+      });
+      streams.sort((a, b) => b.mean - a.mean);
     }
-  };
 
-  // ============================================================
-  // STREAM ANALYSIS
-  // ============================================================
-  const buildStreamAnalysis = (performance, subjects) => {
-    const streams = {};
-    performance.forEach(s => {
-      const st = s.stream || 'No Stream';
-      if (!streams[st]) streams[st] = { stream: st, students: [] };
-      streams[st].students.push(s);
-    });
+    return {
+      classReportData: performance,
+      classReportStats: stats,
+      classReportExam: displayExam,
+      allSubjectsInReport: subjects,
+      streamAnalysis: streams,
+    };
+  }, [classData, displayExam, teacherProfile, competencyLevels, getCompetencyFromMarks, getGradeFromMarks, getRecommendation]);
 
-    const result = Object.values(streams).map(({ stream, students }) => {
-      const validAverages = students.map(s => s.averageScore).filter(v => typeof v === 'number' && !isNaN(v));
-      const mean = validAverages.length
-        ? Math.round(validAverages.reduce((a, b) => a + b, 0) / validAverages.length) : 0;
-
-      const subjectMeans = {};
-      subjects.forEach(subj => {
-        const arr = students.map(s => s.subjectMarks[subj]).filter(v => typeof v === 'number');
-        subjectMeans[subj] = arr.length ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : 0;
-      });
-
-      return {
-        stream, count: students.length,
-        completeCount: students.filter(s => !s.hasMissingMarks).length,
-        mean, grade: getGradeFromMarks(mean),
-        competency: getCompetencyFromMarks(mean),
-        subjectMeans,
-      };
-    });
-
-    result.sort((a, b) => b.mean - a.mean);
-    setStreamAnalysis(result);
-  };
-
-  // ============================================================
-  // LOAD SKILLS (deferred)
-  // ============================================================
-  const loadSkillsData = async (className, streamName, exam) => {
-    if (!className || !exam) return;
-    try {
-      const res = await api.get('/skills', {
-        params: {
-          class: className,
-          stream: streamName || undefined,
-          year: exam.year,
-          term: exam.term,
-        },
-      });
-      const rows = res.data?.data || [];
-      const map = {};
-      rows.forEach(row => {
-        const sid = row.pupilId?._id || row.pupilId;
-        if (!sid) return;
-        if (!map[sid]) map[sid] = [];
-        map[sid].push(row);
-      });
-      setSkillsSummary(map);
-    } catch (err) {
-      console.error('❌ Skills load error:', err);
-    }
-  };
-
-  /* ============================================================
-     🧠 AI CAREER INSIGHTS
-     ============================================================ */
-  const buildCareerInsights = (student, studentSkills = []) => {
+  /* ---------- Career insights (verbatim) ---------- */
+  const buildCareerInsights = useCallback((student, studentSkills = []) => {
     const subjectEntries = allSubjectsInReport
       .map(subj => ({ name: subj, score: student.subjectMarks?.[subj] }))
       .filter(e => e.score !== undefined && e.score !== null && !isNaN(e.score));
@@ -899,7 +596,6 @@ const ClassPerformance = () => {
           matchedSubjects.push({ name: req, score: sc });
         }
       });
-
       const rawAcademic = subjCount > 0 ? subjScore / subjCount : 0;
       const requiredCount = career.subjects.length;
       const coverageFactor = requiredCount > 0 ? (subjCount / requiredCount) : 0;
@@ -913,7 +609,6 @@ const ClassPerformance = () => {
           matchedSkillsForField.push(sb.skill);
         }
       });
-
       const finalScore = Math.min(100, academicScore + skillBoost);
 
       return {
@@ -929,13 +624,11 @@ const ClassPerformance = () => {
     return scored.sort((a, b) => b.match - a.match).slice(0, 3).map(c => {
       const parts = [];
       if (c.matchedSubjects.length > 0) {
-        const subjList = c.matchedSubjects.slice(0, 2)
-          .map(m => `${m.name} (${Math.round(m.score)}%)`).join(', ');
+        const subjList = c.matchedSubjects.slice(0, 2).map(m => `${m.name} (${Math.round(m.score)}%)`).join(', ');
         parts.push(`Strong in ${subjList}`);
       }
       if (c.matchedSkillsForField.length > 0) {
-        const names = c.matchedSkillsForField.slice(0, 2)
-          .map(sk => getSkillName(sk)).filter(Boolean);
+        const names = c.matchedSkillsForField.slice(0, 2).map(sk => getSkillName(sk)).filter(Boolean);
         if (names.length > 0) parts.push(`Talent in ${names.join(' & ')}`);
       }
       if (c.coveragePercent < 100 && c.matchedSubjects.length > 0) {
@@ -944,39 +637,86 @@ const ClassPerformance = () => {
       const rationale = parts.length > 0 ? parts.join(' • ') : 'Matches overall performance';
       return { ...c, rationale };
     });
-  };
+  }, [allSubjectsInReport]);
 
-  useEffect(() => {
-    if (!classReportData.length) { setCareerInsights({}); return; }
+  const careerInsights = useMemo(() => {
+    if (!classReportData.length) return {};
     const map = {};
     classReportData.forEach(s => {
       const studentSkills = skillsSummary[String(s.id)] || [];
       map[s.id] = buildCareerInsights(s, studentSkills);
     });
-    setCareerInsights(map);
-    // eslint-disable-next-line
-  }, [classReportData, allSubjectsInReport, skillsSummary]);
+    return map;
+  }, [classReportData, buildCareerInsights, skillsSummary]);
 
-  // ============================================================
-  // SUBJECT ANALYSIS (server-filtered /results)
-  // ============================================================
-  const loadPerformanceData = async () => {
-    if (!selectedClass) { toast.error('Please select a class'); return; }
-    if (!selectedSubject) { toast.error('Please select a subject'); return; }
-    if (!selectedExamType) { toast.error('Please select an exam type'); return; }
-    if (!selectedExamName) { toast.error('Please select an exam name'); return; }
+  /* ---------- UI state for Subject Analysis tab ---------- */
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [selectedClass, setSelectedClass] = useState('');
+  const [selectedStream, setSelectedStream] = useState('');
+  const [selectedTerm, setSelectedTerm] = useState('');
+  const [selectedExamType, setSelectedExamType] = useState('');
+  const [selectedExamName, setSelectedExamName] = useState('');
+  const [selectedSubject, setSelectedSubject] = useState('');
 
-    setLoadingData(true);
-    try {
+  const [showReportCard, setShowReportCard] = useState(false);
+  const [selectedStudent, setSelectedStudent] = useState(null);
+
+  const terms = ['Term 1', 'Term 2', 'Term 3'];
+  const years = [2023, 2024, 2025, 2026];
+
+  useEffect(() => {
+    if (teacherProfile?.classAssigned && !selectedClass) {
+      setSelectedClass(teacherProfile.classAssigned);
+      setSelectedStream(teacherProfile.streamAssigned || '');
+    }
+  }, [teacherProfile, selectedClass]);
+
+  const availableSubjects = useMemo(() => {
+    if (!selectedClass) return [];
+    return SUBJECTS_BY_CLASS[selectedClass] || [];
+  }, [selectedClass]);
+
+  const availableStreams = useMemo(() => {
+    if (!selectedClass) return [];
+    const classData = schoolInfo.classes?.find(c => c.name === selectedClass);
+    const schoolStreams = classData?.streams || [];
+    const pupilStreams = [...new Set(
+      students.filter(s => (s.class === selectedClass || s.grade === selectedClass) && s.stream).map(s => s.stream)
+    )];
+    return [...new Set([...schoolStreams, ...pupilStreams])];
+  }, [selectedClass, schoolInfo, students]);
+
+  const availableExamNames = useMemo(() => {
+    if (!selectedExamType) return [];
+    const filtered = exams.filter(e =>
+      e.type === selectedExamType &&
+      (!selectedTerm || e.term === selectedTerm) &&
+      (!selectedYear || e.year === selectedYear)
+    );
+    return [...new Set(filtered.map(e => e.title))];
+  }, [selectedExamType, selectedTerm, selectedYear, exams]);
+
+  /* ---------- Auto-loading Subject Analysis query ---------- */
+  const subjectAnalysisFiltersReady =
+    !!selectedClass && !!selectedSubject && !!selectedExamType && !!selectedExamName;
+
+  const {
+    data: subjectAnalysis,
+    isLoading: subjectAnalysisLoading,
+    isFetching: subjectAnalysisFetching,
+  } = useQuery({
+    queryKey: [
+      'admin', 'subject-analysis',
+      selectedClass, selectedStream, selectedTerm, selectedYear,
+      selectedExamType, selectedExamName, selectedSubject,
+    ],
+    queryFn: async () => {
       let classStudents = students.filter(s => (s.class === selectedClass || s.grade === selectedClass));
       if (selectedStream && selectedStream !== 'all' && selectedStream !== '') {
         classStudents = classStudents.filter(s => s.stream === selectedStream);
       }
       if (classStudents.length === 0) {
-        toast.error(`No students found in ${selectedClass}${selectedStream ? ` - ${selectedStream}` : ''}`);
-        setShowResults(false);
-        setLoadingData(false);
-        return;
+        return { students: [], average: 0, topStudent: null, empty: 'no-students' };
       }
 
       const response = await api.get('/results', {
@@ -993,10 +733,7 @@ const ClassPerformance = () => {
 
       const filteredResults = response.data?.data || [];
       if (filteredResults.length === 0) {
-        toast.error(`No performance data found for ${selectedSubject} in ${selectedClass}`);
-        setShowResults(false);
-        setLoadingData(false);
-        return;
+        return { students: [], average: 0, topStudent: null, empty: 'no-results' };
       }
 
       const totalScore = filteredResults.reduce((sum, r) => sum + (r.marks || 0), 0);
@@ -1019,9 +756,6 @@ const ClassPerformance = () => {
         };
       }).sort((a, b) => b.marks - a.marks);
 
-      setPerformanceData(studentPerformance);
-      setClassAverage(avgScore);
-
       let topStudentData = null;
       let highest = 0;
       filteredResults.forEach(r => {
@@ -1037,16 +771,17 @@ const ClassPerformance = () => {
           }
         }
       });
-      setTopStudent(topStudentData);
-      setShowResults(true);
-      toast.success(`Found ${studentPerformance.length} student records for ${selectedSubject}`);
-    } catch (error) {
-      console.error('Error loading performance data:', error);
-      toast.error('Failed to load performance data');
-    } finally {
-      setLoadingData(false);
-    }
-  };
+
+      return { students: studentPerformance, average: avgScore, topStudent: topStudentData, empty: null };
+    },
+    enabled: !slowNet && subjectAnalysisFiltersReady,
+    staleTime: 30_000,
+  });
+
+  const analysisStudents = subjectAnalysis?.students || [];
+  const analysisAverage = subjectAnalysis?.average || 0;
+  const analysisTopStudent = subjectAnalysis?.topStudent || null;
+  const analysisEmpty = subjectAnalysis?.empty || null;
 
   const resetFilters = () => {
     setSelectedClass(teacherProfile?.classAssigned || '');
@@ -1056,16 +791,23 @@ const ClassPerformance = () => {
     setSelectedExamName('');
     setSelectedSubject('');
     setSelectedYear(new Date().getFullYear());
-    setPerformanceData([]);
-    setShowResults(false);
     toast.success('Filters reset');
   };
 
-  // ============================================================
-  // EXPORTS — Subject Analysis
-  // ============================================================
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['admin', 'class-performance-config'] }),
+      queryClient.invalidateQueries({ queryKey: ['admin', 'class-report-bundle'] }),
+      queryClient.invalidateQueries({ queryKey: ['admin', 'class-performance-skills'] }),
+      queryClient.invalidateQueries({ queryKey: ['admin', 'subject-analysis'] }),
+    ]);
+    setRefreshing(false);
+  }, [queryClient]);
+
+  /* ---------- Excel / Word exports for Subject Analysis (reads from analysisStudents) ---------- */
   const downloadResultsExcel = () => {
-    if (performanceData.length === 0) { toast.error('No data to download'); return; }
+    if (analysisStudents.length === 0) return toast.error('No data to download');
     const streamLabel = selectedStream && selectedStream !== 'all' ? selectedStream : 'All Streams';
     const worksheetData = [
       [`${schoolInfo.name || 'School Name'}`],
@@ -1079,16 +821,16 @@ const ClassPerformance = () => {
       [`Generated: ${new Date().toLocaleString()}`],
       [],
       ['Student Name', 'Admission Number', 'Stream', 'Marks (%)', 'Grade', 'Competency Level', 'Remarks'],
-      ...performanceData.map(s => [
+      ...analysisStudents.map(s => [
         s.name, s.admNo || 'N/A', s.stream || 'N/A',
-        s.marks.toFixed(1), s.grade, s.competencyLevel, s.remarks
+        s.marks.toFixed(1), s.grade, s.competencyLevel, s.remarks,
       ]),
       [],
       ['Summary Statistics'],
-      [`Total Students: ${performanceData.length}`],
-      [`Class Average: ${classAverage.toFixed(1)}%`],
-      [`Highest Score: ${Math.max(...performanceData.map(s => s.marks))}%`],
-      [`Lowest Score: ${Math.min(...performanceData.map(s => s.marks))}%`],
+      [`Total Students: ${analysisStudents.length}`],
+      [`Class Average: ${analysisAverage.toFixed(1)}%`],
+      [`Highest Score: ${Math.max(...analysisStudents.map(s => s.marks))}%`],
+      [`Lowest Score: ${Math.min(...analysisStudents.map(s => s.marks))}%`],
     ];
     const ws = XLSX.utils.aoa_to_sheet(worksheetData);
     const wb = XLSX.utils.book_new();
@@ -1098,7 +840,7 @@ const ClassPerformance = () => {
   };
 
   const downloadResultsWord = async () => {
-    if (performanceData.length === 0) { toast.error('No data to download'); return; }
+    if (analysisStudents.length === 0) return toast.error('No data to download');
     try {
       const thinBorder = { style: BorderStyle.SINGLE, size: 4, color: '999999' };
       const cellBorders = { top: thinBorder, bottom: thinBorder, left: thinBorder, right: thinBorder };
@@ -1111,7 +853,7 @@ const ClassPerformance = () => {
         new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 200 }, children: [new TextRun({ text: `${selectedClass} — ${streamLabel} | Year: ${selectedYear} | Term: ${selectedTerm || 'All Terms'} | Exam: ${selectedExamName}`, size: 18 })] }),
       );
 
-      const headerCells = ['#','Student Name','Adm No','Stream','Marks (%)','Grade','Competency','Remarks'].map((h, i) =>
+      const headerCells = ['#', 'Student Name', 'Adm No', 'Stream', 'Marks (%)', 'Grade', 'Competency', 'Remarks'].map((h, i) =>
         new TableCell({
           borders: cellBorders,
           shading: { fill: i === 4 ? 'E0EEFF' : i === 6 ? 'E0FFE0' : 'F0F0F0' },
@@ -1119,7 +861,7 @@ const ClassPerformance = () => {
         })
       );
       const tableHeader = new TableRow({ children: headerCells });
-      const bodyRows = performanceData.map((s, idx) => new TableRow({
+      const bodyRows = analysisStudents.map((s, idx) => new TableRow({
         children: [
           new TableCell({ borders: cellBorders, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(idx + 1), size: 18 })] })] }),
           new TableCell({ borders: cellBorders, children: [new Paragraph({ children: [new TextRun({ text: s.name, size: 18 })] })] }),
@@ -1136,10 +878,10 @@ const ClassPerformance = () => {
       children.push(
         new Paragraph({ spacing: { before: 300 }, children: [] }),
         new Paragraph({ children: [new TextRun({ text: 'SUMMARY', bold: true, size: 22 })] }),
-        new Paragraph({ children: [new TextRun({ text: `Total Students: ${performanceData.length}`, size: 18 })] }),
-        new Paragraph({ children: [new TextRun({ text: `Class Average: ${classAverage.toFixed(1)}%`, size: 18 })] }),
-        new Paragraph({ children: [new TextRun({ text: `Highest Score: ${Math.max(...performanceData.map(s => s.marks)).toFixed(1)}%`, size: 18 })] }),
-        new Paragraph({ children: [new TextRun({ text: `Lowest Score: ${Math.min(...performanceData.map(s => s.marks)).toFixed(1)}%`, size: 18 })] }),
+        new Paragraph({ children: [new TextRun({ text: `Total Students: ${analysisStudents.length}`, size: 18 })] }),
+        new Paragraph({ children: [new TextRun({ text: `Class Average: ${analysisAverage.toFixed(1)}%`, size: 18 })] }),
+        new Paragraph({ children: [new TextRun({ text: `Highest Score: ${Math.max(...analysisStudents.map(s => s.marks)).toFixed(1)}%`, size: 18 })] }),
+        new Paragraph({ children: [new TextRun({ text: `Lowest Score: ${Math.min(...analysisStudents.map(s => s.marks)).toFixed(1)}%`, size: 18 })] }),
         new Paragraph({ spacing: { before: 300 }, children: [] }),
         new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: `Generated on ${new Date().toLocaleString()}`, size: 16, italics: true })] }),
       );
@@ -1156,15 +898,13 @@ const ClassPerformance = () => {
     }
   };
 
-  // ============================================================
-  // EXPORTS — Full Class
-  // ============================================================
+  /* ---------- Full-class Excel / Word (unchanged, uses classReportData) ---------- */
   const downloadFullClassExcel = () => {
     if (!classReportData.length) return toast.error('No data');
     const headers = [
       '#', 'Name', 'Adm',
       ...allSubjectsInReport.map(s => s.substring(0, 4).toUpperCase()),
-      'Tot', 'Avg%', 'Gr', 'Comp'
+      'Tot', 'Avg%', 'Gr', 'Comp',
     ];
     const rows = classReportData.map(s => [
       s.classPosition, s.name, s.admNo,
@@ -1210,7 +950,7 @@ const ClassPerformance = () => {
         ...baseHeaders,
         ...allSubjectsInReport.map(subj => new TableCell({
           borders: cellBorders, shading: { fill: 'F0F0F0' },
-          children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: subj.substring(0, 4).toUpperCase(), bold: true, size: 18 })] })]
+          children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: subj.substring(0, 4).toUpperCase(), bold: true, size: 18 })] })],
         })),
         new TableCell({ borders: cellBorders, shading: { fill: 'E0EEFF' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Tot', bold: true, size: 18 })] })] }),
         new TableCell({ borders: cellBorders, shading: { fill: 'E0FFE0' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: 'Avg%', bold: true, size: 18 })] })] }),
@@ -1265,7 +1005,7 @@ const ClassPerformance = () => {
         );
         const sHeaders = ['Stream', 'Students', 'Mean', 'Grade', ...allSubjectsInReport.map(s => s.substring(0, 4).toUpperCase())];
         const sHeaderRow = new TableRow({
-          children: sHeaders.map(h => new TableCell({ borders: cellBorders, shading: { fill: 'E0EEFF' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: h, bold: true, size: 18 })] })] }))
+          children: sHeaders.map(h => new TableCell({ borders: cellBorders, shading: { fill: 'E0EEFF' }, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: h, bold: true, size: 18 })] })] })),
         });
         const sBodyRows = streamAnalysis.map(sa => new TableRow({
           children: [
@@ -1274,7 +1014,7 @@ const ClassPerformance = () => {
             new TableCell({ borders: cellBorders, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(sa.mean), bold: true, size: 18 })] })] }),
             new TableCell({ borders: cellBorders, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: sa.grade, bold: true, size: 18 })] })] }),
             ...allSubjectsInReport.map(subj => new TableCell({ borders: cellBorders, children: [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun({ text: String(sa.subjectMeans[subj] || 0), size: 18 })] })] })),
-          ]
+          ],
         }));
         children.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows: [sHeaderRow, ...sBodyRows] }));
       }
@@ -1300,534 +1040,486 @@ const ClassPerformance = () => {
     }
   };
 
-  // ============================================================
-  // RENDER
-  // ============================================================
-  if (loading) {
+  /* ---------- Loading / error ---------- */
+  if (configLoading && !slowNet) {
     return (
       <Layout title="Class Performance" subtitle="Track class performance metrics">
         <div className="flex justify-center items-center h-64">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600" />
         </div>
       </Layout>
     );
   }
 
-  const hasSummaryResults = subjectPerformance.length > 0;
-  const overallMean = subjectPerformance.length > 0
-    ? (subjectPerformance.reduce((sum, s) => sum + parseFloat(s.averageScore || 0), 0) / subjectPerformance.length).toFixed(1)
-    : '0.0';
-  const totalStudentsInExam = subjectPerformance.reduce((sum, s) => sum + (s.students || 0), 0);
-
-  return (
-    <Layout title="Subject Performance" subtitle="View and analyze subject-specific performance">
-
-      {/* Header */}
-      <div className={`bg-gradient-to-r from-green-600 to-blue-600 rounded-xl ${deviceInfo.isMobile ? 'p-3' : 'p-5'} mb-4 text-white`}>
-        <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'items-center gap-3'}`}>
-          <div className="flex items-center gap-3">
-            <FiBarChart2 className={`${deviceInfo.isMobile ? 'w-6 h-6' : 'w-8 h-8'}`} />
-            <div>
-              <h2 className={`${deviceInfo.isMobile ? 'text-base' : 'text-xl'} font-bold`}>
-                {schoolInfo.name || 'School Name'}
-              </h2>
-              <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-sm'} opacity-90`}>
-                Subject Performance {userRole === 'teacher' ? `• ${teacherName}` : ''}
-              </p>
-            </div>
-          </div>
+  if (configError) {
+    return (
+      <Layout title="Class Performance" subtitle="Track class performance metrics">
+        <div className="text-center py-16">
+          <FiAlertCircle className="w-14 h-14 mx-auto text-red-500 mb-3" />
+          <h3 className="font-bold text-gray-800 mb-1">Could not load class performance</h3>
+          <p className="text-sm text-gray-500 mb-4">Check your connection and try again.</p>
           <button
-            onClick={() => loadData(true)}
-            disabled={refreshing}
-            className={`${deviceInfo.isMobile ? 'w-full mt-2' : 'ml-auto'} bg-white/20 hover:bg-white/30 text-white rounded-lg flex items-center justify-center gap-2 px-3 py-2 text-sm disabled:opacity-60`}
+            onClick={() => queryClient.invalidateQueries({ queryKey: ['admin', 'class-performance-config'] })}
+            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-semibold"
           >
-            <FiRefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-            {refreshing ? 'Refreshing…' : 'Refresh'}
+            Try again
           </button>
         </div>
-      </div>
+      </Layout>
+    );
+  }
 
-      {/* Status Banner */}
-      {displayExam ? (
-        <div className={`rounded-lg p-3 mb-4 flex items-center gap-3 ${
-          displayExamStatus === 'active' ? 'bg-green-50 border border-green-200'
-          : displayExamStatus === 'completed' ? 'bg-blue-50 border border-blue-200'
-          : 'bg-gray-50 border border-gray-200'
-        }`}>
-          {displayExamStatus === 'active' ? (
-            <FiCheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
-          ) : (
-            <FiInfo className={`w-5 h-5 flex-shrink-0 ${displayExamStatus === 'completed' ? 'text-blue-600' : 'text-gray-500'}`} />
-          )}
-          <div className={`text-sm ${displayExamStatus === 'active' ? 'text-green-700' : displayExamStatus === 'completed' ? 'text-blue-700' : 'text-gray-600'}`}>
-            <span className="font-semibold">
-              {displayExamStatus === 'active' ? '📝' : displayExamStatus === 'completed' ? '📊' : '📅'} {displayExam.title}
-            </span>
-            <span className="text-xs ml-2 opacity-70">
-              {displayExamStatus === 'active' ? 'Active' : displayExamStatus === 'completed' ? 'Completed' : 'Upcoming'}
-              {displayExam.endDateTime && ` • ${new Date(displayExam.endDateTime).toLocaleDateString()}`}
-            </span>
-          </div>
-        </div>
-      ) : (
-        <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-4 flex items-center gap-3">
-          <FiInfo className="w-5 h-5 text-gray-500 flex-shrink-0" />
-          <div className="text-sm text-gray-600"><span className="font-semibold">📋 No exams available</span></div>
-        </div>
-      )}
+  /* ---------- Render ---------- */
+  return (
+    <Layout title="Subject Performance" subtitle="View and analyze subject-specific performance">
+      <div className={responsive.textDensity}>
 
-      {/* ======================= MY SUBJECT PERFORMANCE (COMPACT) ======================= */}
-      {hasSummaryResults && (
-        <div className={`bg-white rounded-lg shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-4'} mb-6`}>
-          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-            <h3 className={`${responsive.headingSize} font-bold text-gray-800 flex items-center gap-2`}>
-              <FiBookOpen className="text-green-600" /> My Subject Performance
-            </h3>
-            {displayExam && (
-              <span className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded-full font-semibold">
-                Exam: <strong>{displayExam.title}</strong>
-              </span>
-            )}
-          </div>
-
-          <div className="bg-gradient-to-r from-green-50 to-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
-            <div className="grid grid-cols-3 gap-2 text-center">
+        {/* Header */}
+        <div className={`bg-gradient-to-r from-green-600 to-blue-600 rounded-xl ${deviceInfo.isMobile ? 'p-3' : 'p-5'} mb-4 text-white`}>
+          <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'items-center gap-3'}`}>
+            <div className="flex items-center gap-3">
+              <FiBarChart2 className={`${deviceInfo.isMobile ? 'w-6 h-6' : 'w-8 h-8'}`} />
               <div>
-                <p className="text-[10px] text-gray-500 uppercase tracking-wider font-semibold">Subjects Logged</p>
-                <p className="text-xl font-bold text-blue-700 mt-0.5">{subjectPerformance.length}</p>
-              </div>
-              <div>
-                <p className="text-[10px] text-gray-500 uppercase tracking-wider font-semibold">Mean Score</p>
-                <p className={`text-xl font-bold mt-0.5 ${
-                  parseFloat(overallMean) >= 80 ? 'text-purple-600' :
-                  parseFloat(overallMean) >= 60 ? 'text-green-600' :
-                  parseFloat(overallMean) >= 40 ? 'text-blue-600' : 'text-red-600'
-                }`}>{overallMean}%</p>
-              </div>
-              <div>
-                <p className="text-[10px] text-gray-500 uppercase tracking-wider font-semibold">Total Uploads</p>
-                <p className="text-xl font-bold text-green-700 mt-0.5">{totalStudentsInExam}</p>
+                <h2 className={`${deviceInfo.isMobile ? 'text-base' : 'text-xl'} font-bold`}>
+                  {schoolInfo.name || 'School Name'}
+                </h2>
+                <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-sm'} opacity-90`}>
+                  Subject Performance {userRole === 'teacher' ? `• ${teacherName}` : ''}
+                </p>
               </div>
             </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {subjectPerformance.map((subject, index) => {
-              const mean = parseFloat(subject.averageScore);
-              return (
-                <div key={index} className={`bg-white border border-gray-200 rounded-lg p-3 shadow-sm hover:shadow-md transition-shadow border-l-4 ${mean >= 60 ? 'border-l-green-500' : mean >= 50 ? 'border-l-yellow-500' : 'border-l-red-500'}`}>
-                  <div className="flex justify-between items-start mb-2">
-                    <div>
-                      <h4 className="text-sm font-bold text-gray-800 line-clamp-1" title={subject.subject}>
-                        {subject.subject}
-                      </h4>
-                      <p className="text-[10px] text-gray-500 truncate">
-                        {subject.class}
-                        {subject.stream ? ` • ${subject.stream}` : ''}
-                      </p>
-                    </div>
-                    <div className="text-right flex-shrink-0 ml-2">
-                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${mean >= 60 ? 'bg-green-100 text-green-700' : mean >= 50 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
-                        {subject.averageScore}%
-                      </span>
-                      <p className="text-[9px] text-gray-400 mt-0.5">{subject.students} stdnt{subject.students !== 1 ? 's' : ''}</p>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-1 bg-gray-50 rounded p-1.5 border border-gray-100 text-center">
-                    <div>
-                      <p className="text-[9px] text-green-600 uppercase font-semibold leading-tight">Pass</p>
-                      <p className="text-xs font-bold text-green-700 leading-tight">{subject.passing}</p>
-                    </div>
-                    <div className="border-l border-r border-gray-200">
-                      <p className="text-[9px] text-yellow-600 uppercase font-semibold leading-tight">Avg</p>
-                      <p className="text-xs font-bold text-yellow-700 leading-tight">{subject.average}</p>
-                    </div>
-                    <div>
-                      <p className="text-[9px] text-red-600 uppercase font-semibold leading-tight">Below</p>
-                      <p className="text-xs font-bold text-red-700 leading-tight">{subject.belowAvg}</p>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing || classReportLoading || subjectAnalysisFetching}
+              className={`${deviceInfo.isMobile ? 'w-full mt-2' : 'ml-auto'} bg-white/20 hover:bg-white/30 text-white rounded-lg flex items-center justify-center gap-2 px-3 py-2 text-sm disabled:opacity-60`}
+            >
+              <FiRefreshCw className={`w-4 h-4 ${(refreshing || classReportLoading || subjectAnalysisFetching) ? 'animate-spin' : ''}`} />
+              {(refreshing || classReportLoading || subjectAnalysisFetching) ? 'Refreshing…' : 'Refresh'}
+            </button>
           </div>
         </div>
-      )}
 
-      {/* TABS NAVIGATION */}
-      <div className="flex border-b border-gray-200 mb-4 bg-white rounded-t-lg px-2">
-        <button
-          onClick={() => setActiveTab('my-class')}
-          className={`px-4 py-3 text-sm font-medium border-b-2 flex items-center gap-2 transition-colors ${activeTab === 'my-class' ? 'border-green-600 text-green-700 bg-green-50/50' : 'border-transparent text-gray-500 hover:bg-gray-50'}`}
-        >
-          <FiUsers className="w-4 h-4" /> My Class Results
-        </button>
-        <button
-          onClick={() => setActiveTab('subject-analysis')}
-          className={`px-4 py-3 text-sm font-medium border-b-2 flex items-center gap-2 transition-colors ${activeTab === 'subject-analysis' ? 'border-blue-600 text-blue-700 bg-blue-50/50' : 'border-transparent text-gray-500 hover:bg-gray-50'}`}
-        >
-          <FiActivity className="w-4 h-4" /> Subject Analysis
-        </button>
-      </div>
+        {/* Status banner */}
+        {displayExam ? (
+          <div className={`rounded-lg p-3 mb-4 flex items-center gap-3 ${
+            displayExamStatus === 'active' ? 'bg-green-50 border border-green-200'
+              : displayExamStatus === 'completed' ? 'bg-blue-50 border border-blue-200'
+                : 'bg-gray-50 border border-gray-200'
+          }`}>
+            {displayExamStatus === 'active' ? (
+              <FiCheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
+            ) : (
+              <FiInfo className={`w-5 h-5 flex-shrink-0 ${displayExamStatus === 'completed' ? 'text-blue-600' : 'text-gray-500'}`} />
+            )}
+            <div className={`text-sm ${displayExamStatus === 'active' ? 'text-green-700' : displayExamStatus === 'completed' ? 'text-blue-700' : 'text-gray-600'}`}>
+              <span className="font-semibold">
+                {displayExamStatus === 'active' ? '📝' : displayExamStatus === 'completed' ? '📊' : '📅'} {displayExam.title}
+              </span>
+              <span className="text-xs ml-2 opacity-70">
+                {displayExamStatus === 'active' ? 'Active' : displayExamStatus === 'completed' ? 'Completed' : 'Upcoming'}
+                {displayExam.endDateTime && ` • ${new Date(displayExam.endDateTime).toLocaleDateString()}`}
+              </span>
+            </div>
+          </div>
+        ) : (
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-4 flex items-center gap-3">
+            <FiInfo className="w-5 h-5 text-gray-500 flex-shrink-0" />
+            <div className="text-sm text-gray-600"><span className="font-semibold">📋 No exams available</span></div>
+          </div>
+        )}
 
-      {/* ======================= TAB 1: MY CLASS RESULTS ======================= */}
-      {activeTab === 'my-class' && (
-        <div className="space-y-4">
-          {classReportData.length > 0 && classReportStats && classReportExam ? (
-            <>
-              <div className={`bg-gradient-to-r from-green-600 to-blue-600 rounded-lg ${deviceInfo.isMobile ? 'p-2' : 'p-3'} mb-3 text-white`}>
-                <h2 className={`${deviceInfo.isMobile ? 'text-base' : 'text-lg'} font-bold`}>{teacherProfile?.classAssigned} {teacherProfile?.streamAssigned ? `- ${teacherProfile.streamAssigned}` : ''}</h2>
-                <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} font-semibold mt-1`}>Exam: {classReportExam.title}</p>
-                <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} opacity-90`}>Term: {classReportExam.term} | Year: {classReportExam.year}</p>
-              </div>
+        {/* Tabs */}
+        <div className="flex border-b border-gray-200 mb-4 bg-white rounded-t-lg px-2">
+          <button
+            onClick={() => setActiveTab('my-class')}
+            className={`px-4 py-3 text-sm font-medium border-b-2 flex items-center gap-2 transition-colors ${activeTab === 'my-class' ? 'border-green-600 text-green-700 bg-green-50/50' : 'border-transparent text-gray-500 hover:bg-gray-50'}`}
+          >
+            <FiUsers className="w-4 h-4" /> My Class Results
+          </button>
+          <button
+            onClick={() => setActiveTab('subject-analysis')}
+            className={`px-4 py-3 text-sm font-medium border-b-2 flex items-center gap-2 transition-colors ${activeTab === 'subject-analysis' ? 'border-blue-600 text-blue-700 bg-blue-50/50' : 'border-transparent text-gray-500 hover:bg-gray-50'}`}
+          >
+            <FiActivity className="w-4 h-4" /> Subject Analysis
+          </button>
+        </div>
 
-              <div className={`grid ${responsive.statsGrid} ${deviceInfo.isMobile ? 'gap-1' : 'gap-2'} mb-3`}>
-                {[
-                  { label: 'Students', value: classReportStats.totalStudents, color: 'text-blue-600' },
-                  { label: 'Complete', value: classReportStats.completeCount, color: 'text-green-600' },
-                  { label: 'Missing', value: classReportStats.incompleteCount, color: 'text-red-600' },
-                  { label: 'Class Avg', value: `${classReportStats.classAverage}%`, color: 'text-green-600' },
-                  { label: 'Pass Rate', value: `${classReportStats.passRate}%`, color: 'text-yellow-600' },
-                ].map((stat, i) => (
-                  <div key={i} className="bg-white rounded-lg shadow p-2 text-center">
-                    <p className="text-gray-500 text-[10px]">{stat.label}</p>
-                    <p className={`text-lg font-bold ${stat.color}`}>{stat.value}</p>
-                  </div>
-                ))}
-              </div>
-
-              <div className="bg-white rounded-lg shadow overflow-hidden mb-3">
-                <div className="px-2 py-1.5 border-b bg-gray-50 flex justify-between items-center flex-wrap gap-2">
-                  <h3 className="text-xs font-bold">CLASS RESULTS TABLE</h3>
-                  <div className="flex gap-1 flex-wrap">
-                    <button onClick={downloadFullClassExcel} className="bg-green-600 text-white rounded px-2 py-0.5 text-[10px] flex items-center gap-0.5"><FiDownload className="w-3 h-3" /> Excel</button>
-                    <button onClick={downloadFullClassWord} className="bg-blue-600 text-white rounded px-2 py-0.5 text-[10px] flex items-center gap-0.5"><FiFileText className="w-3 h-3" /> Word</button>
-                  </div>
+        {/* ======================= MY CLASS TAB ======================= */}
+        {activeTab === 'my-class' && (
+          <div className="space-y-4">
+            {classReportData.length > 0 && classReportStats && classReportExam ? (
+              <>
+                <div className={`bg-gradient-to-r from-green-600 to-blue-600 rounded-lg ${deviceInfo.isMobile ? 'p-2' : 'p-3'} mb-3 text-white`}>
+                  <h2 className={`${deviceInfo.isMobile ? 'text-base' : 'text-lg'} font-bold`}>{teacherProfile?.classAssigned} {teacherProfile?.streamAssigned ? `- ${teacherProfile.streamAssigned}` : ''}</h2>
+                  <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} font-semibold mt-1`}>Exam: {classReportExam.title}</p>
+                  <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} opacity-90`}>Term: {classReportExam.term} | Year: {classReportExam.year}</p>
                 </div>
-                <div className="overflow-x-auto max-h-96">
-                  <table className="w-full text-[11px] min-w-[900px]">
-                    <thead className="bg-gray-100 sticky top-0">
-                      <tr>
-                        <th className="px-1 py-1 text-center">Pos</th>
-                        <th className="px-1 py-1 text-left">Name</th>
-                        <th className="px-1 py-1 text-left">Adm</th>
-                        {allSubjectsInReport.map(subj => <th key={subj} className="px-1 py-1 text-center" title={subj}>{subj.substring(0, 4)}</th>)}
-                        <th className="px-1 py-1 text-center bg-blue-50">Tot</th>
-                        <th className="px-1 py-1 text-center bg-green-50">Avg%</th>
-                        <th className="px-1 py-1 text-center">Gr</th>
-                        <th className="px-1 py-1 text-center">Comp</th>
-                        <th className="px-1 py-1 text-center">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y">
-                      {classReportData.map((s, idx) => {
-                        const rankBg = s.classPosition === 1 ? 'bg-yellow-50' : s.classPosition === 2 ? 'bg-gray-50' : s.classPosition === 3 ? 'bg-orange-50' : '';
-                        return (
-                          <tr key={idx} className={`${rankBg} ${s.hasMissingMarks ? 'opacity-75' : ''} hover:bg-gray-50`}>
-                            <td className="px-1 py-1 text-center font-bold">{s.classPosition}</td>
-                            <td className="px-1 py-1 font-medium truncate max-w-[120px]">{s.name}</td>
-                            <td className="px-1 py-1 text-gray-600">{s.admNo}</td>
-                            {allSubjectsInReport.map(subj => {
-                              const marks = s.subjectMarks[subj];
-                              const markClass = marks === undefined ? 'text-red-400' :
-                                marks >= 80 ? 'text-purple-600 font-bold' :
-                                marks >= 60 ? 'text-green-600 font-bold' :
-                                marks >= 40 ? 'text-blue-600' : 'text-red-600';
-                              return <td key={subj} className={`px-1 py-1 text-center ${markClass}`}>{marks !== undefined ? marks : 'X'}</td>;
-                            })}
-                            <td className="px-1 py-1 text-center font-bold text-blue-600 bg-blue-50">{s.totalMarks}</td>
-                            <td className="px-1 py-1 text-center font-bold text-green-600 bg-green-50">{s.averageScore}</td>
-                            <td className="px-1 py-1 text-center font-bold">{s.grade}</td>
-                            <td className="px-1 py-1 text-center font-bold" style={{ color: s.competency?.color || '#333' }}>{s.competency?.level || 'N/A'}</td>
-                            <td className="px-1 py-1 text-center">
-                              <button onClick={() => { setSelectedStudent(s); setShowReportCard(true); }} className="bg-blue-500 text-white rounded hover:bg-blue-600 px-2 py-0.5 text-[9px]">Print</button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
 
-              {streamAnalysis.length > 0 && (
+                <div className={`grid ${responsive.statsGrid} ${deviceInfo.isMobile ? 'gap-1' : 'gap-2'} mb-3`}>
+                  {[
+                    { label: 'Students', value: classReportStats.totalStudents, color: 'text-blue-600' },
+                    { label: 'Complete', value: classReportStats.completeCount, color: 'text-green-600' },
+                    { label: 'Missing', value: classReportStats.incompleteCount, color: 'text-red-600' },
+                    { label: 'Class Avg', value: `${classReportStats.classAverage}%`, color: 'text-green-600' },
+                    { label: 'Pass Rate', value: `${classReportStats.passRate}%`, color: 'text-yellow-600' },
+                  ].map((stat, i) => (
+                    <div key={i} className="bg-white rounded-lg shadow p-2 text-center">
+                      <p className="text-gray-500 text-[10px]">{stat.label}</p>
+                      <p className={`text-lg font-bold ${stat.color}`}>{stat.value}</p>
+                    </div>
+                  ))}
+                </div>
+
                 <div className="bg-white rounded-lg shadow overflow-hidden mb-3">
-                  <div className="px-3 py-2 border-b bg-gradient-to-r from-blue-50 to-green-50">
-                    <h3 className="text-sm font-bold text-gray-800">STREAM ANALYSIS (Best → Lowest)</h3>
+                  <div className="px-2 py-1.5 border-b bg-gray-50 flex justify-between items-center flex-wrap gap-2">
+                    <h3 className="text-xs font-bold">CLASS RESULTS TABLE</h3>
+                    <div className="flex gap-1 flex-wrap">
+                      <button onClick={downloadFullClassExcel} className="bg-green-600 text-white rounded px-2 py-0.5 text-[10px] flex items-center gap-0.5"><FiDownload className="w-3 h-3" /> Excel</button>
+                      <button onClick={downloadFullClassWord} className="bg-blue-600 text-white rounded px-2 py-0.5 text-[10px] flex items-center gap-0.5"><FiFileText className="w-3 h-3" /> Word</button>
+                    </div>
                   </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs min-w-[700px]">
-                      <thead className="bg-gray-100">
+                  <div className="overflow-x-auto max-h-96">
+                    <table className="w-full text-[11px] min-w-[900px]">
+                      <thead className="bg-gray-100 sticky top-0">
                         <tr>
-                          <th className="px-2 py-1 text-left">Stream</th>
-                          <th className="px-2 py-1 text-center">Students</th>
-                          <th className="px-2 py-1 text-center">Mean</th>
-                          <th className="px-2 py-1 text-center">Grade</th>
-                          {allSubjectsInReport.map(subj => <th key={subj} className="px-2 py-1 text-center" title={subj}>{subj.substring(0, 4)}</th>)}
+                          <th className="px-1 py-1 text-center">Pos</th>
+                          <th className="px-1 py-1 text-left">Name</th>
+                          <th className="px-1 py-1 text-left">Adm</th>
+                          {allSubjectsInReport.map(subj => <th key={subj} className="px-1 py-1 text-center" title={subj}>{subj.substring(0, 4)}</th>)}
+                          <th className="px-1 py-1 text-center bg-blue-50">Tot</th>
+                          <th className="px-1 py-1 text-center bg-green-50">Avg%</th>
+                          <th className="px-1 py-1 text-center">Gr</th>
+                          <th className="px-1 py-1 text-center">Comp</th>
+                          <th className="px-1 py-1 text-center">Action</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y">
-                        {streamAnalysis.map((sa, i) => (
-                          <tr key={i} className={i === 0 ? 'bg-yellow-50' : ''}>
-                            <td className="px-2 py-1 font-medium">{sa.stream}</td>
-                            <td className="px-2 py-1 text-center">{sa.count}</td>
-                            <td className="px-2 py-1 text-center font-bold text-green-700">{sa.mean}</td>
-                            <td className="px-2 py-1 text-center font-bold">{sa.grade}</td>
-                            {allSubjectsInReport.map(subj => (
-                              <td key={subj} className="px-2 py-1 text-center text-blue-700">{sa.subjectMeans[subj] || 0}</td>
-                            ))}
-                          </tr>
-                        ))}
+                        {classReportData.map((s, idx) => {
+                          const rankBg = s.classPosition === 1 ? 'bg-yellow-50' : s.classPosition === 2 ? 'bg-gray-50' : s.classPosition === 3 ? 'bg-orange-50' : '';
+                          return (
+                            <tr key={idx} className={`${rankBg} ${s.hasMissingMarks ? 'opacity-75' : ''} hover:bg-gray-50`}>
+                              <td className="px-1 py-1 text-center font-bold">{s.classPosition}</td>
+                              <td className="px-1 py-1 font-medium truncate max-w-[120px]">{s.name}</td>
+                              <td className="px-1 py-1 text-gray-600">{s.admNo}</td>
+                              {allSubjectsInReport.map(subj => {
+                                const marks = s.subjectMarks[subj];
+                                const markClass = marks === undefined ? 'text-red-400'
+                                  : marks >= 80 ? 'text-purple-600 font-bold'
+                                    : marks >= 60 ? 'text-green-600 font-bold'
+                                      : marks >= 40 ? 'text-blue-600' : 'text-red-600';
+                                return <td key={subj} className={`px-1 py-1 text-center ${markClass}`}>{marks !== undefined ? marks : 'X'}</td>;
+                              })}
+                              <td className="px-1 py-1 text-center font-bold text-blue-600 bg-blue-50">{s.totalMarks}</td>
+                              <td className="px-1 py-1 text-center font-bold text-green-600 bg-green-50">{s.averageScore}</td>
+                              <td className="px-1 py-1 text-center font-bold">{s.grade}</td>
+                              <td className="px-1 py-1 text-center font-bold" style={{ color: s.competency?.color || '#333' }}>{s.competency?.level || 'N/A'}</td>
+                              <td className="px-1 py-1 text-center">
+                                <button onClick={() => { setSelectedStudent(s); setShowReportCard(true); }} className="bg-blue-500 text-white rounded hover:bg-blue-600 px-2 py-0.5 text-[9px]">Print</button>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
                 </div>
-              )}
-            </>
-          ) : (
-            <div className="bg-white border rounded-lg p-12 text-center shadow-sm">
-              <FiBarChart2 className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-              <h3 className="text-lg font-semibold text-gray-800 mb-1">No results uploaded yet</h3>
-              <p className="text-sm text-gray-500">Results for your assigned class/stream will appear here once uploaded.</p>
-            </div>
-          )}
-        </div>
-      )}
 
-      {/* ======================= TAB 2: SUBJECT ANALYSIS ======================= */}
-      {activeTab === 'subject-analysis' && (
-        <div className="space-y-4">
-          <div className={`bg-white rounded-lg shadow-md ${responsive.cardPadding} mb-4`}>
-            <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-3 flex items-center gap-2`}>
-              <FiFilter className="text-blue-600" /> Filter Subject Analysis
-            </h2>
-            <div className={`grid ${responsive.filterGrid} ${responsive.gridGap}`}>
-              <div>
-                <label className={`block text-gray-700 font-medium mb-1 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>Year</label>
-                <select value={selectedYear} onChange={(e) => setSelectedYear(parseInt(e.target.value))} className={`input-field w-full ${deviceInfo.isMobile ? 'text-base' : ''}`}>
-                  {years.map(year => <option key={year} value={year}>{year}</option>)}
-                </select>
+                {streamAnalysis.length > 0 && (
+                  <div className="bg-white rounded-lg shadow overflow-hidden mb-3">
+                    <div className="px-3 py-2 border-b bg-gradient-to-r from-blue-50 to-green-50">
+                      <h3 className="text-sm font-bold text-gray-800">STREAM ANALYSIS (Best → Lowest)</h3>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs min-w-[700px]">
+                        <thead className="bg-gray-100">
+                          <tr>
+                            <th className="px-2 py-1 text-left">Stream</th>
+                            <th className="px-2 py-1 text-center">Students</th>
+                            <th className="px-2 py-1 text-center">Mean</th>
+                            <th className="px-2 py-1 text-center">Grade</th>
+                            {allSubjectsInReport.map(subj => <th key={subj} className="px-2 py-1 text-center" title={subj}>{subj.substring(0, 4)}</th>)}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                          {streamAnalysis.map((sa, i) => (
+                            <tr key={i} className={i === 0 ? 'bg-yellow-50' : ''}>
+                              <td className="px-2 py-1 font-medium">{sa.stream}</td>
+                              <td className="px-2 py-1 text-center">{sa.count}</td>
+                              <td className="px-2 py-1 text-center font-bold text-green-700">{sa.mean}</td>
+                              <td className="px-2 py-1 text-center font-bold">{sa.grade}</td>
+                              {allSubjectsInReport.map(subj => (
+                                <td key={subj} className="px-2 py-1 text-center text-blue-700">{sa.subjectMeans[subj] || 0}</td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="bg-white border rounded-lg p-12 text-center shadow-sm">
+                <FiBarChart2 className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                <h3 className="text-lg font-semibold text-gray-800 mb-1">No results uploaded yet</h3>
+                <p className="text-sm text-gray-500">Results for your assigned class/stream will appear here once uploaded.</p>
               </div>
-              <div>
-                <label className={`block text-gray-700 font-medium mb-1 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>Class</label>
-                <select value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)} className={`input-field w-full ${deviceInfo.isMobile ? 'text-base' : ''}`}>
-                  <option value="">All Classes</option>
-                  {availableClasses.map(cls => <option key={cls} value={cls}>{cls}</option>)}
-                </select>
-              </div>
-              {selectedClass && availableStreams.length > 0 && (
+            )}
+          </div>
+        )}
+
+        {/* ======================= SUBJECT ANALYSIS TAB ======================= */}
+        {activeTab === 'subject-analysis' && (
+          <div className="space-y-4">
+            <div className={`bg-white rounded-lg shadow-md ${responsive.cardPadding} mb-4`}>
+              <h2 className={`${responsive.headingSize} font-bold text-gray-800 mb-3 flex items-center gap-2`}>
+                <FiFilter className="text-blue-600" /> Filter Subject Analysis
+              </h2>
+              <div className={`grid ${responsive.filterGrid} ${responsive.gridGap}`}>
                 <div>
-                  <label className={`block text-gray-700 font-medium mb-1 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>Stream</label>
-                  <select value={selectedStream} onChange={(e) => setSelectedStream(e.target.value)} className={`input-field w-full ${deviceInfo.isMobile ? 'text-base' : ''}`}>
-                    <option value="">All Streams (Whole Class)</option>
-                    {availableStreams.map(stream => <option key={stream} value={stream}>{stream}</option>)}
+                  <label className={`block text-gray-700 font-medium mb-1 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>Year</label>
+                  <select value={selectedYear} onChange={(e) => setSelectedYear(parseInt(e.target.value))} className={`input-field w-full ${deviceInfo.isMobile ? 'text-base' : ''}`}>
+                    {years.map(year => <option key={year} value={year}>{year}</option>)}
                   </select>
                 </div>
-              )}
-              <div>
-                <label className={`block text-gray-700 font-medium mb-1 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>Exam Type</label>
-                <select value={selectedExamType} onChange={(e) => setSelectedExamType(e.target.value)} className={`input-field w-full ${deviceInfo.isMobile ? 'text-base' : ''}`}>
-                  <option value="">All Exam Types</option>
-                  {availableExamTypes.map(type => <option key={type} value={type}>{type}</option>)}
-                </select>
+                <div>
+                  <label className={`block text-gray-700 font-medium mb-1 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>Class</label>
+                  <select value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)} className={`input-field w-full ${deviceInfo.isMobile ? 'text-base' : ''}`}>
+                    <option value="">All Classes</option>
+                    {availableClasses.map(cls => <option key={cls} value={cls}>{cls}</option>)}
+                  </select>
+                </div>
+                {selectedClass && availableStreams.length > 0 && (
+                  <div>
+                    <label className={`block text-gray-700 font-medium mb-1 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>Stream</label>
+                    <select value={selectedStream} onChange={(e) => setSelectedStream(e.target.value)} className={`input-field w-full ${deviceInfo.isMobile ? 'text-base' : ''}`}>
+                      <option value="">All Streams (Whole Class)</option>
+                      {availableStreams.map(stream => <option key={stream} value={stream}>{stream}</option>)}
+                    </select>
+                  </div>
+                )}
+                <div>
+                  <label className={`block text-gray-700 font-medium mb-1 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>Exam Type</label>
+                  <select value={selectedExamType} onChange={(e) => setSelectedExamType(e.target.value)} className={`input-field w-full ${deviceInfo.isMobile ? 'text-base' : ''}`}>
+                    <option value="">All Exam Types</option>
+                    {availableExamTypes.map(type => <option key={type} value={type}>{type}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className={`block text-gray-700 font-medium mb-1 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>Exam Name</label>
+                  <select value={selectedExamName} onChange={(e) => setSelectedExamName(e.target.value)} className={`input-field w-full ${deviceInfo.isMobile ? 'text-base' : ''}`} disabled={!selectedExamType}>
+                    <option value="">{!selectedExamType ? 'Select exam type first' : 'All Exam Names'}</option>
+                    {availableExamNames.map(name => <option key={name} value={name}>{name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className={`block text-gray-700 font-medium mb-1 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>Subject</label>
+                  <select value={selectedSubject} onChange={(e) => setSelectedSubject(e.target.value)} className={`input-field w-full ${deviceInfo.isMobile ? 'text-base' : ''}`} disabled={!selectedClass}>
+                    <option value="">{!selectedClass ? 'Select class first' : 'All Subjects'}</option>
+                    {availableSubjects.map(subject => <option key={subject} value={subject}>{subject}</option>)}
+                  </select>
+                </div>
               </div>
-              <div>
-                <label className={`block text-gray-700 font-medium mb-1 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>Exam Name</label>
-                <select value={selectedExamName} onChange={(e) => setSelectedExamName(e.target.value)} className={`input-field w-full ${deviceInfo.isMobile ? 'text-base' : ''}`} disabled={!selectedExamType}>
-                  <option value="">{!selectedExamType ? 'Select exam type first' : 'All Exam Names'}</option>
-                  {availableExamNames.map(name => <option key={name} value={name}>{name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className={`block text-gray-700 font-medium mb-1 ${deviceInfo.isMobile ? 'text-xs' : 'text-sm'}`}>Subject</label>
-                <select value={selectedSubject} onChange={(e) => setSelectedSubject(e.target.value)} className={`input-field w-full ${deviceInfo.isMobile ? 'text-base' : ''}`} disabled={!selectedClass}>
-                  <option value="">{!selectedClass ? 'Select class first' : 'All Subjects'}</option>
-                  {availableSubjects.map(subject => <option key={subject} value={subject}>{subject}</option>)}
-                </select>
+              <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'justify-end gap-3'} mt-4`}>
+                <button onClick={resetFilters} className={`bg-gray-500 hover:bg-gray-600 text-white rounded-lg ${deviceInfo.isMobile ? 'w-full px-4 py-2.5 text-sm' : 'px-4 py-2'}`}>RESET</button>
               </div>
             </div>
-            <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'gap-3'} mt-4`}>
-              <button onClick={loadPerformanceData} disabled={loadingData} className={`btn-primary flex items-center justify-center gap-2 disabled:opacity-50 ${deviceInfo.isMobile ? 'w-full py-2.5 text-sm' : ''}`}>
-                <FiBarChart2 /> {loadingData ? 'Loading...' : 'VIEW DETAILED'}
-              </button>
-              <button onClick={resetFilters} className={`bg-gray-500 hover:bg-gray-600 text-white rounded-lg ${deviceInfo.isMobile ? 'w-full px-4 py-2.5 text-sm' : 'px-4 py-2'}`}>RESET</button>
-            </div>
-          </div>
 
-          {showResults && performanceData.length > 0 && (
-            <>
-              <div className={`grid ${responsive.statsGrid} ${responsive.gridGap} mb-4`}>
-                <div className={`bg-white rounded-lg shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-4'} text-center`}>
-                  <FiUsers className={`${deviceInfo.isMobile ? 'w-5 h-5' : 'w-6 h-6'} text-blue-500 mx-auto mb-1`} />
-                  <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-sm'} text-gray-500`}>Students</p>
-                  <p className={`${deviceInfo.isMobile ? 'text-xl' : 'text-2xl'} font-bold text-gray-800`}>{performanceData.length}</p>
-                </div>
-                <div className={`bg-white rounded-lg shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-4'} text-center`}>
-                  <FiBarChart2 className={`${deviceInfo.isMobile ? 'w-5 h-5' : 'w-6 h-6'} text-green-500 mx-auto mb-1`} />
-                  <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-sm'} text-gray-500`}>Average</p>
-                  <p className={`${deviceInfo.isMobile ? 'text-xl' : 'text-2xl'} font-bold text-green-600`}>{classAverage.toFixed(1)}%</p>
-                </div>
-                <div className={`bg-white rounded-lg shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-4'} text-center`}>
-                  <FiAward className={`${deviceInfo.isMobile ? 'w-5 h-5' : 'w-6 h-6'} text-yellow-500 mx-auto mb-1`} />
-                  <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-sm'} text-gray-500`}>Highest</p>
-                  <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} font-bold text-gray-800 truncate`}>{topStudent?.name || 'N/A'}</p>
-                  <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500`}>{topStudent?.score?.toFixed(1)}%</p>
-                </div>
-                <div className={`bg-white rounded-lg shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-4'} text-center`}>
-                  <FiBookOpen className={`${deviceInfo.isMobile ? 'w-5 h-5' : 'w-6 h-6'} text-purple-500 mx-auto mb-1`} />
-                  <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-sm'} text-gray-500`}>Subject</p>
-                  <p className={`${deviceInfo.isMobile ? 'text-base' : 'text-lg'} font-bold text-purple-600 truncate`}>{selectedSubject}</p>
-                </div>
+            {/* Auto-loading state: shows spinner while query runs once last field chosen */}
+            {subjectAnalysisLoading && subjectAnalysisFiltersReady && (
+              <div className="bg-white rounded-lg shadow-md p-12 text-center">
+                <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto mb-3" />
+                <p className="text-sm text-gray-500">Loading {selectedSubject} results…</p>
               </div>
+            )}
 
-              <div className={`bg-gradient-to-r from-green-50 to-blue-50 rounded-lg ${deviceInfo.isMobile ? 'p-3' : 'p-4'} mb-4`}>
-                <h3 className={`font-bold text-gray-800 ${deviceInfo.isMobile ? 'text-sm' : 'text-lg'}`}>{selectedSubject}</h3>
-                <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-sm'} text-gray-600`}>
-                  {selectedClass} {selectedStream && selectedStream !== 'all' ? `- ${selectedStream}` : '— All Streams'} • {selectedYear} • {selectedTerm || 'All Terms'} • {selectedExamName}
-                </p>
-              </div>
-
-              <div className={`bg-white rounded-lg shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-4'} mb-4`}>
-                <h3 className={`font-bold text-gray-800 ${deviceInfo.isMobile ? 'text-sm' : 'text-lg'} mb-3`}>Competency - {selectedSubject}</h3>
-                <div className="space-y-3">
-                  {competencyLevels.map(level => {
-                    const count = performanceData.filter(s => getCompetencyFromMarks(s.marks)?.level === level.level).length;
-                    const percentage = performanceData.length > 0 ? (count / performanceData.length) * 100 : 0;
-                    return (
-                      <div key={level.level}>
-                        <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-0.5' : 'justify-between'} text-sm mb-0.5`}>
-                          <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'}`}>{level.level}</span>
-                          <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} font-bold`}>{count} ({percentage.toFixed(1)}%)</span>
-                        </div>
-                        <div className="w-full bg-gray-200 rounded-full h-1.5">
-                          <div className={`rounded-full h-1.5 ${level.level === 'EE' ? 'bg-purple-500' : level.level === 'ME' ? 'bg-green-500' : level.level === 'AE' ? 'bg-blue-500' : level.level === 'BE' ? 'bg-yellow-500' : 'bg-red-500'}`} style={{ width: `${percentage}%` }} />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="bg-white rounded-lg shadow-md overflow-hidden mb-4">
-                <div className={`${deviceInfo.isMobile ? 'px-3 py-2' : 'px-6 py-4'} border-b border-gray-200 flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'justify-between items-center'} flex-wrap`}>
-                  <h3 className={`${deviceInfo.isMobile ? 'text-sm' : 'text-lg'} font-bold text-gray-800`}>{selectedSubject} - Students</h3>
-                  <div className="flex gap-2 flex-wrap">
-                    <button onClick={downloadResultsExcel} className={`bg-green-600 hover:bg-green-700 text-white rounded-lg flex items-center justify-center gap-1 ${deviceInfo.isMobile ? 'flex-1 px-2 py-1.5 text-xs' : 'px-4 py-2 text-sm'}`}>
-                      <FiDownload className={deviceInfo.isMobile ? 'w-3 h-3' : 'w-4 h-4'} /> Excel
-                    </button>
-                    <button onClick={downloadResultsWord} className={`bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center justify-center gap-1 ${deviceInfo.isMobile ? 'flex-1 px-2 py-1.5 text-xs' : 'px-4 py-2 text-sm'}`}>
-                      <FiFileText className={deviceInfo.isMobile ? 'w-3 h-3' : 'w-4 h-4'} /> Word
-                    </button>
+            {!subjectAnalysisLoading && analysisStudents.length > 0 && (
+              <>
+                <div className={`grid ${responsive.statsGrid} ${responsive.gridGap} mb-4`}>
+                  <div className={`bg-white rounded-lg shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-4'} text-center`}>
+                    <FiUsers className={`${deviceInfo.isMobile ? 'w-5 h-5' : 'w-6 h-6'} text-blue-500 mx-auto mb-1`} />
+                    <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-sm'} text-gray-500`}>Students</p>
+                    <p className={`${deviceInfo.isMobile ? 'text-xl' : 'text-2xl'} font-bold text-gray-800`}>{analysisStudents.length}</p>
+                  </div>
+                  <div className={`bg-white rounded-lg shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-4'} text-center`}>
+                    <FiBarChart2 className={`${deviceInfo.isMobile ? 'w-5 h-5' : 'w-6 h-6'} text-green-500 mx-auto mb-1`} />
+                    <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-sm'} text-gray-500`}>Average</p>
+                    <p className={`${deviceInfo.isMobile ? 'text-xl' : 'text-2xl'} font-bold text-green-600`}>{analysisAverage.toFixed(1)}%</p>
+                  </div>
+                  <div className={`bg-white rounded-lg shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-4'} text-center`}>
+                    <FiAward className={`${deviceInfo.isMobile ? 'w-5 h-5' : 'w-6 h-6'} text-yellow-500 mx-auto mb-1`} />
+                    <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-sm'} text-gray-500`}>Highest</p>
+                    <p className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} font-bold text-gray-800 truncate`}>{analysisTopStudent?.name || 'N/A'}</p>
+                    <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} text-gray-500`}>{analysisTopStudent?.score?.toFixed(1)}%</p>
+                  </div>
+                  <div className={`bg-white rounded-lg shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-4'} text-center`}>
+                    <FiBookOpen className={`${deviceInfo.isMobile ? 'w-5 h-5' : 'w-6 h-6'} text-purple-500 mx-auto mb-1`} />
+                    <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-sm'} text-gray-500`}>Subject</p>
+                    <p className={`${deviceInfo.isMobile ? 'text-base' : 'text-lg'} font-bold text-purple-600 truncate`}>{selectedSubject}</p>
                   </div>
                 </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className={`${deviceInfo.isMobile ? 'px-2 py-1.5 text-[10px]' : 'px-4 py-3 text-sm'} text-left font-semibold text-gray-700`}>Student</th>
-                        {!deviceInfo.isMobile && <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Adm No</th>}
-                        <th className={`${deviceInfo.isMobile ? 'px-2 py-1.5 text-[10px]' : 'px-4 py-3 text-sm'} text-left font-semibold text-gray-700`}>Stream</th>
-                        <th className={`${deviceInfo.isMobile ? 'px-2 py-1.5 text-[10px]' : 'px-4 py-3 text-sm'} text-center font-semibold text-gray-700`}>Marks</th>
-                        <th className={`${deviceInfo.isMobile ? 'px-2 py-1.5 text-[10px]' : 'px-4 py-3 text-sm'} text-center font-semibold text-gray-700`}>Grade</th>
-                        <th className={`${deviceInfo.isMobile ? 'px-2 py-1.5 text-[10px]' : 'px-4 py-3 text-sm'} text-left font-semibold text-gray-700`}>Competency</th>
-                        {!deviceInfo.isMobile && <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Remarks</th>}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200">
-                      {performanceData.map((student, index) => {
-                        const competency = getCompetencyFromMarks(student.marks);
-                        return (
-                          <tr key={index} className="hover:bg-gray-50">
-                            <td className={`${deviceInfo.isMobile ? 'px-2 py-1.5 text-[10px]' : 'px-4 py-3 text-sm'} font-medium text-gray-800`}>{student.name}</td>
-                            {!deviceInfo.isMobile && <td className="px-4 py-3 text-sm text-gray-600">{student.admNo || '-'}</td>}
-                            <td className={`${deviceInfo.isMobile ? 'px-2 py-1.5 text-[10px]' : 'px-4 py-3 text-sm'}`}>{student.stream || '-'}</td>
-                            <td className={`${deviceInfo.isMobile ? 'px-2 py-1.5 text-[10px]' : 'px-4 py-3 text-sm'} text-center font-semibold`}>{student.marks.toFixed(1)}%</td>
-                            <td className={`${deviceInfo.isMobile ? 'px-2 py-1.5 text-[10px]' : 'px-4 py-3 text-sm'} text-center font-bold`}>{student.grade}</td>
-                            <td className={`${deviceInfo.isMobile ? 'px-2 py-1.5 text-[10px]' : 'px-4 py-3 text-sm'}`}>
-                              {competency ? <span className="px-1.5 py-0.5 text-[10px] rounded-full" style={{ backgroundColor: competency.color, color: '#fff' }}>{competency.level}</span> : '-'}
-                            </td>
-                            {!deviceInfo.isMobile && (
-                              <td className={`px-4 py-3 text-sm font-semibold ${student.marks >= 80 ? 'text-purple-600' : student.marks >= 60 ? 'text-green-600' : student.marks >= 40 ? 'text-blue-600' : 'text-red-600'}`}>
-                                {student.remarks}
-                              </td>
-                            )}
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+
+                <div className={`bg-gradient-to-r from-green-50 to-blue-50 rounded-lg ${deviceInfo.isMobile ? 'p-3' : 'p-4'} mb-4`}>
+                  <h3 className={`font-bold text-gray-800 ${deviceInfo.isMobile ? 'text-sm' : 'text-lg'}`}>{selectedSubject}</h3>
+                  <p className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-sm'} text-gray-600`}>
+                    {selectedClass} {selectedStream && selectedStream !== 'all' ? `- ${selectedStream}` : '— All Streams'} • {selectedYear} • {selectedTerm || 'All Terms'} • {selectedExamName}
+                  </p>
                 </div>
+
+                <div className={`bg-white rounded-lg shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-4'} mb-4`}>
+                  <h3 className={`font-bold text-gray-800 ${deviceInfo.isMobile ? 'text-sm' : 'text-lg'} mb-3`}>Competency - {selectedSubject}</h3>
+                  <div className="space-y-3">
+                    {competencyLevels.map(level => {
+                      const count = analysisStudents.filter(s => getCompetencyFromMarks(s.marks)?.level === level.level).length;
+                      const percentage = analysisStudents.length > 0 ? (count / analysisStudents.length) * 100 : 0;
+                      return (
+                        <div key={level.level}>
+                          <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-0.5' : 'justify-between'} text-sm mb-0.5`}>
+                            <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'}`}>{level.level}</span>
+                            <span className={`${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'} font-bold`}>{count} ({percentage.toFixed(1)}%)</span>
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-1.5">
+                            <div className={`rounded-full h-1.5 ${level.level === 'EE' ? 'bg-purple-500' : level.level === 'ME' ? 'bg-green-500' : level.level === 'AE' ? 'bg-blue-500' : level.level === 'BE' ? 'bg-yellow-500' : 'bg-red-500'}`} style={{ width: `${percentage}%` }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-lg shadow-md overflow-hidden mb-4">
+                  <div className={`${deviceInfo.isMobile ? 'px-3 py-2' : 'px-6 py-4'} border-b border-gray-200 flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'justify-between items-center'} flex-wrap`}>
+                    <h3 className={`${deviceInfo.isMobile ? 'text-sm' : 'text-lg'} font-bold text-gray-800`}>{selectedSubject} - Students</h3>
+                    <div className="flex gap-2 flex-wrap">
+                      <button onClick={downloadResultsExcel} className={`bg-green-600 hover:bg-green-700 text-white rounded-lg flex items-center justify-center gap-1 ${deviceInfo.isMobile ? 'flex-1 px-2 py-1.5 text-xs' : 'px-4 py-2 text-sm'}`}>
+                        <FiDownload className={deviceInfo.isMobile ? 'w-3 h-3' : 'w-4 h-4'} /> Excel
+                      </button>
+                      <button onClick={downloadResultsWord} className={`bg-blue-600 hover:bg-blue-700 text-white rounded-lg flex items-center justify-center gap-1 ${deviceInfo.isMobile ? 'flex-1 px-2 py-1.5 text-xs' : 'px-4 py-2 text-sm'}`}>
+                        <FiFileText className={deviceInfo.isMobile ? 'w-3 h-3' : 'w-4 h-4'} /> Word
+                      </button>
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className={`${deviceInfo.isMobile ? 'px-2 py-1.5 text-[10px]' : 'px-4 py-3 text-sm'} text-left font-semibold text-gray-700`}>Student</th>
+                          {!deviceInfo.isMobile && <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Adm No</th>}
+                          <th className={`${deviceInfo.isMobile ? 'px-2 py-1.5 text-[10px]' : 'px-4 py-3 text-sm'} text-left font-semibold text-gray-700`}>Stream</th>
+                          <th className={`${deviceInfo.isMobile ? 'px-2 py-1.5 text-[10px]' : 'px-4 py-3 text-sm'} text-center font-semibold text-gray-700`}>Marks</th>
+                          <th className={`${deviceInfo.isMobile ? 'px-2 py-1.5 text-[10px]' : 'px-4 py-3 text-sm'} text-center font-semibold text-gray-700`}>Grade</th>
+                          <th className={`${deviceInfo.isMobile ? 'px-2 py-1.5 text-[10px]' : 'px-4 py-3 text-sm'} text-left font-semibold text-gray-700`}>Competency</th>
+                          {!deviceInfo.isMobile && <th className="px-4 py-3 text-left text-sm font-semibold text-gray-700">Remarks</th>}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200">
+                        {analysisStudents.map((student, index) => {
+                          const competency = getCompetencyFromMarks(student.marks);
+                          return (
+                            <tr key={index} className="hover:bg-gray-50">
+                              <td className={`${deviceInfo.isMobile ? 'px-2 py-1.5 text-[10px]' : 'px-4 py-3 text-sm'} font-medium text-gray-800`}>{student.name}</td>
+                              {!deviceInfo.isMobile && <td className="px-4 py-3 text-sm text-gray-600">{student.admNo || '-'}</td>}
+                              <td className={`${deviceInfo.isMobile ? 'px-2 py-1.5 text-[10px]' : 'px-4 py-3 text-sm'}`}>{student.stream || '-'}</td>
+                              <td className={`${deviceInfo.isMobile ? 'px-2 py-1.5 text-[10px]' : 'px-4 py-3 text-sm'} text-center font-semibold`}>{student.marks.toFixed(1)}%</td>
+                              <td className={`${deviceInfo.isMobile ? 'px-2 py-1.5 text-[10px]' : 'px-4 py-3 text-sm'} text-center font-bold`}>{student.grade}</td>
+                              <td className={`${deviceInfo.isMobile ? 'px-2 py-1.5 text-[10px]' : 'px-4 py-3 text-sm'}`}>
+                                {competency ? <span className="px-1.5 py-0.5 text-[10px] rounded-full" style={{ backgroundColor: competency.color, color: '#fff' }}>{competency.level}</span> : '-'}
+                              </td>
+                              {!deviceInfo.isMobile && (
+                                <td className={`px-4 py-3 text-sm font-semibold ${student.marks >= 80 ? 'text-purple-600' : student.marks >= 60 ? 'text-green-600' : student.marks >= 40 ? 'text-blue-600' : 'text-red-600'}`}>
+                                  {student.remarks}
+                                </td>
+                              )}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'justify-end gap-3'} mb-4 flex-wrap`}>
+                  <button onClick={downloadResultsExcel} className={`bg-green-600 text-white rounded-lg font-semibold flex items-center justify-center gap-2 shadow-md hover:bg-green-700 ${deviceInfo.isMobile ? 'w-full px-4 py-3 text-sm' : 'px-6 py-3'}`}>
+                    <FiDownload /> DOWNLOAD EXCEL
+                  </button>
+                  <button onClick={downloadResultsWord} className={`bg-blue-600 text-white rounded-lg font-semibold flex items-center justify-center gap-2 shadow-md hover:bg-blue-700 ${deviceInfo.isMobile ? 'w-full px-4 py-3 text-sm' : 'px-6 py-3'}`}>
+                    <FiFileText /> DOWNLOAD WORD
+                  </button>
+                </div>
+              </>
+            )}
+
+            {!subjectAnalysisLoading && subjectAnalysisFiltersReady && analysisStudents.length === 0 && (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-8 text-center">
+                <FiBarChart2 className={`${deviceInfo.isMobile ? 'w-10 h-10' : 'w-12 h-12'} text-yellow-500 mx-auto mb-3`} />
+                <h3 className={`${deviceInfo.isMobile ? 'text-base' : 'text-lg'} font-semibold text-gray-800 mb-2`}>No Data Found</h3>
+                <p className={`${deviceInfo.isMobile ? 'text-sm' : 'text-base'} text-gray-600`}>
+                  {analysisEmpty === 'no-students'
+                    ? `No students found in ${selectedClass}${selectedStream && selectedStream !== 'all' ? ` - ${selectedStream}` : ''}`
+                    : `No performance data found for ${selectedSubject} in ${selectedClass}`}
+                </p>
               </div>
+            )}
 
-              <div className={`flex ${deviceInfo.isMobile ? 'flex-col gap-2' : 'justify-end gap-3'} mb-4 flex-wrap`}>
-                <button onClick={downloadResultsExcel} className={`bg-green-600 text-white rounded-lg font-semibold flex items-center justify-center gap-2 shadow-md hover:bg-green-700 ${deviceInfo.isMobile ? 'w-full px-4 py-3 text-sm' : 'px-6 py-3'}`}>
-                  <FiDownload /> DOWNLOAD EXCEL
-                </button>
-                <button onClick={downloadResultsWord} className={`bg-blue-600 text-white rounded-lg font-semibold flex items-center justify-center gap-2 shadow-md hover:bg-blue-700 ${deviceInfo.isMobile ? 'w-full px-4 py-3 text-sm' : 'px-6 py-3'}`}>
-                  <FiFileText /> DOWNLOAD WORD
-                </button>
+            {!subjectAnalysisFiltersReady && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 text-center">
+                <FiInfo className="w-8 h-8 text-blue-500 mx-auto mb-2" />
+                <p className="text-sm text-blue-700">
+                  Select <strong>Class</strong>, <strong>Exam Type</strong>, <strong>Exam Name</strong> and <strong>Subject</strong> — results will load automatically once the last field is set.
+                </p>
               </div>
-            </>
-          )}
+            )}
+          </div>
+        )}
 
-          {showResults && performanceData.length === 0 && !loadingData && (
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-8 text-center">
-              <FiBarChart2 className={`${deviceInfo.isMobile ? 'w-10 h-10' : 'w-12 h-12'} text-yellow-500 mx-auto mb-3`} />
-              <h3 className={`${deviceInfo.isMobile ? 'text-base' : 'text-lg'} font-semibold text-gray-800 mb-2`}>No Data Found</h3>
-              <p className={`${deviceInfo.isMobile ? 'text-sm' : 'text-base'} text-gray-600`}>Adjust selections and try again</p>
-            </div>
-          )}
+        {/* Competency guide */}
+        <div className={`mt-4 bg-white rounded-lg shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-4'}`}>
+          <h3 className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} font-semibold text-gray-700 mb-2`}>CBE Competency Levels</h3>
+          <div className={`grid ${deviceInfo.isMobile ? 'grid-cols-2 gap-1' : 'grid-cols-2 md:grid-cols-5 gap-2'}`}>
+            {competencyLevels.map(level => (
+              <div key={level.level} className={`flex items-center gap-1 ${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'}`}>
+                <span className="px-1.5 py-0.5 text-[10px] rounded-full text-white" style={{ backgroundColor: level.color }}>{level.level}</span>
+                <span className="text-gray-500">{level.minScore}-{level.maxScore}%</span>
+              </div>
+            ))}
+          </div>
         </div>
-      )}
 
-      {/* Competency Guide */}
-      <div className={`mt-4 bg-white rounded-lg shadow-md ${deviceInfo.isMobile ? 'p-3' : 'p-4'}`}>
-        <h3 className={`${deviceInfo.isMobile ? 'text-xs' : 'text-sm'} font-semibold text-gray-700 mb-2`}>CBE Competency Levels</h3>
-        <div className={`grid ${deviceInfo.isMobile ? 'grid-cols-2 gap-1' : 'grid-cols-2 md:grid-cols-5 gap-2'}`}>
-          {competencyLevels.map(level => (
-            <div key={level.level} className={`flex items-center gap-1 ${deviceInfo.isMobile ? 'text-[10px]' : 'text-xs'}`}>
-              <span className="px-1.5 py-0.5 text-[10px] rounded-full text-white" style={{ backgroundColor: level.color }}>{level.level}</span>
-              <span className="text-gray-500">{level.minScore}-{level.maxScore}%</span>
-            </div>
-          ))}
-        </div>
+        {showReportCard && selectedStudent && (
+          <ReportCard
+            student={{ ...selectedStudent, ...selectedStudent.subjectMarks }}
+            schoolInfo={schoolInfo}
+            selectedClass={teacherProfile?.classAssigned}
+            selectedStream={teacherProfile?.streamAssigned}
+            selectedTerm={classReportExam?.term}
+            selectedYear={classReportExam?.year}
+            allSubjects={allSubjectsInReport}
+            subjectAverages={{}}
+            competencyLevels={competencyLevels}
+            getGrade={getGradeFromMarks}
+            getCompetencyLevel={getCompetencyFromMarks}
+            getRecommendation={getRecommendation}
+            onClose={() => { setShowReportCard(false); setSelectedStudent(null); }}
+            combinedExamResults={null}
+            examNames={[classReportExam?.title]}
+            feeSummary={null}
+            showStreamColumn={!!teacherProfile?.streamAssigned}
+            skills={skillsSummary[String(selectedStudent.id)] || []}
+            careerInsights={careerInsights[selectedStudent.id] || []}
+            showSkillsOnReport={true}
+            showCareerOnReport={true}
+            showFeesOnReportCard={false}
+            classHasAnySkills={Object.values(skillsSummary).some(a => a.length > 0)}
+          />
+        )}
+
+        <style>{`
+          @media (max-width: 768px) {
+            .input-field { font-size: 16px !important; }
+            input, select { font-size: 16px !important; }
+          }
+        `}</style>
       </div>
-
-      {showReportCard && selectedStudent && (
-        <ReportCard
-          student={{ ...selectedStudent, ...selectedStudent.subjectMarks }}
-          schoolInfo={schoolInfo}
-          selectedClass={teacherProfile?.classAssigned}
-          selectedStream={teacherProfile?.streamAssigned}
-          selectedTerm={classReportExam?.term}
-          selectedYear={classReportExam?.year}
-          allSubjects={allSubjectsInReport}
-          subjectAverages={{}}
-          competencyLevels={competencyLevels}
-          getGrade={getGradeFromMarks}
-          getCompetencyLevel={getCompetencyFromMarks}
-          getRecommendation={getRecommendation}
-          onClose={() => { setShowReportCard(false); setSelectedStudent(null); }}
-          combinedExamResults={null}
-          examNames={[classReportExam?.title]}
-          feeSummary={null}
-          showStreamColumn={!!teacherProfile?.streamAssigned}
-          skills={skillsSummary[String(selectedStudent.id)] || []}
-          careerInsights={careerInsights[selectedStudent.id] || []}
-          showSkillsOnReport={true}
-          showCareerOnReport={true}
-          showFeesOnReportCard={false}
-          classHasAnySkills={Object.values(skillsSummary).some(a => a.length > 0)}
-        />
-      )}
-
-      <style>{`
-        @media (max-width: 768px) {
-          .input-field { font-size: 16px !important; }
-          input, select { font-size: 16px !important; }
-        }
-      `}</style>
     </Layout>
   );
 };

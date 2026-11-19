@@ -14,8 +14,8 @@ const ReportCard = ({
   allSubjects,
   subjectAverages,
   competencyLevels,
-  getGrade,
-  getCompetencyLevel,
+  getGrade: propGetGrade, // Renamed to avoid conflict with local resolver
+  getCompetencyLevel: propGetCompetencyLevel, // Renamed
   getRecommendation,
   onClose,
   combinedExamResults = null,
@@ -28,8 +28,8 @@ const ReportCard = ({
   showCareerOnReport = false,
   showFeesOnReportCard = false,
   classHasAnySkills = false,
-  // 🆕 Next-term fee: { nextTerm, nextYear, nextTermFee, pupilClass }
   nextTermFee = null,
+  customGrading = { isCustom: false, rules: [] }, // 🆕 New prop
 }) => {
   const printRef = useRef();
   const [termHistory, setTermHistory] = useState([]);
@@ -63,6 +63,27 @@ const ReportCard = ({
     } finally {
       setLoading(false);
     }
+  };
+
+  // 🆕 Internal helper for local usages within the card
+  const resolveGrade = (marks) => {
+    if (customGrading.isCustom && customGrading.rules.length > 0) {
+      const sorted = [...customGrading.rules].sort((a, b) => b.maxScore - a.maxScore);
+      const match = sorted.find(r => marks >= r.minScore && marks <= r.maxScore);
+      return match ? match.grade : '-';
+    }
+    // Fallback to standard prop
+    return propGetGrade ? propGetGrade(marks) : '-';
+  };
+
+  const resolveCompetency = (marks) => {
+    if (customGrading.isCustom && customGrading.rules.length > 0) {
+      const sorted = [...customGrading.rules].sort((a, b) => b.maxScore - a.maxScore);
+      const match = sorted.find(r => marks >= r.minScore && marks <= r.maxScore);
+      if (match) return { level: match.grade, color: match.color || '#333', description: match.description };
+    }
+    // Fallback to standard prop
+    return propGetCompetencyLevel ? propGetCompetencyLevel(marks) : { level: '-', color: '#333', description: '' };
   };
 
   const handlePrint = () => {
@@ -204,15 +225,19 @@ const ReportCard = ({
 
   const totalMarks = allSubjects.reduce((sum, subject) => sum + (student[subject] || 0), 0);
   const averageScore = allSubjects.length > 0 ? totalMarks / allSubjects.length : 0;
-  const grade = getGrade(averageScore);
-  const competency = getCompetencyLevel(averageScore);
+  const grade = resolveGrade(averageScore);
+  const competency = resolveCompetency(averageScore);
   const recommendation = getRecommendation(averageScore);
 
-  const chartData = termHistory.map(term => ({
-    term: term.termName || term.term,
-    average: term.averageScore || 0,
-    grade: term.grade || 'N/A'
-  })).slice(-4); // Keep only last 4 terms
+  // Build chart data based on custom rules if present
+  const chartData = termHistory.map(term => {
+    const avg = term.averageScore || 0;
+    return {
+      term: term.termName || term.term,
+      average: avg,
+      grade: resolveGrade(avg)
+    };
+  }).slice(-4); 
 
   const fee = feeSummary || {
     totalFee: 0, paid: 0, balance: 0,
@@ -249,11 +274,30 @@ const ReportCard = ({
     );
   };
 
+  // 🆕 Build custom competency key string
+  const renderCompetencyKey = () => {
+    const levels = customGrading.isCustom && customGrading.rules.length > 0 
+      ? customGrading.rules.map(r => ({ level: r.grade, color: r.color, description: r.description || '' }))
+      : competencyLevels;
+
+    return (
+      <div className="mt-3">
+        <h4 className="font-semibold text-sm">Competency Level Key:</h4>
+        <div className="grid grid-cols-5 gap-2 mt-1">
+          {levels.map((level, i) => (
+            <div key={i} className="text-center text-xs border rounded p-1">
+              <span style={{ color: level.color, fontWeight: 'bold' }}>{level.level}</span>
+              <p className="text-[10px] text-gray-500">{level.description}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   /* ============================================================
      🆕 Chart calculations for precise dimensions
      ============================================================ */
-  // 4cm height @ ~96ppi = 151px
-  // 2cm width per term @ ~96ppi = 76px per term (plus 40px for the Y-axis)
   const chartHeight = 151;
   const yAxisWidth = 35;
   const termWidth = 76;
@@ -384,16 +428,16 @@ const ReportCard = ({
                       <tbody>
                         {allSubjects.map(subject => {
                           const finalMarks = student[subject] || 0;
-                          const finalGrade = getGrade(finalMarks);
-                          const finalComp = getCompetencyLevel(finalMarks);
+                          const finalGrade = resolveGrade(finalMarks);
+                          const finalComp = resolveCompetency(finalMarks);
                           return (
                             <tr key={subject}>
                               <td className="border border-gray-400 px-2 py-1 text-left font-medium">{subject}</td>
                               {examNames.map(examName => {
                                 const marks = combinedExamResults[examName]?.[student.id]?.[subject];
                                 const hasMarks = marks !== undefined && marks !== null && marks !== 0;
-                                const subjGrade = hasMarks ? getGrade(marks) : '-';
-                                const subjComp = hasMarks ? getCompetencyLevel(marks) : null;
+                                const subjGrade = hasMarks ? resolveGrade(marks) : '-';
+                                const subjComp = hasMarks ? resolveCompetency(marks) : null;
                                 return (
                                   <React.Fragment key={`${examName}-${subject}`}>
                                     <td className={`border border-gray-400 px-1 py-1 text-center ${!hasMarks ? 'text-red-400 bg-gray-50' : ''}`}>
@@ -469,8 +513,8 @@ const ReportCard = ({
                         {allSubjects.map(subject => {
                           const marks = student[subject];
                           const hasMarks = marks !== undefined;
-                          const subjectGrade = hasMarks ? getGrade(marks) : 'X';
-                          const subjectCompetency = hasMarks ? getCompetencyLevel(marks) : { level: 'X', color: '#999' };
+                          const subjectGrade = hasMarks ? resolveGrade(marks) : 'X';
+                          const subjectCompetency = hasMarks ? resolveCompetency(marks) : { level: 'X', color: '#999' };
                           return (
                             <tr key={subject}>
                               <td className="border border-gray-400 px-2 py-1 text-left font-medium">{subject}</td>
@@ -502,17 +546,7 @@ const ReportCard = ({
                 </div>
               )}
 
-              <div className="mt-3">
-                <h4 className="font-semibold text-sm">Competency Level Key:</h4>
-                <div className="grid grid-cols-5 gap-2 mt-1">
-                  {competencyLevels.map(level => (
-                    <div key={level.level} className="text-center text-xs border rounded p-1">
-                      <span style={{ color: level.color, fontWeight: 'bold' }}>{level.level}</span>
-                      <p className="text-[10px] text-gray-500">{level.description}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              {renderCompetencyKey()}
 
               {/* 🆕 Performance History Chart — Fixed Dimensions */}
               {chartData.length > 0 && (
@@ -673,7 +707,6 @@ const ReportCard = ({
                             </tbody>
                           </table>
 
-                          {/* 🆕 Next Term Fee — inline right after term-by-term table */}
                           {renderNextTermFeeInline()}
                         </div>
                       )}

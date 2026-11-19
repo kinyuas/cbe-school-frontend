@@ -7,9 +7,12 @@ import {
   FiUsers, FiPlus, FiRefreshCw, FiPower, FiHome, FiUserCheck,
   FiDollarSign, FiLogOut, FiAlertCircle, FiShield, FiAward,
   FiSearch, FiX, FiFilter, FiBookOpen, FiTrendingUp, FiCheckCircle,
-  FiSlash, FiMail, FiChevronDown, FiDatabase // 🆕 Added
+  FiSlash, FiMail, FiChevronDown, FiDatabase, FiCreditCard, FiMessageSquare
 } from 'react-icons/fi';
 
+// ============================================================
+// COMPONENTS
+// ============================================================
 const StatTile = ({ icon: Icon, label, value, accent }) => (
   <div className="bg-gray-800/70 border border-gray-700/70 rounded-xl px-4 py-3 flex items-center gap-3">
     <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${accent}`}>
@@ -78,7 +81,6 @@ const SchoolCard = ({ school, onToggleStatus, onTogglePortal, onRefreshStats }) 
           <span className="truncate" title={school.adminEmail}>{school.adminEmail}</span>
         </div>
         
-        {/* Display the Cluster Name from the Database */}
         {school.clusterName && (
           <div className="flex items-center gap-1.5 truncate">
             <FiDatabase className="w-3 h-3 flex-shrink-0 text-indigo-400" />
@@ -145,6 +147,9 @@ const SchoolCard = ({ school, onToggleStatus, onTogglePortal, onRefreshStats }) 
   );
 };
 
+// ============================================================
+// MAIN COMPONENT
+// ============================================================
 const SuperAdminDashboard = () => {
   const navigate = useNavigate();
   const [schools, setSchools] = useState([]);
@@ -154,6 +159,19 @@ const SuperAdminDashboard = () => {
   const [showModal, setShowModal] = useState(false);
   const [formData, setFormData] = useState({ name: '', adminEmail: '' });
   const [registering, setRegistering] = useState(false);
+
+  // 🆕 Platform SMS State
+  const [platformStats, setPlatformStats] = useState({
+    platformBalance: 0,
+    totalAllocated: 0,
+    totalPurchased: 0,
+    recentPurchases: []
+  });
+  const [showTopupModal, setShowTopupModal] = useState(false);
+  const [topupUnits, setTopupUnits] = useState('');
+  
+  // 🆕 Pending Payments State
+  const [pendingPayments, setPendingPayments] = useState([]);
 
   // Filters
   const [search, setSearch] = useState('');
@@ -194,12 +212,42 @@ const SuperAdminDashboard = () => {
     }
   }, [debouncedSearch, statusFilter, sortBy, navigate]);
 
+  // 🆕 Fetch Platform SMS Stats
+  const fetchPlatformStats = async () => {
+    try {
+      const res = await api.get('/sms/platform-stats');
+      if (res.data?.success) {
+        setPlatformStats(res.data.data);
+      }
+    } catch (e) {
+      console.warn('Failed to load platform stats. Using defaults.', e);
+      setPlatformStats({
+        platformBalance: 0,
+        totalAllocated: 0,
+        totalPurchased: 0,
+        recentPurchases: []
+      });
+    }
+  };
+
+  // 🆕 Fetch Pending Payments
+  const fetchPendingPayments = async () => {
+    try {
+      const res = await api.get('/sms/pending-payments');
+      if (res.data.success) setPendingPayments(res.data.data);
+    } catch (e) {
+      console.error('Failed to fetch pending payments', e);
+    }
+  };
+
   useEffect(() => {
     if (!token) {
       navigate('/sys-admin-login');
       return;
     }
     fetchSchools();
+    fetchPlatformStats();
+    fetchPendingPayments();
   }, [token, navigate, fetchSchools]);
 
   const handleRegisterSchool = async (e) => {
@@ -214,13 +262,25 @@ const SuperAdminDashboard = () => {
     } catch (error) {
       const msg = error.response?.data?.message || 'Failed to register school';
       if (msg.includes('cluster') || msg.includes('Configuration')) {
-        // Show the long error message for 8 seconds so you can read it
         toast.error(msg, { duration: 8000 }); 
       } else {
         toast.error(msg);
       }
     } finally {
       setRegistering(false);
+    }
+  };
+
+  const handleTopup = async (e) => {
+    e.preventDefault();
+    try {
+      await api.post('/sms/platform-topup', { units: Number(topupUnits) });
+      toast.success('Platform balance updated!');
+      setShowTopupModal(false);
+      setTopupUnits('');
+      fetchPlatformStats();
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Top-up failed');
     }
   };
 
@@ -272,6 +332,25 @@ const SuperAdminDashboard = () => {
     }
   };
 
+  // 🆕 Approve/Reject Payment Handler
+  const handleApprove = async (requestId, action) => {
+    const confirmMsg = action === 'approve' 
+      ? 'Confirm you have verified this M-Pesa code in your bank statement? This will instantly credit the school.'
+      : 'Are you sure you want to REJECT this payment request?';
+      
+    if (!window.confirm(confirmMsg)) return;
+    
+    try {
+      const res = await api.post('/sms/approve-payment', { requestId, action });
+      toast.success(res.data.message);
+      fetchPendingPayments();
+      fetchPlatformStats();
+      fetchSchools(); // refresh school stats to show updated counts if needed
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Action failed');
+    }
+  };
+
   const handleLogout = () => {
     localStorage.removeItem('superAdminToken');
     localStorage.removeItem('token');
@@ -279,16 +358,18 @@ const SuperAdminDashboard = () => {
   };
 
   const hasActiveFilters = search || statusFilter !== 'all' || sortBy !== 'recent';
-
   const clearFilters = () => {
     setSearch('');
     setStatusFilter('all');
     setSortBy('recent');
   };
 
+  const isLowBalance = platformStats.platformBalance < 1000;
+
   return (
-    <div className="min-h-screen bg-gray-900 text-white">
+    <div className="min-h-screen bg-gray-900 text-white pb-12">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
+        
         {/* ============ TOP BAR ============ */}
         <div className="flex flex-wrap justify-between items-start gap-3 mb-6">
           <div>
@@ -313,7 +394,7 @@ const SuperAdminDashboard = () => {
               title="Recount stats for every school"
             >
               <FiRefreshCw className={`w-3.5 h-3.5 ${refreshingAll ? 'animate-spin' : ''}`} />
-              {refreshingAll ? 'Refreshing…' : 'Refresh All Stats'}
+              {refreshingAll ? 'Refreshing…' : 'Refresh Stats'}
             </button>
             <button
               onClick={handleLogout}
@@ -324,9 +405,143 @@ const SuperAdminDashboard = () => {
           </div>
         </div>
 
+        {/* ============ 🆕 PENDING M-PESA PAYMENTS ============ */}
+        {pendingPayments.length > 0 && (
+          <div className="mb-6 bg-gradient-to-r from-amber-900/40 to-gray-900 border border-amber-600/50 rounded-2xl p-4 sm:p-5 shadow-2xl">
+            <h3 className="text-sm font-bold text-amber-400 mb-4 flex items-center gap-2">
+              <FiAlertCircle className="w-4 h-4" /> Action Required: Pending M-Pesa Payments
+            </h3>
+            <div className="overflow-x-auto rounded-lg border border-amber-700/30">
+              <table className="w-full text-xs text-left text-gray-300">
+                <thead className="bg-black/40 text-gray-400 uppercase tracking-wider text-[10px]">
+                  <tr>
+                    <th className="px-4 py-3 rounded-tl-lg">Date</th>
+                    <th className="px-4 py-3">School</th>
+                    <th className="px-4 py-3">M-Pesa Code</th>
+                    <th className="px-4 py-3 text-right">Amount Paid</th>
+                    <th className="px-4 py-3 text-right">SMS Requested</th>
+                    <th className="px-4 py-3 text-center rounded-tr-lg">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-700/50 bg-gray-800/40">
+                  {pendingPayments.map((p) => (
+                    <tr key={p._id} className="hover:bg-amber-900/10 transition-colors">
+                      <td className="px-4 py-3 whitespace-nowrap">{new Date(p.createdAt).toLocaleDateString()}</td>
+                      <td className="px-4 py-3">
+                        <span className="font-semibold text-white">{p.schoolName}</span> 
+                        <span className="text-indigo-400 text-[10px] ml-1 bg-indigo-900/30 px-1.5 py-0.5 rounded">({p.schoolCode})</span>
+                      </td>
+                      <td className="px-4 py-3 font-mono text-amber-200 font-bold">{p.mpesaCode}</td>
+                      <td className="px-4 py-3 text-right text-green-400 font-bold">KSH {p.amountKes.toLocaleString()}</td>
+                      <td className="px-4 py-3 text-right font-bold text-white">{p.unitsRequested} SMS</td>
+                      <td className="px-4 py-3 flex items-center justify-center gap-2">
+                        <button 
+                          onClick={() => handleApprove(p._id, 'approve')} 
+                          className="bg-green-600 hover:bg-green-500 text-white px-3 py-1.5 rounded-lg font-semibold transition-colors shadow-lg shadow-green-900/30 flex items-center gap-1"
+                        >
+                          <FiCheckCircle className="w-3 h-3" /> Approve
+                        </button>
+                        <button 
+                          onClick={() => handleApprove(p._id, 'reject')} 
+                          className="bg-red-600 hover:bg-red-500 text-white px-3 py-1.5 rounded-lg font-semibold transition-colors shadow-lg shadow-red-900/30 flex items-center gap-1"
+                        >
+                          <FiX className="w-3 h-3" /> Reject
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* ============ PLATFORM SMS BALANCE & TOP-UP PANEL ============ */}
+        <div className={`mb-6 rounded-2xl border p-5 sm:p-6 shadow-2xl flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6 transition-all ${isLowBalance ? 'bg-gradient-to-br from-red-900/40 to-gray-900 border-red-700/50' : 'bg-gradient-to-br from-indigo-900/40 to-gray-900 border-indigo-700/50'}`}>
+          
+          {/* Balance Display */}
+          <div className="flex-shrink-0">
+            <p className="text-xs uppercase font-bold text-gray-400 flex items-center gap-2 mb-1">
+              <FiMessageSquare className={isLowBalance ? 'text-red-400' : 'text-indigo-400'} /> Platform SMS Balance
+            </p>
+            <div className="flex items-end gap-3">
+              <p className={`text-4xl sm:text-5xl font-extrabold ${isLowBalance ? 'text-red-400' : 'text-white'}`}>
+                {platformStats.platformBalance.toLocaleString()} <span className="text-lg sm:text-xl text-gray-400 font-medium">SMS</span>
+              </p>
+            </div>
+            {isLowBalance ? (
+              <span className="inline-flex mt-2 bg-red-500/20 text-red-300 text-xs px-2.5 py-1 rounded-md border border-red-500/30 items-center gap-1 font-semibold">
+                <FiAlertCircle /> Low Balance Alert Sent to Phone & Email
+              </span>
+            ) : (
+              <p className="text-[11px] text-gray-400 mt-2">
+                Total Allocated: <strong className="text-gray-200">{platformStats.totalAllocated}</strong> | Total Purchased: <strong className="text-gray-200">{platformStats.totalPurchased}</strong>
+              </p>
+            )}
+          </div>
+
+          {/* Instructions for Top-Up */}
+          <div className="bg-black/30 p-4 rounded-xl text-[11px] text-gray-300 border border-gray-700/50 max-w-md w-full">
+            <p className="font-bold text-white mb-2 flex items-center gap-1.5 text-sm">
+              <FiCreditCard /> How to Top-Up Africa's Talking
+            </p>
+            <ol className="list-decimal pl-4 space-y-1.5">
+              <li>Log in to <a href="https://account.africastalking.com" target="_blank" rel="noreferrer" className="text-indigo-400 hover:underline">Africa's Talking Dashboard</a>.</li>
+              <li>Go to <strong>Billing &gt; Buy Airtime</strong>.</li>
+              <li>Pay via M-Pesa to AT Paybill <strong className="text-white">525900</strong>.</li>
+              <li>Once AT confirms the receipt, click <strong>Update Platform Balance</strong> to log your purchase here.</li>
+            </ol>
+          </div>
+
+          <div className="flex flex-col gap-2 w-full xl:w-auto">
+            <button
+              onClick={() => setShowTopupModal(true)}
+              className="w-full bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-2.5 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 shadow-lg shadow-indigo-900/50 transition-all"
+            >
+              <FiPlus /> Update Platform Balance
+            </button>
+          </div>
+        </div>
+
+        {/* ============ RECENT SMS PURCHASES BY SCHOOLS ============ */}
+        {platformStats.recentPurchases?.length > 0 && (
+          <div className="mb-6 bg-gray-800/40 border border-gray-700 rounded-2xl p-4 sm:p-5">
+            <h3 className="text-sm font-bold text-white mb-4 flex items-center gap-2">
+              <FiTrendingUp className="text-green-400" /> Recent School SMS Purchases
+            </h3>
+            <div className="overflow-x-auto rounded-lg border border-gray-700/50">
+              <table className="w-full text-left text-xs text-gray-300">
+                <thead className="bg-gray-900/80 text-gray-400 uppercase tracking-wider text-[10px]">
+                  <tr>
+                    <th className="px-4 py-3 rounded-tl-lg">Date</th>
+                    <th className="px-4 py-3">School</th>
+                    <th className="px-4 py-3 text-right">SMS Bought</th>
+                    <th className="px-4 py-3 text-right">Amount Paid</th>
+                    <th className="px-4 py-3 font-mono rounded-tr-lg">M-Pesa Code</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-700/50 bg-gray-800/20">
+                  {platformStats.recentPurchases.map((p) => (
+                    <tr key={p._id} className="hover:bg-gray-700/30 transition-colors">
+                      <td className="px-4 py-3 whitespace-nowrap">{new Date(p.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</td>
+                      <td className="px-4 py-3">
+                        <span className="font-semibold text-white">{p.schoolName}</span> 
+                        <span className="text-indigo-400 text-[10px] ml-1 bg-indigo-900/30 px-1.5 py-0.5 rounded">({p.schoolCode})</span>
+                      </td>
+                      <td className="px-4 py-3 text-right text-green-400 font-bold">+{p.unitsAllocated}</td>
+                      <td className="px-4 py-3 text-right font-medium text-gray-200">KSH {p.amountKes.toLocaleString()}</td>
+                      <td className="px-4 py-3 font-mono text-gray-400">{p.mpesaCode}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
         {/* ============ SUMMARY TILES ============ */}
         {summary && (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5 mb-5">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5 mb-6">
             <StatTile icon={FiHome} label="Schools" value={summary.total} accent="bg-indigo-600/20 text-indigo-400" />
             <StatTile icon={FiCheckCircle} label="Active" value={summary.active} accent="bg-green-600/20 text-green-400" />
             <StatTile icon={FiSlash} label="Suspended" value={summary.suspended} accent="bg-red-600/20 text-red-400" />
@@ -346,7 +561,7 @@ const SuperAdminDashboard = () => {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search by name, code or admin email…"
-              className="w-full bg-gray-900/70 border border-gray-700 text-sm text-white pl-9 pr-8 py-2 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+              className="w-full bg-gray-900/70 border border-gray-700 text-sm text-white pl-9 pr-8 py-2 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all"
             />
             {search && (
               <button
@@ -401,7 +616,7 @@ const SuperAdminDashboard = () => {
 
           <button
             onClick={() => setShowModal(true)}
-            className="ml-auto bg-indigo-600 hover:bg-indigo-700 px-3 py-2 rounded-lg text-xs font-medium flex items-center gap-1.5"
+            className="ml-auto bg-indigo-600 hover:bg-indigo-500 px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-lg shadow-indigo-900/30"
           >
             <FiPlus className="w-3.5 h-3.5" /> New School
           </button>
@@ -454,8 +669,8 @@ const SuperAdminDashboard = () => {
 
       {/* ============ REGISTER MODAL ============ */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
-          <div className="bg-gray-800 rounded-xl p-6 w-full max-w-md border border-gray-700 shadow-2xl">
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50 transition-opacity">
+          <div className="bg-gray-800 rounded-2xl p-6 w-full max-w-md border border-gray-700 shadow-2xl">
             <h2 className="text-xl font-bold mb-4 text-white">Register New School</h2>
 
             <form onSubmit={handleRegisterSchool} className="space-y-4">
@@ -465,7 +680,7 @@ const SuperAdminDashboard = () => {
                   type="text"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                  className="w-full bg-gray-700 text-white px-4 py-2.5 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
                   placeholder="e.g. Kianjiru High School"
                   required
                 />
@@ -476,7 +691,7 @@ const SuperAdminDashboard = () => {
                   type="email"
                   value={formData.adminEmail}
                   onChange={(e) => setFormData({ ...formData, adminEmail: e.target.value })}
-                  className="w-full bg-gray-700 text-white px-4 py-2 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                  className="w-full bg-gray-700 text-white px-4 py-2.5 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
                   placeholder="admin@school.com"
                   required
                 />
@@ -493,16 +708,52 @@ const SuperAdminDashboard = () => {
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-2 rounded-lg font-medium"
+                  className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-2.5 rounded-lg font-medium transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={registering}
-                  className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-lg font-medium disabled:opacity-50"
+                  className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white py-2.5 rounded-lg font-medium disabled:opacity-50 transition-colors"
                 >
                   {registering ? 'Registering...' : 'Register School'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============ 🆕 MANUAL TOP-UP MODAL ============ */}
+      {showTopupModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50 transition-opacity">
+          <div className="bg-gray-800 rounded-2xl p-6 w-full max-w-md border border-gray-700 shadow-2xl">
+            <h2 className="text-xl font-bold mb-2 text-white">Update Platform Balance</h2>
+            <p className="text-xs text-gray-400 mb-4">
+              Enter the number of SMS you just purchased from Africa's Talking. This will increase your platform balance so schools can continue buying.
+            </p>
+
+            <form onSubmit={handleTopup} className="space-y-4">
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">SMS Amount Bought</label>
+                <input
+                  type="number"
+                  required
+                  min="1"
+                  value={topupUnits}
+                  onChange={(e) => setTopupUnits(e.target.value)}
+                  className="w-full bg-gray-700 text-white px-4 py-3 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-lg font-bold transition-all"
+                  placeholder="e.g. 5000"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={() => setShowTopupModal(false)} className="flex-1 bg-gray-700 hover:bg-gray-600 text-white py-2.5 rounded-lg font-medium transition-colors">
+                  Cancel
+                </button>
+                <button type="submit" className="flex-1 bg-green-600 hover:bg-green-500 text-white py-2.5 rounded-lg font-medium transition-colors shadow-lg shadow-green-900/30">
+                  Add to Balance
                 </button>
               </div>
             </form>

@@ -340,6 +340,10 @@ const Reports = () => {
   const [schoolInfo, setSchoolInfo] = useState({});
   const [schoolClasses, setSchoolClasses] = useState([]);
   const [feesData, setFeesData] = useState({});
+  
+  // 🆕 Custom Grading State
+  const [customGrading, setCustomGrading] = useState({ isCustom: false, rules: [] });
+
   const [reportCardConfig, setReportCardConfig] = useState({
     showFeesOnReportCard: false,
     showFeesOnClassReport: false,
@@ -400,11 +404,14 @@ const Reports = () => {
   ];
 
   /* ---------- Helpers ---------- */
-  const getCompetencyLevel = (marks) => {
-    for (let l of competencyLevels) if (marks >= l.minScore && marks <= l.maxScore) return l;
-    return competencyLevels[4];
-  };
+  // 🆕 Helper: Resolve Grade based on Custom rules or fallback to Default
   const getGrade = (marks) => {
+    if (customGrading.isCustom && customGrading.rules.length > 0) {
+      const sorted = [...customGrading.rules].sort((a, b) => b.maxScore - a.maxScore);
+      const match = sorted.find(r => marks >= r.minScore && marks <= r.maxScore);
+      return match ? match.grade : '-';
+    }
+    // Default fallback
     if (marks >= 80) return 'A'; if (marks >= 75) return 'A-';
     if (marks >= 70) return 'B+'; if (marks >= 65) return 'B';
     if (marks >= 60) return 'B-'; if (marks >= 55) return 'C+';
@@ -412,6 +419,21 @@ const Reports = () => {
     if (marks >= 40) return 'D+'; if (marks >= 35) return 'D';
     if (marks >= 30) return 'D-'; return 'E';
   };
+
+  // 🆕 Helper: Resolve Competency based on Custom rules or fallback
+  const getCompetencyLevel = (marks) => {
+    if (customGrading.isCustom && customGrading.rules.length > 0) {
+      const sorted = [...customGrading.rules].sort((a, b) => b.maxScore - a.maxScore);
+      const match = sorted.find(r => marks >= r.minScore && marks <= r.maxScore);
+      if (match) {
+        return { level: match.grade, color: match.color || '#333', description: match.description || match.grade };
+      }
+    }
+    // Default fallback
+    for (let l of competencyLevels) if (marks >= l.minScore && marks <= l.maxScore) return l;
+    return competencyLevels[4];
+  };
+
   const getRecommendation = (avg) => {
     if (avg >= 80) return 'Excellent mastery. Continue challenging with advanced tasks.';
     if (avg >= 60) return 'Good understanding. Maintain and encourage more challenging tasks.';
@@ -419,6 +441,7 @@ const Reports = () => {
     if (avg >= 20) return 'Below expectation. Implement remedial support.';
     return 'Well below expectation. Immediate intensive intervention needed.';
   };
+
   const getClassOrder = (name) => CLASS_ORDER.indexOf(name) === -1 ? 999 : CLASS_ORDER.indexOf(name);
   const sortClassesByOrder = (arr) => [...arr].sort((a, b) => getClassOrder(a) - getClassOrder(b));
   const classHasStreams = (name) => {
@@ -611,6 +634,10 @@ const Reports = () => {
           website: s.website || '',
           schoolLogo: s.schoolLogo || s.logo || '',
         });
+        // 🆕 Load custom grading rules
+        if (s.gradingSystem) {
+          setCustomGrading(s.gradingSystem);
+        }
         if (s.reportCardConfig) {
           setReportCardConfig(prev => ({ ...prev, ...s.reportCardConfig }));
         }
@@ -838,7 +865,7 @@ const Reports = () => {
     });
 
     return performanceData;
-  }, [selectedClass, selectedTerm, selectedExamType, selectedExamName, selectedYear, selectedStream, reportType, isCombinedReport, selectedCombinedExams, examWeights, results, feesData]);
+  }, [selectedClass, selectedTerm, selectedExamType, selectedExamName, selectedYear, selectedStream, reportType, isCombinedReport, selectedCombinedExams, examWeights, results, feesData, customGrading]);
 
 
   /* ============================================================
@@ -873,7 +900,7 @@ const Reports = () => {
 
     result.sort((a, b) => b.mean - a.mean);
     return result;
-  }, [filteredData, showStreamColumns, allSubjects]);
+  }, [filteredData, showStreamColumns, allSubjects, customGrading]);
 
   /* ============================================================
      🧠 AI CAREER INSIGHTS
@@ -1863,6 +1890,7 @@ const Reports = () => {
           showFeesOnReportCard={reportCardConfig.showFeesOnReportCard}
           classHasAnySkills={Object.values(skillsSummary).some(a => a.length > 0)}
           nextTermFee={nextTermFees[selectedStudent.id] || null}
+          customGrading={customGrading}
         />
       )}
     </Layout>

@@ -97,6 +97,12 @@ const SchoolSettings = () => {
   const [newCategory, setNewCategory] = useState('');
   const [newProficiency, setNewProficiency] = useState({ name: '', rank: '' });
 
+  // 🆕 Grading System State
+  const [gradingSystem, setGradingSystem] = useState({
+    isCustom: false,
+    rules: []
+  });
+
   // AI weighting
   const [aiWeighting, setAiWeighting] = useState({
     academic: 60, skills: 30, interests: 10, dynamicEnabled: false
@@ -166,6 +172,14 @@ const SchoolSettings = () => {
           requireEvidenceNotes: !!s.skillsConfig.requireEvidenceNotes,
           allowTeacherDelete: s.skillsConfig.allowTeacherDelete !== false
         });
+
+        // 🆕 Load Grading System
+        if (s.gradingSystem) {
+          setGradingSystem({
+            isCustom: s.gradingSystem.isCustom || false,
+            rules: s.gradingSystem.rules || []
+          });
+        }
 
         if (s.aiWeighting) setAiWeighting({
           academic: s.aiWeighting.academic ?? 60,
@@ -249,7 +263,6 @@ const SchoolSettings = () => {
   };
 
   /* ---------- STREAM HELPERS ---------- */
-  // 🆕 If maxStreams === 1 and user tries to add a stream, auto-bump the cap
   const addStream = (cls) => {
     const curr = streamNames[cls] || [];
     let cap = maxStreams;
@@ -351,7 +364,6 @@ const SchoolSettings = () => {
         isActive: c.isActive !== false,
       }));
 
-      // 🆕 Auto-bump maxStreams if any class exceeds it
       const largestStreamCount = Math.max(0, ...finalClasses.map((c) => c.streams.length));
       const effectiveMax = Math.max(maxStreams, largestStreamCount);
 
@@ -383,7 +395,7 @@ const SchoolSettings = () => {
   };
 
   /* ============================================================
-     BURSAR (unchanged logic)
+     BURSAR
      ============================================================ */
   const sendBursarCode = async () => {
     if (!bursarForm.name.trim()) return toast.error('Name required');
@@ -493,6 +505,55 @@ const SchoolSettings = () => {
   };
 
   /* ============================================================
+     🆕 GRADING SYSTEM
+     ============================================================ */
+  const saveGradingSystem = async () => {
+    if (gradingSystem.isCustom && gradingSystem.rules.length === 0) {
+      return toast.error('Please add at least one grading rule');
+    }
+
+    // 🆕 If not custom, force rules to an empty array so it deletes from DB
+    const payload = {
+      isCustom: gradingSystem.isCustom,
+      rules: gradingSystem.isCustom 
+        ? [...gradingSystem.rules].sort((a, b) => b.maxScore - a.maxScore) 
+        : []
+    };
+
+    try {
+      const res = await api.put('/school/grading-system', payload);
+      if (res.data.success) {
+        toast.success(gradingSystem.isCustom ? 'Grading system saved' : 'Custom grading system removed');
+        setGradingSystem(res.data.data);
+      }
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Failed to save grading system');
+    }
+  };
+
+  const addGradingRule = () => {
+    setGradingSystem(prev => ({
+      ...prev,
+      rules: [...prev.rules, { grade: '', minScore: 0, maxScore: 100, description: '', color: '#333333' }]
+    }));
+  };
+
+  const updateGradingRule = (index, field, value) => {
+    setGradingSystem(prev => {
+      const newRules = [...prev.rules];
+      newRules[index] = { ...newRules[index], [field]: value };
+      return { ...prev, rules: newRules };
+    });
+  };
+
+  const removeGradingRule = (index) => {
+    setGradingSystem(prev => ({
+      ...prev,
+      rules: prev.rules.filter((_, i) => i !== index)
+    }));
+  };
+
+  /* ============================================================
      AI WEIGHTING & CAREER MAPPING
      ============================================================ */
   const saveAiWeighting = async () => {
@@ -575,7 +636,6 @@ const SchoolSettings = () => {
             classes: prev.classes.map((c) => ({ ...c, streams: updated[c.name] || [] })),
           }));
 
-          // 🆕 Auto-bump maxStreams if pupils have more streams than current config
           if (maxFound > maxStreams) {
             setMaxStreams(maxFound);
             setSchoolInfo((prev) => ({ ...prev, maxStreamsPerClass: maxFound }));
@@ -604,10 +664,8 @@ const SchoolSettings = () => {
     );
   }
 
-  // 🆕 Live preview of skills (what teachers will actually see)
-  const previewCategories = skillsConfig.categories.length > 0
-    ? skillsConfig.categories
-    : [];
+  // Live preview of skills
+  const previewCategories = skillsConfig.categories.length > 0 ? skillsConfig.categories : [];
   const previewLevels = skillsConfig.proficiencyLevels.length > 0
     ? [...skillsConfig.proficiencyLevels].sort((a, b) => (a.rank || 0) - (b.rank || 0))
     : [];
@@ -684,7 +742,7 @@ const SchoolSettings = () => {
         </div>
       </Card>
 
-      {/* ============ 2. CLASSES & STREAMS (🆕 rewritten) ============ */}
+      {/* ============ 2. CLASSES & STREAMS ============ */}
       <Card title="Classes & Streams" icon={<FiBookOpen />} deviceInfo={deviceInfo} accent="text-green-600">
         <div className="flex flex-wrap items-end gap-3 mb-5">
           <div>
@@ -703,7 +761,6 @@ const SchoolSettings = () => {
           </button>
         </div>
 
-        {/* 🆕 Hint when streams disabled */}
         {maxStreams === 1 && (
           <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-3 flex gap-2 text-xs text-blue-800">
             <FiInfo className="w-4 h-4 flex-shrink-0 mt-0.5" />
@@ -715,7 +772,6 @@ const SchoolSettings = () => {
           </div>
         )}
 
-        {/* CBE Category picker */}
         <div className="mb-5">
           <p className="text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide">
             CBE Categories — tick to add
@@ -751,7 +807,6 @@ const SchoolSettings = () => {
           </div>
         </div>
 
-        {/* Active class cards */}
         <p className="text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide">
           Active Classes ({activeClasses.length})
         </p>
@@ -785,7 +840,6 @@ const SchoolSettings = () => {
                     </div>
                   </div>
 
-                  {/* 🆕 Streams ALWAYS visible (not only when maxStreams > 1) */}
                   <div className="mt-2 pl-3 border-l-2 border-blue-200">
                     <div className="flex items-center justify-between mb-1">
                       <p className="text-[10px] uppercase text-gray-400 font-semibold">Streams</p>
@@ -797,7 +851,6 @@ const SchoolSettings = () => {
                       )}
                     </div>
 
-                    {/* Show existing streams as chips */}
                     {streamsForClass.length > 0 && (
                       <div className="flex flex-wrap gap-1.5 mb-2">
                         {streamsForClass.map((s, i) => (
@@ -808,7 +861,6 @@ const SchoolSettings = () => {
                       </div>
                     )}
 
-                    {/* Editable streams */}
                     {streamsForClass.map((s, i) => (
                       <div key={i} className="flex gap-2 items-center mb-1">
                         <input type="text" value={s}
@@ -839,7 +891,6 @@ const SchoolSettings = () => {
           </div>
         )}
 
-        {/* Custom class + inactive */}
         {showAddClass ? (
           <div className="mt-4 flex gap-2">
             <input type="text" value={newClassName}
@@ -874,7 +925,112 @@ const SchoolSettings = () => {
         )}
       </Card>
 
-      {/* ============ 3. REPORT CARD DISPLAY ============ */}
+      {/* ============ 3. 🆕 GRADING SYSTEM ============ */}
+      <Card title="Grading System & Competency Levels" icon={<FiAward />} deviceInfo={deviceInfo} accent="text-cyan-600">
+        <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-800 flex gap-2">
+          <FiInfo className="w-4 h-4 flex-shrink-0 mt-0.5" />
+          <div>
+            By default, the system uses standard CBE competencies (EE, ME, AE, BE, WBE). You can choose to define your own custom grading system (e.g., A, B, C, D, E) below.
+          </div>
+        </div>
+
+        <label className="flex items-center gap-2 text-sm cursor-pointer mb-4 font-semibold">
+          <input 
+            type="checkbox" 
+            checked={gradingSystem.isCustom}
+            onChange={(e) => setGradingSystem(prev => ({ ...prev, isCustom: e.target.checked }))}
+            className="w-4 h-4" 
+          />
+          Use custom grading system for this school
+        </label>
+
+        {gradingSystem.isCustom && (
+          <div className="space-y-3 border-t pt-4">
+            <div className="flex justify-between items-center mb-2">
+              <p className="text-xs font-semibold text-gray-600 uppercase">Grading Rules</p>
+              <button onClick={addGradingRule} className="text-xs bg-cyan-100 text-cyan-700 px-3 py-1 rounded-full font-semibold hover:bg-cyan-200 flex items-center gap-1">
+                <FiPlus /> Add Rule
+              </button>
+            </div>
+
+            {gradingSystem.rules.length === 0 && (
+              <p className="text-xs text-gray-500 italic text-center py-4">No rules defined yet. Add one above.</p>
+            )}
+
+            {gradingSystem.rules.map((rule, idx) => (
+              <div key={idx} className="grid grid-cols-1 md:grid-cols-12 gap-2 items-end bg-gray-50 border border-gray-200 p-2 rounded-lg">
+                <div className="md:col-span-2">
+                  <label className="block text-[10px] text-gray-500 font-semibold mb-1">Grade Name</label>
+                  <input 
+                    type="text" 
+                    value={rule.grade} 
+                    onChange={(e) => updateGradingRule(idx, 'grade', e.target.value)}
+                    placeholder="e.g., A, EE" 
+                    className="input-field w-full text-sm py-1.5" 
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-[10px] text-gray-500 font-semibold mb-1">Min Score (%)</label>
+                  <input 
+                    type="number" 
+                    value={rule.minScore} 
+                    onChange={(e) => updateGradingRule(idx, 'minScore', parseInt(e.target.value) || 0)}
+                    min="0" max="100"
+                    className="input-field w-full text-sm py-1.5" 
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-[10px] text-gray-500 font-semibold mb-1">Max Score (%)</label>
+                  <input 
+                    type="number" 
+                    value={rule.maxScore} 
+                    onChange={(e) => updateGradingRule(idx, 'maxScore', parseInt(e.target.value) || 0)}
+                    min="0" max="100"
+                    className="input-field w-full text-sm py-1.5" 
+                  />
+                </div>
+                <div className="md:col-span-4">
+                  <label className="block text-[10px] text-gray-500 font-semibold mb-1">Description (Optional)</label>
+                  <input 
+                    type="text" 
+                    value={rule.description} 
+                    onChange={(e) => updateGradingRule(idx, 'description', e.target.value)}
+                    placeholder="e.g., Excellent, Meeting Expectation" 
+                    className="input-field w-full text-sm py-1.5" 
+                  />
+                </div>
+                <div className="md:col-span-1">
+                  <label className="block text-[10px] text-gray-500 font-semibold mb-1">Color</label>
+                  <input 
+                    type="color" 
+                    value={rule.color || '#333333'} 
+                    onChange={(e) => updateGradingRule(idx, 'color', e.target.value)}
+                    className="w-full h-8 rounded border border-gray-300 cursor-pointer" 
+                  />
+                </div>
+                <div className="md:col-span-1 flex justify-end pb-1">
+                  <button onClick={() => removeGradingRule(idx)} className="text-red-500 hover:text-red-700 p-1">
+                    <FiTrash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+
+            <button onClick={saveGradingSystem} className="mt-3 bg-cyan-600 text-white rounded-lg px-4 py-2 text-sm font-semibold hover:bg-cyan-700">
+              <FiSave className="inline w-4 h-4 mr-1" /> Save Grading System
+            </button>
+          </div>
+        )}
+
+        {/* 🆕 Save button for when custom is disabled, so you can save the deletion */}
+        {!gradingSystem.isCustom && (
+          <button onClick={saveGradingSystem} className="mt-3 bg-gray-200 text-gray-700 rounded-lg px-4 py-2 text-sm font-semibold hover:bg-gray-300">
+             <FiSave className="inline w-4 h-4 mr-1" /> Save (Clear Custom Grades)
+          </button>
+        )}
+      </Card>
+
+      {/* ============ 4. REPORT CARD DISPLAY ============ */}
       <Card title="Report Card Display" icon={<FiFileText />} deviceInfo={deviceInfo} accent="text-pink-600">
         <div className="space-y-2">
           {[
@@ -907,7 +1063,7 @@ const SchoolSettings = () => {
         </div>
       </Card>
 
-      {/* ============ 4. SKILLS & TALENTS (🆕 with live preview) ============ */}
+      {/* ============ 5. SKILLS & TALENTS ============ */}
       <Card title="Skills & Talents" icon={<FiAward />} deviceInfo={deviceInfo} accent="text-orange-600">
         <div className="mb-4">
           <p className="text-xs font-semibold text-gray-600 mb-2">Categories</p>
@@ -980,7 +1136,6 @@ const SchoolSettings = () => {
           </label>
         </div>
 
-        {/* 🆕 LIVE PREVIEW — what teachers/pupils will see */}
         <div className="mt-4 bg-gray-50 border border-gray-200 rounded-lg p-3">
           <p className="text-xs font-semibold text-gray-700 mb-2 flex items-center gap-1">
             <FiEye className="w-3.5 h-3.5" /> Preview — what teachers/pupils will see
@@ -1020,7 +1175,7 @@ const SchoolSettings = () => {
         </button>
       </Card>
 
-      {/* ============ 5. BURSAR ============ */}
+      {/* ============ 6. BURSAR ============ */}
       <Card title="Bursar / Accountant" icon={<FiUserPlus />} deviceInfo={deviceInfo} accent="text-purple-600">
         {!bursar && !showBursarForm && (
           <div className="text-center py-4 bg-purple-50 rounded-lg">
@@ -1145,7 +1300,7 @@ const SchoolSettings = () => {
         )}
       </Card>
 
-      {/* ============ 6. ADVANCED ============ */}
+      {/* ============ 7. ADVANCED ============ */}
       <details className="bg-white rounded-xl shadow-md p-5 mb-5">
         <summary className="cursor-pointer font-bold text-gray-800 text-sm flex items-center gap-2">
           <FiTarget className="text-indigo-600" /> Advanced: AI Weighting & Career Mapping

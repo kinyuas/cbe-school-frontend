@@ -3,7 +3,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
 import {
-  FiSearch, FiPlus, FiX, FiEye, FiUser, FiCalendar, FiCheckCircle, FiTrendingUp
+  FiSearch, FiPlus, FiX, FiEye, FiUser, FiCalendar, FiCheckCircle, FiTrendingUp,
+  FiMessageSquare, FiSend, FiDollarSign, FiRefreshCw, FiAlertCircle, FiUsers,
 } from 'react-icons/fi';
 
 const fmtMoney = (v) => `KSh ${Number(v || 0).toLocaleString()}`;
@@ -23,6 +24,368 @@ const classOrder = (n) => {
 const TERMS = ['Term 1', 'Term 2', 'Term 3'];
 const TERM_IDX = { 'Term 1': 0, 'Term 2': 1, 'Term 3': 2 };
 
+// ============================================================
+// 🆕 SMS BALANCE BANNER (Matches Admin Portal Style)
+// Loads /sms/account-info and refreshes after every send
+// ============================================================
+const SmsBalanceBanner = ({ refreshKey = 0 }) => {
+  const [accountInfo, setAccountInfo] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const res = await api.get('/sms/account-info');
+        if (!cancelled && res.data?.success) {
+          setAccountInfo(res.data.data);
+        }
+      } catch (e) {
+        if (!cancelled) setAccountInfo(null);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [refreshKey]);
+
+  if (loading || !accountInfo) return null;
+
+  const sellPrice = accountInfo.sellPrice || 1.20;
+  const paybill = accountInfo.provider?.paybill || accountInfo.provider?.tillNumber || '525900';
+  const accountNumber = accountInfo.provider?.accountNumber || '';
+  const low = accountInfo.creditBalance < 50;
+
+  return (
+    <div className={`border rounded-xl p-4 transition-colors ${low ? 'bg-red-50 border-red-200' : 'bg-gradient-to-r from-emerald-50 to-blue-50 border-emerald-200'}`}>
+      <div className="flex flex-col md:flex-row justify-between gap-4">
+        <div>
+          <p className={`text-xs uppercase font-semibold ${low ? 'text-red-500' : 'text-gray-500'}`}>SMS Credits Balance</p>
+          <p className={`text-2xl font-bold ${low ? 'text-red-700' : 'text-emerald-700'}`}>
+            {accountInfo.creditBalance} SMS
+          </p>
+          <p className="text-[10px] text-gray-500 mt-1">
+            Sell price: <strong>KSH {sellPrice}</strong>/SMS · Provider: {accountInfo.provider?.name || 'Africa\'s Talking'}
+          </p>
+        </div>
+        <div className="text-xs text-gray-600 space-y-1 md:text-right">
+          <p className="font-semibold text-gray-800">Buy more SMS via M-Pesa</p>
+          <p>Paybill: <strong className="text-emerald-700 text-sm">{paybill}</strong></p>
+          {accountNumber && (
+            <p>Account: <strong className="text-emerald-700 font-mono text-sm">{accountNumber}</strong></p>
+          )}
+          <p className="text-[10px] text-gray-400">→ Credits appear automatically within ~1 min</p>
+        </div>
+      </div>
+      <p className="text-[10px] text-gray-500 mt-2 italic border-t border-black/5 pt-2">
+        Account Number MUST be your exact school code — that's how the system knows which school to credit.
+      </p>
+    </div>
+  );
+};
+
+// ============================================================
+// 🆕 SINGLE PUPIL SMS MODAL — BURSAR (uses /fees/sms/*)
+// ============================================================
+const SingleSmsModal = ({ student, filterYear, onClose, onSent }) => {
+  const [template, setTemplate] = useState(
+    `Dear {name}, fee balance for {admNo} ({class}) is {balance}. Kindly clear to avoid penalties.`
+  );
+  const [estimate, setEstimate] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [sending, setSending] = useState(false);
+
+  useEffect(() => {
+    if (!template.trim()) { setEstimate(null); return; }
+    const t = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const res = await api.post('/fees/sms/estimate', {
+          mode: 'pupils',
+          pupilIds: [student._id],
+          template,
+        });
+        if (res.data?.success) setEstimate(res.data.data);
+      } catch (e) {
+        setEstimate(null);
+        if (e.response?.status !== 400) {
+          console.warn('estimate error:', e.response?.data?.message || e.message);
+        }
+      } finally {
+        setLoading(false);
+      }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [template, student._id]);
+
+  const handleSend = async () => {
+    if (!template.trim()) return toast.error('Enter a message');
+    if (!estimate) return toast.error('Wait for cost estimate');
+    if (!window.confirm(
+      `Send SMS to parent of ${student.name}? Cost ≈ KSH ${estimate.totalCost.toFixed(2)}`
+    )) return;
+
+    setSending(true);
+    try {
+      const res = await api.post('/fees/sms/send', {
+        mode: 'pupils',
+        pupilIds: [student._id],
+        template,
+      });
+      if (res.data?.success) {
+        toast.success(res.data.message);
+        onSent?.(res.data?.data?.creditBalance);
+        onClose();
+      } else {
+        toast.error(res.data?.message || 'Send failed');
+      }
+    } catch (e) {
+      if (e.response?.data?.code === 'INSUFFICIENT_CREDIT') {
+        toast.error(e.response.data.message, { duration: 7000 });
+      } else {
+        toast.error(e.response?.data?.message || 'Send failed');
+      }
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const previewMsg = estimate?.preview?.[0]?.message;
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden">
+        <div className="bg-gray-900 px-6 py-4 flex justify-between items-center text-white">
+          <div>
+            <h2 className="text-lg font-bold flex items-center gap-2">
+              <FiMessageSquare /> Send Fee SMS to Parent
+            </h2>
+            <p className="text-xs text-gray-400">
+              {student.name} · {student.admNo} · {student.class} · Fees {filterYear}
+            </p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-white">
+            <FiX className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-4">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-800">
+            <strong>Tokens you can use:</strong>
+            <code className="mx-1 px-1 bg-white rounded">{"{name}"}</code>
+            <code className="mx-1 px-1 bg-white rounded">{"{admNo}"}</code>
+            <code className="mx-1 px-1 bg-white rounded">{"{class}"}</code>
+            <code className="mx-1 px-1 bg-white rounded">{"{stream}"}</code>
+            <code className="mx-1 px-1 bg-white rounded">{"{balance}"}</code>
+            <code className="mx-1 px-1 bg-white rounded">{"{parentName}"}</code>
+            <p className="mt-1">School name is added automatically.</p>
+          </div>
+
+          <textarea
+            value={template}
+            onChange={(e) => setTemplate(e.target.value)}
+            rows={4}
+            className="w-full border rounded-lg px-3 py-2 text-sm"
+            maxLength={400}
+          />
+
+          {loading && <p className="text-xs text-gray-400">Calculating...</p>}
+
+          {estimate && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-xs">
+              <p className="font-bold text-yellow-800 mb-1 flex items-center gap-1">
+                <FiDollarSign /> Cost Estimate
+              </p>
+              <div className="grid grid-cols-2 gap-1 text-yellow-900">
+                <div>Recipients: <strong>{estimate.recipients}</strong></div>
+                <div>SMS parts: <strong>{estimate.totalSmsParts}</strong></div>
+                <div>Cost/SMS: <strong>KSH {estimate.costPerSms}</strong></div>
+                <div>Total: <strong>KSH {estimate.totalCost.toFixed(2)}</strong></div>
+              </div>
+              <div className="mt-1 text-[11px] text-gray-600">
+                Credit balance after: <strong>{estimate.creditBalance - estimate.totalSmsParts}</strong>
+              </div>
+              {estimate.skipped > 0 && (
+                <p className="text-red-600 mt-1 flex items-center gap-1">
+                  <FiAlertCircle /> {estimate.skipped} skipped (no valid phone)
+                </p>
+              )}
+              {!estimate.canAfford && (
+                <p className="text-red-600 mt-1 flex items-center gap-1 font-semibold">
+                  <FiAlertCircle /> Insufficient credits — top up via M-Pesa first
+                </p>
+              )}
+              {previewMsg && (
+                <div className="mt-2 bg-white border border-yellow-100 rounded p-2 text-[11px] text-gray-700 break-words">
+                  <strong>Preview:</strong> {previewMsg}
+                </div>
+              )}
+            </div>
+          )}
+
+          <button
+            onClick={handleSend}
+            disabled={sending || !estimate || estimate.recipients === 0 || !estimate.canAfford}
+            className="w-full py-3 rounded-lg bg-gradient-to-r from-green-600 to-blue-600 text-white font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {sending
+              ? <><FiRefreshCw className="animate-spin" /> Sending...</>
+              : <><FiSend /> Send SMS</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================
+// 🆕 BULK SMS MODAL — BURSAR (uses /fees/sms/*)
+// ============================================================
+const BulkSmsModal = ({ students, filterYear, onClose, onSent }) => {
+  const [template, setTemplate] = useState(
+    `Dear {name}, fee balance for {admNo} ({class}) is {balance}. Kindly clear to avoid penalties.`
+  );
+  const [estimate, setEstimate] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [sending, setSending] = useState(false);
+
+  const pupilIds = useMemo(() => students.map((s) => s._id), [students]);
+
+  useEffect(() => {
+    if (!template.trim() || pupilIds.length === 0) { setEstimate(null); return; }
+    const t = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const res = await api.post('/fees/sms/estimate', {
+          mode: 'pupils',
+          pupilIds,
+          template,
+        });
+        if (res.data?.success) setEstimate(res.data.data);
+      } catch (e) {
+        setEstimate(null);
+        if (e.response?.status !== 400) {
+          console.warn('estimate error:', e.response?.data?.message || e.message);
+        }
+      } finally {
+        setLoading(false);
+      }
+    }, 500);
+    return () => clearTimeout(t);
+  }, [template, pupilIds]);
+
+  const handleSend = async () => {
+    if (!template.trim()) return toast.error('Enter a message');
+    if (!estimate) return toast.error('Wait for estimate');
+    if (!estimate.canAfford) {
+      return toast.error('Insufficient SMS credits — top up via M-Pesa first');
+    }
+    if (!window.confirm(
+      `Send SMS to ${estimate.recipients} parents for KSH ${estimate.totalCost.toFixed(2)}?`
+    )) return;
+
+    setSending(true);
+    try {
+      const res = await api.post('/fees/sms/send', {
+        mode: 'pupils',
+        pupilIds,
+        template,
+      });
+      if (res.data?.success) {
+        toast.success(res.data.message);
+        onSent?.(res.data?.data?.creditBalance);
+        onClose();
+      } else {
+        toast.error(res.data?.message || 'Send failed');
+      }
+    } catch (e) {
+      if (e.response?.data?.code === 'INSUFFICIENT_CREDIT') {
+        toast.error(e.response.data.message, { duration: 7000 });
+      } else {
+        toast.error(e.response?.data?.message || 'Send failed');
+      }
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden">
+        <div className="bg-gray-900 px-6 py-4 flex justify-between items-center text-white">
+          <div>
+            <h2 className="text-lg font-bold flex items-center gap-2">
+              <FiUsers /> Bulk Fee SMS — {students.length} students
+            </h2>
+            <p className="text-xs text-gray-400">
+              One personalised SMS per parent · Fees year {filterYear}
+            </p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-white">
+            <FiX className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-4">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-800">
+            <strong>Tokens:</strong>
+            <code className="mx-1 px-1 bg-white rounded">{"{name}"}</code>
+            <code className="mx-1 px-1 bg-white rounded">{"{admNo}"}</code>
+            <code className="mx-1 px-1 bg-white rounded">{"{class}"}</code>
+            <code className="mx-1 px-1 bg-white rounded">{"{balance}"}</code>
+          </div>
+
+          <textarea
+            value={template}
+            onChange={(e) => setTemplate(e.target.value)}
+            rows={4}
+            className="w-full border rounded-lg px-3 py-2 text-sm"
+            maxLength={400}
+          />
+
+          {loading && <p className="text-xs text-gray-400">Calculating...</p>}
+
+          {estimate && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-xs">
+              <p className="font-bold text-yellow-800 mb-1 flex items-center gap-1">
+                <FiDollarSign /> Cost Estimate
+              </p>
+              <div className="grid grid-cols-2 gap-1 text-yellow-900">
+                <div>Recipients: <strong>{estimate.recipients}</strong></div>
+                <div>Skipped: <strong>{estimate.skipped}</strong></div>
+                <div>Total SMS: <strong>{estimate.totalSmsParts}</strong></div>
+                <div>Total: <strong>KSH {estimate.totalCost.toFixed(2)}</strong></div>
+              </div>
+              <div className="mt-1 text-[11px] text-gray-600">
+                Credit balance after: <strong>{estimate.creditBalance - estimate.totalSmsParts}</strong>
+              </div>
+              {!estimate.canAfford && (
+                <p className="text-red-600 mt-1 flex items-center gap-1 font-semibold">
+                  <FiAlertCircle /> Insufficient credits — top up via M-Pesa first
+                </p>
+              )}
+            </div>
+          )}
+
+          <button
+            onClick={handleSend}
+            disabled={sending || !estimate || estimate.recipients === 0 || !estimate.canAfford}
+            className="w-full py-3 rounded-lg bg-gradient-to-r from-green-600 to-blue-600 text-white font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {sending
+              ? <><FiRefreshCw className="animate-spin" /> Sending...</>
+              : <><FiSend /> Send Bulk SMS</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================
+// MAIN COMPONENT
+// ============================================================
 const BursarPayments = () => {
   const currentYear = new Date().getFullYear();
   const YEARS = [currentYear - 2, currentYear - 1, currentYear, currentYear + 1];
@@ -42,6 +405,14 @@ const BursarPayments = () => {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
+
+  // SMS Modals
+  const [showSmsModal, setShowSmsModal] = useState(false);
+  const [smsTargetStudent, setSmsTargetStudent] = useState(null);
+  const [showBulkSmsModal, setShowBulkSmsModal] = useState(false);
+
+  // SMS balance refresh trigger (increments after each send)
+  const [smsRefreshKey, setSmsRefreshKey] = useState(0);
 
   // Forms
   const [form, setForm] = useState({
@@ -68,7 +439,7 @@ const BursarPayments = () => {
 
       const promises = YEARS.map(y => api.get(`/fees?year=${y}`));
       const responses = await Promise.all(promises);
-      
+
       const feeMap = {};
       responses.forEach(res => {
         if (res.data?.success) {
@@ -103,7 +474,6 @@ const BursarPayments = () => {
     });
   }, [students, search, filterClass]);
 
-  // Core Calculation Logic (Respects termJoined)
   const calculateStudentLedger = (docs, focusYear) => {
     if (!docs || docs.length === 0) {
       return { totalExpected: 0, totalPaid: 0, balance: 0, priorCredit: 0, termRows: [], payments: [] };
@@ -112,13 +482,12 @@ const BursarPayments = () => {
     let priorArrears = 0;
     let priorCredit = 0;
 
-    // 1. Calculate prior years
     docs.filter(d => d.year < focusYear).forEach(doc => {
       const startIdx = TERM_IDX[doc.termJoined || 'Term 1'];
       const t1 = startIdx <= 0 ? (doc.feeStructure?.term1 || 0) : 0;
       const t2 = startIdx <= 1 ? (doc.feeStructure?.term2 || 0) : 0;
       const t3 = startIdx <= 2 ? (doc.feeStructure?.term3 || 0) : 0;
-      
+
       const expected = t1 + t2 + t3;
       const paid = (doc.payments || []).reduce((s, p) => s + (Number(p.amount) || 0), 0);
       const balance = expected - paid;
@@ -127,18 +496,16 @@ const BursarPayments = () => {
       else if (balance < 0) priorCredit += Math.abs(balance);
     });
 
-    // 2. Focus Year Calculations
     const focusDoc = docs.find(d => d.year === focusYear);
     const startIdx = TERM_IDX[focusDoc?.termJoined || 'Term 1'];
-    
-    // Mask out terms they haven't joined yet
+
     const t1 = startIdx <= 0 ? (focusDoc?.feeStructure?.term1 || 0) : 0;
     const t2 = startIdx <= 1 ? (focusDoc?.feeStructure?.term2 || 0) : 0;
     const t3 = startIdx <= 2 ? (focusDoc?.feeStructure?.term3 || 0) : 0;
     const focusExpected = t1 + t2 + t3;
 
     const focusPayments = (focusDoc?.payments || []).filter(p => Number(p.year) === focusYear);
-    
+
     const seen = new Set();
     const uniquePayments = [];
     focusPayments.forEach(p => {
@@ -152,7 +519,6 @@ const BursarPayments = () => {
     uniquePayments.sort((a, b) => new Date(a.date) - new Date(b.date));
     const focusPaid = uniquePayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
 
-    // 3. Allocate
     let pool = focusPaid + priorCredit;
     let currentArrears = priorArrears;
     const termRows = [];
@@ -189,8 +555,8 @@ const BursarPayments = () => {
         term: TERMS[i],
         expected,
         applied,
-        status: applied >= expected && expected > 0 ? 'Cleared' 
-              : (applied > 0 ? 'Partial' 
+        status: applied >= expected && expected > 0 ? 'Cleared'
+              : (applied > 0 ? 'Partial'
               : (expected === 0 ? (i < startIdx ? 'Not Joined' : 'Not Set') : 'Pending')),
         isPrior: false
       });
@@ -202,7 +568,7 @@ const BursarPayments = () => {
 
     return {
       totalExpected,
-      totalPaid: focusPaid, 
+      totalPaid: focusPaid,
       priorCredit,
       balance,
       termRows,
@@ -210,7 +576,6 @@ const BursarPayments = () => {
     };
   };
 
-  // For Table View
   const tableData = useMemo(() => {
     const map = {};
     filteredStudents.forEach(student => {
@@ -220,7 +585,6 @@ const BursarPayments = () => {
     return map;
   }, [filteredStudents, allStudentFees, filterYear]);
 
-  // For Modal View
   const viewData = useMemo(() => {
     if (!selectedStudent) return null;
     const docs = allStudentFees[selectedStudent._id] || [];
@@ -257,6 +621,23 @@ const BursarPayments = () => {
     }
   };
 
+  // SMS handlers
+  const handleSmsClick = (student) => {
+    setSmsTargetStudent(student);
+    setShowSmsModal(true);
+  };
+
+  const handleBulkSmsClick = () => {
+    if (filteredStudents.length === 0) return toast.error('No students in current filter');
+    setShowBulkSmsModal(true);
+  };
+
+  // After-send callback — bump refresh key so the banner re-fetches
+  const handleSmsSent = () => {
+    setSmsRefreshKey((k) => k + 1);
+    loadData();
+  };
+
   // ============================================================
   // RENDER
   // ============================================================
@@ -264,7 +645,7 @@ const BursarPayments = () => {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
-      
+
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-xl shadow-sm border border-gray-200">
         <div>
@@ -273,7 +654,17 @@ const BursarPayments = () => {
           </h1>
           <p className="text-sm text-gray-500 mt-1">Record, view, and manage student fee payments.</p>
         </div>
+        <button
+          onClick={handleBulkSmsClick}
+          disabled={filteredStudents.length === 0}
+          className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-4 py-2 text-sm font-semibold flex items-center gap-2 disabled:opacity-50"
+        >
+          <FiUsers /> Bulk SMS to {filteredStudents.length} parents
+        </button>
       </div>
+
+      {/* SMS Balance Banner (Matches Admin Portal Style) */}
+      <SmsBalanceBanner refreshKey={smsRefreshKey} />
 
       {/* Filters */}
       <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -287,7 +678,7 @@ const BursarPayments = () => {
             className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
           />
         </div>
-        
+
         <select
           value={filterClass}
           onChange={e => setFilterClass(e.target.value)}
@@ -328,7 +719,7 @@ const BursarPayments = () => {
               ) : filteredStudents.map(student => {
                 const data = tableData[student._id];
                 const balance = data?.balance || 0;
-                
+
                 return (
                   <tr key={student._id} className="hover:bg-gray-50">
                     <td className="px-6 py-4">
@@ -357,6 +748,13 @@ const BursarPayments = () => {
                         >
                           <FiPlus /> Record
                         </button>
+                        <button
+                          onClick={() => handleSmsClick(student)}
+                          className="bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-emerald-700 flex items-center gap-1"
+                          title="Send SMS to this parent"
+                        >
+                          <FiMessageSquare /> SMS
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -380,7 +778,7 @@ const BursarPayments = () => {
               </div>
               <button onClick={() => setShowPaymentModal(false)} className="text-gray-400 hover:text-white"><FiX className="w-5 h-5"/></button>
             </div>
-            
+
             <form onSubmit={handlePaymentSubmit} className="p-6 space-y-4">
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-1">Amount (KSh)</label>
@@ -419,8 +817,7 @@ const BursarPayments = () => {
       {showViewModal && selectedStudent && viewData && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto shadow-2xl">
-            
-            {/* Header */}
+
             <div className="bg-gray-900 px-6 py-4 flex justify-between items-center text-white sticky top-0 z-10">
               <div>
                 <h2 className="text-lg font-bold">Payment History</h2>
@@ -430,8 +827,7 @@ const BursarPayments = () => {
             </div>
 
             <div className="p-6 space-y-6">
-              
-              {/* Summary Cards */}
+
               <div className="grid grid-cols-3 gap-4">
                 <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl text-center">
                   <p className="text-xs text-blue-600 font-semibold uppercase">Total Due ({filterYear})</p>
@@ -454,7 +850,6 @@ const BursarPayments = () => {
                 </div>
               </div>
 
-              {/* Term Breakdown */}
               <div>
                 <h3 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2">
                   <FiCheckCircle className="text-blue-500" /> Fee Allocation Breakdown
@@ -502,7 +897,6 @@ const BursarPayments = () => {
                 </div>
               </div>
 
-              {/* Payment Log */}
               <div>
                 <h3 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2">
                   <FiCalendar className="text-green-600" /> Payments Received ({filterYear})
@@ -540,6 +934,30 @@ const BursarPayments = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* SINGLE SMS MODAL */}
+      {/* ============================================================ */}
+      {showSmsModal && smsTargetStudent && (
+        <SingleSmsModal
+          student={smsTargetStudent}
+          filterYear={filterYear}
+          onClose={() => { setShowSmsModal(false); setSmsTargetStudent(null); }}
+          onSent={handleSmsSent}
+        />
+      )}
+
+      {/* ============================================================ */}
+      {/* BULK SMS MODAL */}
+      {/* ============================================================ */}
+      {showBulkSmsModal && (
+        <BulkSmsModal
+          students={filteredStudents}
+          filterYear={filterYear}
+          onClose={() => setShowBulkSmsModal(false)}
+          onSent={handleSmsSent}
+        />
       )}
 
     </div>

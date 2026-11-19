@@ -1,8 +1,9 @@
 // src/components/common/Header.jsx
 import React from 'react';
-import { FiMenu } from 'react-icons/fi';
+import { FiMenu, FiWifiOff } from 'react-icons/fi';
 import { useAuth } from '../../context/AuthContext';
 import NotificationBell from './NotificationBell';
+import useOnlineStatus from '../../hooks/useOnlineStatus';
 
 // ============================================================
 // ROLE → DISPLAY LABEL
@@ -15,17 +16,25 @@ const ROLE_LABELS = {
   pupil: 'Pupil',
 };
 
-// Roles that get the notification bell
 const BELL_ROLES = ['teacher', 'parent', 'pupil'];
 
 const Header = ({ title, subtitle, isMobile, onMenuToggle }) => {
   const { user } = useAuth();
+  const isOnline = useOnlineStatus();
 
   const roleLabel = ROLE_LABELS[user?.role] || 'User';
   const showBell = !!user && BELL_ROLES.includes(user.role);
 
   return (
     <header className="bg-white shadow-sm border-b border-gray-200 flex-shrink-0">
+      {/* 🆕 Offline Banner */}
+      {!isOnline && (
+        <div className="bg-yellow-50 border-b border-yellow-200 px-4 py-1.5 flex items-center gap-2 text-xs text-yellow-800">
+          <FiWifiOff className="w-3.5 h-3.5 flex-shrink-0" />
+          <span>You are offline. Showing previously loaded data.</span>
+        </div>
+      )}
+
       <div className="flex items-start justify-between px-4 py-3 gap-2">
         {/* Left side */}
         <div className="flex items-start gap-3 min-w-0 flex-1">
@@ -39,7 +48,6 @@ const Header = ({ title, subtitle, isMobile, onMenuToggle }) => {
             </button>
           )}
           <div className="min-w-0 flex-1">
-            {/* Long titles wrap instead of being cut off */}
             <h1 className="text-lg font-semibold text-gray-800 whitespace-normal break-words leading-snug">
               {title || 'Dashboard'}
             </h1>
@@ -53,10 +61,7 @@ const Header = ({ title, subtitle, isMobile, onMenuToggle }) => {
 
         {/* Right side */}
         <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-          {/* 🔔 Notification bell (teacher / parent / pupil only) */}
           {showBell && <NotificationBell />}
-
-          {/* Desktop user chip — unchanged */}
           {!isMobile && user && (
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-full bg-gradient-to-r from-green-500 to-blue-500 flex items-center justify-center shadow-md">

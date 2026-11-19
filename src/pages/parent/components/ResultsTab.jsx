@@ -1,9 +1,12 @@
 // src/pages/parent/components/ResultsTab.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import api from '../../../services/api';
 import toast from 'react-hot-toast';
+import { useQuery } from '@tanstack/react-query';
 import { FiBookOpen, FiX, FiBriefcase, FiAlertCircle } from 'react-icons/fi';
+import SkillsTalentsTab from './SkillsTalentsTab';
 
+// ─── Grade helpers (unchanged) ───
 const getGradeFromMark = (m) => {
   if (m >= 80) return 'A';  if (m >= 75) return 'A-';
   if (m >= 70) return 'B+'; if (m >= 65) return 'B';
@@ -21,7 +24,7 @@ const getCompFromMark = (m) => {
   return { label: 'WBE', color: 'text-red-600' };
 };
 
-// ─── EXACT TEACHER PORTAL AI LOGIC & DATABASE ─────────────────────────────
+// ─── Career engine (unchanged) ───
 const SKILL_BOOST = {
   'Sports':              { field: 'Sports & Recreation',         boost: 12 },
   'Music':               { field: 'Creative Arts',               boost: 12 },
@@ -66,13 +69,9 @@ const CAREER_DB = [
 const normalizeSubject = (s) => (s || '').toString().toLowerCase().replace(/[^a-z0-9]/g, '').trim();
 const getSkillName = (s) => (s?.skill || s?.skillName || '').trim();
 
-// ─── EXACT TEACHER LOGIC FOR ANALYSIS ───
 const analyzeCareer = (results, options = {}) => {
   const { skills = [] } = options;
-
-  if (!results || results.length === 0) {
-    return { insights: [], avgScore: 0, skillsUsed: skills };
-  }
+  if (!results || results.length === 0) return { insights: [], avgScore: 0, skillsUsed: skills };
 
   const bySubject = {};
   results.forEach(r => {
@@ -81,17 +80,14 @@ const analyzeCareer = (results, options = {}) => {
     if (!bySubject[s]) bySubject[s] = [];
     bySubject[s].push(Number(r.marks) || 0);
   });
-
   const subjectAvg = {};
   Object.entries(bySubject).forEach(([subj, marks]) => {
     subjectAvg[subj] = marks.reduce((a, b) => a + b, 0) / marks.length;
   });
-
   const subjectKeys = Object.keys(subjectAvg);
   const avgScore = subjectKeys.length > 0
     ? subjectKeys.reduce((sum, k) => sum + subjectAvg[k], 0) / subjectKeys.length
     : 0;
-
   const getScore = (target) => {
     const t = normalizeSubject(target);
     for (const key of subjectKeys) {
@@ -100,116 +96,73 @@ const analyzeCareer = (results, options = {}) => {
     }
     return null;
   };
-
   const skillBoosts = skills.map(sk => {
     const b = SKILL_BOOST[sk.category];
     if (!b) return null;
-    const multiplier = {
-      'Beginner': 0.3, 'Developing': 0.5, 'Proficient': 0.7,
-      'Advanced': 1.0, 'Exceptional': 1.3
-    }[sk.proficiency] || 0.5;
+    const multiplier = { 'Beginner': 0.3, 'Developing': 0.5, 'Proficient': 0.7, 'Advanced': 1.0, 'Exceptional': 1.3 }[sk.proficiency] || 0.5;
     return { field: b.field, boost: b.boost * multiplier, skill: sk };
   }).filter(Boolean);
-
   const scored = CAREER_DB.map(career => {
     let subjScore = 0, subjCount = 0;
     const matchedSubjects = [];
-
     career.subjects.forEach(s => {
       const sc = getScore(s);
-      if (sc !== null) {
-        subjScore += sc;
-        subjCount++;
-        matchedSubjects.push({ name: s, score: sc });
-      }
+      if (sc !== null) { subjScore += sc; subjCount++; matchedSubjects.push({ name: s, score: sc }); }
     });
-
     const rawAcademic = subjCount > 0 ? subjScore / subjCount : 0;
-    const requiredCount = career.subjects.length;
-    const coverageFactor = requiredCount > 0 ? (subjCount / requiredCount) : 0;
+    const coverageFactor = career.subjects.length > 0 ? (subjCount / career.subjects.length) : 0;
     const academicScore = rawAcademic * coverageFactor;
-
     let skillBoost = 0;
     const matchedSkillsForField = [];
     skillBoosts.forEach(sb => {
-      if (sb.field === career.field) {
-        skillBoost += sb.boost;
-        matchedSkillsForField.push(sb.skill);
-      }
+      if (sb.field === career.field) { skillBoost += sb.boost; matchedSkillsForField.push(sb.skill); }
     });
-
     const finalScore = Math.min(100, academicScore + skillBoost);
-    const meetsMin = avgScore >= career.minAvg;
-
     return {
-      ...career,
-      matchScore: Math.round(finalScore),
-      meetsMin,
-      academicScore: Math.round(academicScore),
-      skillBoost: Math.round(skillBoost),
-      matchedSubjects,
-      matchedSkillsForField,
-      coveragePercent: Math.round(coverageFactor * 100),
+      ...career, matchScore: Math.round(finalScore), meetsMin: avgScore >= career.minAvg,
+      academicScore: Math.round(academicScore), skillBoost: Math.round(skillBoost),
+      matchedSubjects, matchedSkillsForField, coveragePercent: Math.round(coverageFactor * 100),
     };
   });
-
-  const top3 = scored
-    .sort((a, b) => b.matchScore - a.matchScore)
-    .slice(0, 3)
-    .map(c => {
-      const parts = [];
-
-      if (c.matchedSubjects.length > 0) {
-        const subjList = c.matchedSubjects
-          .slice(0, 2)
-          .map(m => `${m.name} (${Math.round(m.score)}%)`)
-          .join(', ');
-        parts.push(`Strong in ${subjList}`);
-      }
-
-      if (c.matchedSkillsForField.length > 0) {
-        const names = c.matchedSkillsForField
-          .slice(0, 2)
-          .map(sk => getSkillName(sk))
-          .filter(Boolean);
-        if (names.length > 0) parts.push(`Talent in ${names.join(' & ')}`);
-      }
-
-      if (c.coveragePercent < 100 && c.matchedSubjects.length > 0) {
-        parts.push(`(${c.coveragePercent}% subjects)`);
-      }
-
-      const reason = parts.length > 0 ? parts.join(' • ') : 'Matches overall performance';
-      return { ...c, reason };
-    });
-
+  const top3 = scored.sort((a, b) => b.matchScore - a.matchScore).slice(0, 3).map(c => {
+    const parts = [];
+    if (c.matchedSubjects.length > 0) {
+      const subjList = c.matchedSubjects.slice(0, 2).map(m => `${m.name} (${Math.round(m.score)}%)`).join(', ');
+      parts.push(`Strong in ${subjList}`);
+    }
+    if (c.matchedSkillsForField.length > 0) {
+      const names = c.matchedSkillsForField.slice(0, 2).map(sk => getSkillName(sk)).filter(Boolean);
+      if (names.length > 0) parts.push(`Talent in ${names.join(' & ')}`);
+    }
+    if (c.coveragePercent < 100 && c.matchedSubjects.length > 0) parts.push(`(${c.coveragePercent}% subjects)`);
+    const reason = parts.length > 0 ? parts.join(' • ') : 'Matches overall performance';
+    return { ...c, reason };
+  });
   return { insights: top3, avgScore: Math.round(avgScore), skillsUsed: skills };
 };
 
-// ─── EXACT UI MODAL FROM TEACHER ───
+// ─── Career Modal (mobile-optimized) ───
 const CareerInsightsModal = ({ viewingCareerPupil, careerInsights, careerAnalysisMeta, loadingCareers, onClose }) => {
   if (!viewingCareerPupil) return null;
   const medals = ['🥇', '🥈', '🥉'];
-
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-y-auto p-3">
-      <div className="bg-white rounded-xl w-full max-w-xl max-h-[90vh] overflow-y-auto shadow-2xl">
-        <div className="sticky top-0 z-10 bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-4 flex justify-between items-center rounded-t-xl">
-          <div>
-            <h2 className="text-base font-bold flex items-center gap-2">
-              <FiBriefcase className="w-5 h-5" /> AI Career & Talent Insights
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-end sm:items-center justify-center z-50 overflow-y-auto p-0 sm:p-3">
+      <div className="bg-white rounded-t-2xl sm:rounded-xl w-full sm:max-w-xl max-h-[92vh] sm:max-h-[90vh] overflow-y-auto shadow-2xl">
+        <div className="sticky top-0 z-10 bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-3 sm:p-4 flex justify-between items-center rounded-t-2xl sm:rounded-t-xl">
+          <div className="min-w-0">
+            <h2 className="text-sm sm:text-base font-bold flex items-center gap-2">
+              <FiBriefcase className="w-4 h-4 sm:w-5 sm:h-5" /> AI Career & Talent Insights
             </h2>
-            <p className="text-xs text-white/80 mt-0.5">
+            <p className="text-[11px] sm:text-xs text-white/80 mt-0.5 truncate">
               {viewingCareerPupil.name} • {viewingCareerPupil.class}
               {viewingCareerPupil.stream && ` • ${viewingCareerPupil.stream}`}
             </p>
           </div>
-          <button onClick={onClose} className="text-white hover:bg-white/20 p-1.5 rounded-lg">
+          <button onClick={onClose} className="text-white hover:bg-white/20 p-2 rounded-lg touch-manipulation min-w-[44px] min-h-[44px] flex items-center justify-center flex-shrink-0">
             <FiX className="w-5 h-5" />
           </button>
         </div>
-
-        <div className="p-4">
+        <div className="p-3 sm:p-4">
           {loadingCareers ? (
             <div className="flex flex-col items-center justify-center py-16">
               <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-600"></div>
@@ -225,33 +178,31 @@ const CareerInsightsModal = ({ viewingCareerPupil, careerInsights, careerAnalysi
             <>
               <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-2.5 mb-3 text-center flex justify-between items-center">
                 <div>
-                  <p className="text-xs font-bold text-indigo-900 uppercase">Academic Avg Score</p>
-                  <p className="text-xl font-bold text-indigo-700">{careerAnalysisMeta.avgScore}%</p>
+                  <p className="text-[10px] sm:text-xs font-bold text-indigo-900 uppercase">Academic Avg Score</p>
+                  <p className="text-lg sm:text-xl font-bold text-indigo-700">{careerAnalysisMeta.avgScore}%</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-xs font-bold text-indigo-900 uppercase">Talents Analysed</p>
-                  <p className="text-xl font-bold text-indigo-700">{careerAnalysisMeta.skillsUsed?.length || 0}</p>
+                  <p className="text-[10px] sm:text-xs font-bold text-indigo-900 uppercase">Talents Analysed</p>
+                  <p className="text-lg sm:text-xl font-bold text-indigo-700">{careerAnalysisMeta.skillsUsed?.length || 0}</p>
                 </div>
               </div>
-
               <div className="space-y-2">
                 {careerInsights.map((c, i) => (
-                  <div key={i} className="flex items-center gap-3 border border-gray-200 rounded-lg p-3 hover:shadow-md transition-shadow bg-white">
-                    <span className="text-2xl flex-shrink-0">{medals[i]}</span>
-                    <span className="text-2xl flex-shrink-0">{c.icon}</span>
+                  <div key={i} className="flex items-center gap-2 sm:gap-3 border border-gray-200 rounded-lg p-2.5 sm:p-3 hover:shadow-md transition-shadow bg-white">
+                    <span className="text-xl sm:text-2xl flex-shrink-0">{medals[i]}</span>
+                    <span className="text-xl sm:text-2xl flex-shrink-0">{c.icon}</span>
                     <div className="flex-1 min-w-0">
-                      <h3 className="font-bold text-gray-800 text-sm truncate">{c.name}</h3>
-                      <p className="text-[10px] text-gray-500 truncate">{c.field}</p>
-                      <p className="text-[11px] text-indigo-600 mt-0.5 truncate font-medium bg-indigo-50/50 px-1.5 py-0.5 rounded inline-block">✓ {c.reason}</p>
+                      <h3 className="font-bold text-gray-800 text-xs sm:text-sm truncate">{c.name}</h3>
+                      <p className="text-[9px] sm:text-[10px] text-gray-500 truncate">{c.field}</p>
+                      <p className="text-[10px] sm:text-[11px] text-indigo-600 mt-0.5 truncate font-medium bg-indigo-50/50 px-1.5 py-0.5 rounded inline-block max-w-full">✓ {c.reason}</p>
                     </div>
                     <div className="text-right flex-shrink-0">
-                      <p className="text-xl font-bold text-indigo-600">{c.matchScore}%</p>
-                      <p className="text-[9px] text-gray-400">match</p>
+                      <p className="text-base sm:text-xl font-bold text-indigo-600">{c.matchScore}%</p>
+                      <p className="text-[8px] sm:text-[9px] text-gray-400">match</p>
                     </div>
                   </div>
                 ))}
               </div>
-
               <p className="text-[10px] text-gray-400 text-center mt-3">
                 Suggestions are indicative. Consider the learner's interests too.
               </p>
@@ -263,171 +214,111 @@ const CareerInsightsModal = ({ viewingCareerPupil, careerInsights, careerAnalysi
   );
 };
 
+// ─── ResultsTab with embedded Skills ───
 const ResultsTab = ({ pupil }) => {
-  const [results, setResults] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [computedExams, setComputedExams] = useState([]);
-
-  // Career state
   const [showCareerModal, setShowCareerModal] = useState(false);
   const [viewingCareerPupil, setViewingCareerPupil] = useState(null);
   const [careerInsights, setCareerInsights] = useState([]);
   const [careerAnalysisMeta, setCareerAnalysisMeta] = useState({ avgScore: 0, skillsUsed: [] });
   const [loadingCareers, setLoadingCareers] = useState(false);
 
-  // ── Load results + compute positions per exam locally (Mirroring Admin logic) ──
-  useEffect(() => {
-    if (!pupil?._id) return;
+  // -------- Fetch pupil results --------
+  const { data: rawResults = [], isLoading: loadingResults } = useQuery({
+    queryKey: ['parent', 'results', pupil._id],
+    queryFn: async () => {
+      const res = await api.get(`/results/pupil/${pupil._id}`);
+      return res.data?.success ? (res.data.data || []) : [];
+    },
+    staleTime: 2 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    enabled: !!pupil._id,
+    placeholderData: (prev) => prev, 
+  });
 
-    (async () => {
-      try {
-        setLoading(true);
-
-        // 1. Fetch pupil's own results
-        const res = await api.get(`/results/pupil/${pupil._id}`);
-        const fetchedResults = res.data?.success ? (res.data.data || []) : [];
-        setResults(fetchedResults);
-
-        // 2. Group results by exam
-        const byExam = {};
-        fetchedResults.forEach(r => {
-          const key = r.examName || 'Exam';
-          if (!byExam[key]) {
-            byExam[key] = {
-              examName: key,
-              term: r.term,
-              year: r.year,
-              date: r.updatedAt || r.createdAt,
-              subjects: [],
-              totalMarks: 0,
-              subjectsWithMarks: 0,
-            };
+  // -------- Compute exam positions (client-side, mirrors admin logic) --------
+  const { data: computedExams = [], isLoading: loadingPositions } = useQuery({
+    queryKey: ['parent', 'resultsWithPositions', pupil._id, rawResults.length],
+    queryFn: async () => {
+      const byExam = {};
+      rawResults.forEach(r => {
+        const key = r.examName || 'Exam';
+        if (!byExam[key]) {
+          byExam[key] = { examName: key, term: r.term, year: r.year, date: r.updatedAt || r.createdAt, subjects: [], totalMarks: 0, subjectsWithMarks: 0 };
+        }
+        const marks = Number(r.marks) || 0;
+        byExam[key].subjects.push({ subject: r.subject, marks });
+        byExam[key].totalMarks += marks;
+        byExam[key].subjectsWithMarks++;
+      });
+      const examList = Object.values(byExam).sort((a, b) => new Date(b.date) - new Date(a.date));
+      return Promise.all(examList.map(async (exam) => {
+        const totalSubjectsInClass = exam.subjects.length;
+        const averageScore = totalSubjectsInClass > 0 ? Math.round(exam.totalMarks / totalSubjectsInClass) : 0;
+        const comp = getCompFromMark(averageScore);
+        try {
+          const params = { class: pupil.class, examName: exam.examName, term: exam.term, year: exam.year };
+          const classRes = await api.get('/results', { params });
+          const classResults = classRes.data?.data || [];
+          const studentMap = new Map();
+          classResults.forEach(r => {
+            const pid = r.pupilId?._id || r.pupilId;
+            const stream = r.pupilId?.stream || r.stream || '';
+            if (!studentMap.has(pid)) studentMap.set(pid, { id: pid, stream, totalMarks: 0, subjectsWithMarks: 0 });
+            const s = studentMap.get(pid);
+            s.totalMarks += Number(r.marks) || Number(r.score) || 0;
+            s.subjectsWithMarks++;
+          });
+          const uniqueSubjects = new Set(classResults.map(r => r.subject));
+          const totalSubjCount = uniqueSubjects.size || totalSubjectsInClass;
+          const complete = Array.from(studentMap.values()).filter(s => s.subjectsWithMarks >= totalSubjCount).sort((a, b) => b.totalMarks - a.totalMarks);
+          const streamGroups = {};
+          complete.forEach(s => {
+            const st = s.stream || 'No Stream';
+            if (!streamGroups[st]) streamGroups[st] = [];
+            streamGroups[st].push(s);
+          });
+          let myClassPos = 'N/A', myStreamPos = 'N/A';
+          let classRank = 1;
+          for (let i = 0; i < complete.length; i++) {
+            if (i > 0 && complete[i].totalMarks === complete[i - 1].totalMarks) {
+              complete[i].classPos = complete[i - 1].classPos;
+            } else {
+              complete[i].classPos = classRank;
+            }
+            if (complete[i].id === pupil._id) myClassPos = complete[i].classPos;
+            classRank++;
           }
-          const marks = Number(r.marks) || 0;
-          byExam[key].subjects.push({ subject: r.subject, marks });
-          byExam[key].totalMarks += marks;
-          byExam[key].subjectsWithMarks++;
-        });
-
-        const examList = Object.values(byExam)
-          .sort((a, b) => new Date(b.date) - new Date(a.date));
-
-        // 3. For each exam, fetch the whole class to calculate accurate positions
-        const computed = await Promise.all(examList.map(async (exam) => {
-          const totalSubjectsInClass = exam.subjects.length;
-          const averageScore = totalSubjectsInClass > 0
-            ? Math.round(exam.totalMarks / totalSubjectsInClass)
-            : 0;
-          const comp = getCompFromMark(averageScore);
-
-          try {
-            // Fetch all results for this class and exam directly from /results
-            const params = {
-              class: pupil.class,
-              examName: exam.examName,
-              term: exam.term,
-              year: exam.year,
-            };
-            const classRes = await api.get('/results', { params });
-            const classResults = classRes.data?.data || [];
-            
-            // Build map of all students and their total marks
-            const studentMap = new Map();
-            classResults.forEach(r => {
-              const pid = r.pupilId?._id || r.pupilId;
-              const stream = r.pupilId?.stream || r.stream || '';
-              
-              if (!studentMap.has(pid)) {
-                studentMap.set(pid, { id: pid, stream, totalMarks: 0, subjectsWithMarks: 0 });
-              }
-              const s = studentMap.get(pid);
-              s.totalMarks += Number(r.marks) || Number(r.score) || 0;
-              s.subjectsWithMarks++;
-            });
-
-            // Calculate total unique subjects in the class
-            const uniqueSubjects = new Set(classResults.map(r => r.subject));
-            const totalSubjCount = uniqueSubjects.size || totalSubjectsInClass;
-
-            // Filter complete students and sort by marks
-            const complete = Array.from(studentMap.values())
-              .filter(s => s.subjectsWithMarks >= totalSubjCount)
-              .sort((a, b) => b.totalMarks - a.totalMarks);
-
-            // Stream grouping
-            const streamGroups = {};
-            complete.forEach(s => {
-              const st = s.stream || 'No Stream';
-              if (!streamGroups[st]) streamGroups[st] = [];
-              streamGroups[st].push(s);
-            });
-
-            let myClassPos = 'N/A';
-            let myStreamPos = 'N/A';
-
-            // Find class position
-            let classRank = 1;
-            for (let i = 0; i < complete.length; i++) {
-              if (i > 0 && complete[i].totalMarks === complete[i - 1].totalMarks) {
-                complete[i].classPos = complete[i - 1].classPos;
+          if (pupil.stream) {
+            const myStreamGroup = streamGroups[pupil.stream] || [];
+            let streamRank = 1;
+            for (let i = 0; i < myStreamGroup.length; i++) {
+              if (i > 0 && myStreamGroup[i].totalMarks === myStreamGroup[i - 1].totalMarks) {
+                myStreamGroup[i].streamPos = myStreamGroup[i - 1].streamPos;
               } else {
-                complete[i].classPos = classRank;
+                myStreamGroup[i].streamPos = streamRank;
               }
-              if (complete[i].id === pupil._id) myClassPos = complete[i].classPos;
-              classRank++;
+              if (myStreamGroup[i].id === pupil._id) myStreamPos = myStreamGroup[i].streamPos;
+              streamRank++;
             }
-
-            // Find stream position
-            if (pupil.stream) {
-              const myStreamGroup = streamGroups[pupil.stream] || [];
-              let streamRank = 1;
-              for (let i = 0; i < myStreamGroup.length; i++) {
-                if (i > 0 && myStreamGroup[i].totalMarks === myStreamGroup[i - 1].totalMarks) {
-                  myStreamGroup[i].streamPos = myStreamGroup[i - 1].streamPos;
-                } else {
-                  myStreamGroup[i].streamPos = streamRank;
-                }
-                if (myStreamGroup[i].id === pupil._id) myStreamPos = myStreamGroup[i].streamPos;
-                streamRank++;
-              }
-            }
-
-            return { 
-              ...exam, 
-              averageScore, 
-              comp, 
-              classPosition: myClassPos, 
-              streamPosition: myStreamPos,
-              classSize: complete.length,
-              streamSize: pupil.stream ? (streamGroups[pupil.stream]?.length || 0) : 0,
-              pupilStream: pupil.stream,
-              hasMissingMarks: complete.find(s => s.id === pupil._id) === undefined
-            };
-
-          } catch (err) {
-            console.error('Error fetching class results for rank:', err);
-            return { 
-              ...exam, 
-              averageScore, 
-              comp, 
-              classPosition: 'N/A', 
-              streamPosition: 'N/A',
-              hasMissingMarks: false
-            };
           }
-        }));
+          return {
+            ...exam, averageScore, comp, classPosition: myClassPos, streamPosition: myStreamPos,
+            classSize: complete.length,
+            streamSize: pupil.stream ? (streamGroups[pupil.stream]?.length || 0) : 0,
+            pupilStream: pupil.stream,
+            hasMissingMarks: complete.find(s => s.id === pupil._id) === undefined,
+          };
+        } catch (err) {
+          console.error('Error fetching class results for rank:', err);
+          return { ...exam, averageScore, comp, classPosition: 'N/A', streamPosition: 'N/A', hasMissingMarks: false };
+        }
+      }));
+    },
+    enabled: !!pupil._id && rawResults.length > 0,
+    staleTime: 2 * 60 * 1000,
+    placeholderData: (prev) => prev, 
+  });
 
-        setComputedExams(computed);
-      } catch (e) {
-        console.error(e);
-        toast.error('Failed to load results');
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [pupil?._id, pupil?.stream]);
-
-  // ── Fetch AI Career Data ──
   const generateCareerInsights = async (student) => {
     setLoadingCareers(true);
     try {
@@ -435,12 +326,9 @@ const ResultsTab = ({ pupil }) => {
         api.get(`/results/pupil/${student._id}`),
         api.get(`/skills/pupil/${student._id}`)
       ]);
-
       const resultsData = resultsRes.data?.success ? (resultsRes.data.data || []) : [];
       const skills = skillsRes.data?.success ? (skillsRes.data.data || []) : [];
-
       const analysis = analyzeCareer(resultsData, { skills });
-
       setCareerInsights(analysis.insights);
       setCareerAnalysisMeta({ avgScore: analysis.avgScore, skillsUsed: analysis.skillsUsed });
     } catch (error) {
@@ -458,119 +346,112 @@ const ResultsTab = ({ pupil }) => {
     await generateCareerInsights(pupil);
   };
 
-  if (loading) return <div className="text-center py-12 text-sm text-gray-500">Loading results & calculating positions…</div>;
-
-  if (computedExams.length === 0) {
-    return (
-      <div className="bg-white rounded-xl shadow p-12 text-center">
-        <FiBookOpen className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-        <p className="text-gray-600 text-sm">No exam results uploaded yet.</p>
-      </div>
-    );
-  }
+  const loading = loadingResults || loadingPositions;
 
   return (
     <div className="space-y-4">
-      {/* Top Action Bar */}
-      <div className="flex justify-between items-center bg-indigo-50 border border-indigo-100 p-3 rounded-xl mb-4">
-        <div>
-          <h3 className="font-bold text-indigo-900 text-sm">Discover Career Paths</h3>
-          <p className="text-[11px] text-indigo-700">Based on your results & skills.</p>
-        </div>
-        <button
-          onClick={handleViewCareerInsights}
-          className="bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-indigo-700 flex items-center gap-1 shadow-sm"
-        >
-          <FiBriefcase className="w-3.5 h-3.5" /> View Insights
-        </button>
+      {/* ===== Results Section ===== */}
+      <div className="space-y-4">
+        {loading ? (
+          <div className="text-center py-12 text-sm text-gray-500">Loading results & calculating positions…</div>
+        ) : computedExams.length === 0 ? (
+          <div className="bg-white rounded-xl shadow p-8 sm:p-12 text-center">
+            <FiBookOpen className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+            <p className="text-gray-600 text-sm">No exam results uploaded yet.</p>
+          </div>
+        ) : (
+          <>
+            {/* Career action bar */}
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 bg-indigo-50 border border-indigo-100 p-3 rounded-xl">
+              <div>
+                <h3 className="font-bold text-indigo-900 text-xs sm:text-sm">Discover Career Paths</h3>
+                <p className="text-[10px] sm:text-[11px] text-indigo-700">Based on your results & skills.</p>
+              </div>
+              <button
+                onClick={handleViewCareerInsights}
+                className="bg-indigo-600 text-white px-3 py-2 rounded-lg text-xs font-semibold hover:bg-indigo-700 active:bg-indigo-800 flex items-center justify-center gap-1 shadow-sm touch-manipulation min-h-[40px]"
+              >
+                <FiBriefcase className="w-3.5 h-3.5" /> View Insights
+              </button>
+            </div>
+
+            {computedExams.map((exam, i) => {
+              const isRecent = i === 0;
+              const hasStream = !!exam.pupilStream;
+              return (
+                <div key={`${exam.examName}-${exam.term}-${exam.year}-${i}`} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                  <div className={`px-3 sm:px-4 py-2.5 sm:py-3 flex flex-wrap justify-between items-start gap-2 ${isRecent ? 'bg-green-50 border-b border-green-100' : 'bg-gray-50 border-b border-gray-100'}`}>
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-bold text-gray-800 text-xs sm:text-sm flex items-center gap-2 flex-wrap">
+                        {exam.examName}
+                        {isRecent && <span className="text-[9px] sm:text-[10px] bg-green-600 text-white px-1.5 py-0.5 rounded-full">NEW</span>}
+                      </h3>
+                      <p className="text-[10px] sm:text-xs text-gray-500 mt-0.5">
+                        {exam.term} {exam.year} • Uploaded {exam.date ? new Date(exam.date).toLocaleDateString() : '—'}
+                      </p>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <div className="flex flex-wrap justify-end gap-1.5 text-[9px] sm:text-[10px] text-gray-600 font-bold bg-white px-1.5 sm:px-2 py-1 rounded-md border shadow-sm mb-1">
+                        <span>Class: <span className="text-blue-600">{exam.classPosition}</span>{exam.classSize > 0 && <span className="text-gray-400">/{exam.classSize}</span>}</span>
+                        {hasStream && <span>Str: <span className="text-blue-600">{exam.streamPosition}</span>{exam.streamSize > 0 && <span className="text-gray-400">/{exam.streamSize}</span>}</span>}
+                      </div>
+                      <p className={`text-base sm:text-xl font-bold ${exam.comp.color}`}>{exam.averageScore}%</p>
+                      <p className="text-[9px] sm:text-[10px] text-gray-500 uppercase">{exam.comp.label} · Gr {getGradeFromMark(exam.averageScore)}</p>
+                    </div>
+                  </div>
+
+                  {exam.hasMissingMarks && (
+                    <div className="flex items-start gap-1.5 bg-amber-50 border-b border-amber-100 px-2.5 sm:px-3 py-1.5 text-[10px] sm:text-[11px] text-amber-800">
+                      <FiAlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                      <span>Some subjects are still pending — position will appear once all marks are entered.</span>
+                    </div>
+                  )}
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-[11px] sm:text-xs min-w-[320px]">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="text-left px-2 sm:px-3 py-2">Subject</th>
+                          <th className="text-center px-1 sm:px-3 py-2">Score</th>
+                          <th className="text-center px-1 sm:px-3 py-2">Grade</th>
+                          <th className="text-center px-1 sm:px-3 py-2">Comp.</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {exam.subjects.map((s, idx) => {
+                          const c = getCompFromMark(s.marks);
+                          return (
+                            <tr key={`${s.subject}-${idx}`}>
+                              <td className="px-2 sm:px-3 py-2 font-medium truncate">{s.subject}</td>
+                              <td className={`px-1 sm:px-3 py-2 text-center font-bold ${
+                                s.marks >= 80 ? 'text-purple-600' :
+                                s.marks >= 60 ? 'text-green-600' :
+                                s.marks >= 40 ? 'text-blue-600' : 'text-red-600'
+                              }`}>{s.marks}</td>
+                              <td className="px-1 sm:px-3 py-2 text-center font-semibold">{getGradeFromMark(s.marks)}</td>
+                              <td className={`px-1 sm:px-3 py-2 text-center font-semibold ${c.color}`}>{c.label}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })}
+          </>
+        )}
       </div>
 
-      {computedExams.map((exam, i) => {
-        const isRecent = i === 0;
-        const hasStream = !!exam.pupilStream;
-
-        return (
-          <div key={`${exam.examName}-${exam.term}-${exam.year}-${i}`} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-            <div className={`px-4 py-3 flex flex-wrap justify-between items-center gap-2 ${isRecent ? 'bg-green-50 border-b border-green-100' : 'bg-gray-50 border-b border-gray-100'}`}>
-              <div>
-                <h3 className="font-bold text-gray-800 text-sm flex items-center gap-2">
-                  {exam.examName}
-                  {isRecent && <span className="text-[10px] bg-green-600 text-white px-2 py-0.5 rounded-full">NEW</span>}
-                </h3>
-                <p className="text-xs text-gray-500">
-                  {exam.term} {exam.year} • Uploaded {exam.date ? new Date(exam.date).toLocaleDateString() : '—'}
-                </p>
-              </div>
-              <div className="text-right">
-                {/* Position Badge */}
-                <div className="flex flex-wrap justify-end gap-2 text-[10px] text-gray-600 font-bold bg-white px-2 py-1 rounded-md border shadow-sm mb-1">
-                  <span>
-                    Class Pos:{' '}
-                    <span className="text-blue-600">{exam.classPosition}</span>
-                    {exam.classSize > 0 && (
-                      <span className="text-gray-400"> / {exam.classSize}</span>
-                    )}
-                  </span>
-                  {hasStream && (
-                    <span>
-                      Str Pos:{' '}
-                      <span className="text-blue-600">{exam.streamPosition}</span>
-                      {exam.streamSize > 0 && (
-                        <span className="text-gray-400"> / {exam.streamSize}</span>
-                      )}
-                    </span>
-                  )}
-                </div>
-
-                <p className={`text-xl font-bold ${exam.comp.color}`}>{exam.averageScore}%</p>
-                <p className="text-[10px] text-gray-500 uppercase">
-                  {exam.comp.label} · Grade {getGradeFromMark(exam.averageScore)}
-                </p>
-              </div>
-            </div>
-
-            {/* Missing-marks notice */}
-            {exam.hasMissingMarks && (
-              <div className="flex items-start gap-1.5 bg-amber-50 border-b border-amber-100 px-3 py-1.5 text-[11px] text-amber-800">
-                <FiAlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-                <span>
-                  Some subjects are still pending — position will appear once all marks are entered.
-                </span>
-              </div>
-            )}
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="text-left px-3 py-2">Subject</th>
-                    <th className="text-center px-3 py-2">Score</th>
-                    <th className="text-center px-3 py-2">Grade</th>
-                    <th className="text-center px-3 py-2">Competency</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {exam.subjects.map((s, idx) => {
-                    const c = getCompFromMark(s.marks);
-                    return (
-                      <tr key={`${s.subject}-${idx}`}>
-                        <td className="px-3 py-2 font-medium">{s.subject}</td>
-                        <td className={`px-3 py-2 text-center font-bold ${
-                          s.marks >= 80 ? 'text-purple-600' :
-                          s.marks >= 60 ? 'text-green-600' :
-                          s.marks >= 40 ? 'text-blue-600' : 'text-red-600'
-                        }`}>{s.marks}</td>
-                        <td className="px-3 py-2 text-center font-semibold">{getGradeFromMark(s.marks)}</td>
-                        <td className={`px-3 py-2 text-center font-semibold ${c.color}`}>{c.label}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        );
-      })}
+      {/* ===== Skills & Talents Section (embedded) ===== */}
+      <div className="pt-2">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="h-px flex-1 bg-gray-200"></div>
+          <span className="text-[10px] sm:text-xs font-bold text-gray-400 uppercase tracking-wider">Skills & Talents</span>
+          <div className="h-px flex-1 bg-gray-200"></div>
+        </div>
+        <SkillsTalentsTab pupil={pupil} />
+      </div>
 
       {showCareerModal && (
         <CareerInsightsModal

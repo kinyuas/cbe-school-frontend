@@ -26,6 +26,9 @@ const SLOW_ROUTES = [
 
 const isSlowRoute = (url = '') => SLOW_ROUTES.some((r) => url.includes(r));
 
+// 🆕 Matches backend messages that indicate the DB (not the user) is failing
+const DB_ERROR_REGEX = /ECONNREFUSED|ENOTFOUND|MongoServerSelectionError|querySrv|MongoNetworkError/i;
+
 const api = axios.create({
   baseURL: API_URL,
   headers: { 'Content-Type': 'application/json' },
@@ -34,7 +37,8 @@ const api = axios.create({
 
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('token') || localStorage.getItem('superAdminToken');
+    const token =
+      localStorage.getItem('token') || localStorage.getItem('superAdminToken');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -58,21 +62,47 @@ api.interceptors.response.use(
     return response;
   },
   (error) => {
+    const url = error.config?.url || '';
+
+    // ---- 1. Network-layer failures: never bounce -----------------
     if (
       error.code === 'ECONNABORTED' ||
       error.code === 'ERR_NETWORK' ||
       error.code === 'ERR_FAILED' ||
-      error.message === 'Network Error'
+      error.message === 'Network Error' ||
+      (!error.response && error.request)
     ) {
       console.warn(
-        `[api] Network issue on ${error.config?.url || 'unknown'} (${error.code})`
+        `[api] Network issue on ${url} (${error.code || error.message}) — keeping session`
       );
       return Promise.reject(error);
     }
 
-    const status = error.response?.status;
-    const code = error.response?.data?.code;
-    const url = error.config?.url || '';
+    const status  = error.response?.status;
+    const data    = error.response?.data || {};
+    const code    = data.code;
+    const message = data.message || '';
+
+    // ---- 2. Explicit offline guard --------------------------------
+    // If the browser/OS says we're offline, a 401 here is meaningless —
+    // it's almost certainly a stale response. Never log out.
+    const isOffline =
+      typeof navigator !== 'undefined' && navigator.onLine === false;
+
+    // ---- 3. Server / DB failures: never bounce --------------------
+    const isServerFailure = typeof status === 'number' && status >= 500;
+    const isDbFailure =
+      code === 'DB_ERROR' ||
+      code === 'SERVER_ERROR' ||
+      DB_ERROR_REGEX.test(message);
+
+    if (isOffline || isServerFailure || isDbFailure) {
+      console.warn(
+        `[api] Suppressed auth bounce for ${url} ` +
+          `(offline=${isOffline}, status=${status}, code=${code}) — keeping session`
+      );
+      return Promise.reject(error);
+    }
 
     const isLoginPage =
       window.location.pathname === '/login' ||
@@ -84,7 +114,7 @@ api.interceptors.response.use(
       url.includes('/school/bursar/login') ||
       url.includes('/administrator/login-');
 
-    // 🆕 2-device limit: server returned SESSION_REVOKED
+    // ---- 4. Genuine 2-device revocation ---------------------------
     if (status === 401 && code === 'SESSION_REVOKED' && !isLoginPage) {
       if (!didBounceForAuth) {
         didBounceForAuth = true;
@@ -96,7 +126,7 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    // Normal 401 (expired token / invalid credentials)
+    // ---- 5. Normal 401 (expired token / bad credentials) ----------
     if (status === 401 && !isLoginPage && !isVerificationPage && !isAuthRoute) {
       if (!didBounceForAuth) {
         didBounceForAuth = true;

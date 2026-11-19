@@ -1,7 +1,17 @@
 // src/components/modals/AddTeacherModal.jsx
 import React, { useState, useEffect } from 'react';
-import { FiX, FiAward, FiAlertCircle } from 'react-icons/fi';
+import { FiX, FiAward, FiAlertCircle, FiPhone } from 'react-icons/fi';
 import api from '../../services/api';
+
+// ── Helper: strip +254 / 254 / 0 prefix, return 9-digit local part ──
+const toLocalDigits = (raw) => {
+  if (!raw) return '';
+  const digits = String(raw).replace(/\D/g, '');
+  if (digits.startsWith('254') && digits.length >= 12) return digits.slice(3, 12);
+  if (digits.startsWith('0') && digits.length >= 10) return digits.slice(1, 10);
+  if (digits.startsWith('7') || digits.startsWith('1')) return digits.slice(0, 9);
+  return digits.slice(0, 9);
+};
 
 const AddTeacherModal = ({ isOpen, onClose, onSave }) => {
   const [formData, setFormData] = useState({
@@ -9,10 +19,13 @@ const AddTeacherModal = ({ isOpen, onClose, onSave }) => {
     classAssigned: '', streamAssigned: '', canRecordSkills: true
   });
 
+  // 🆕 Local 9-digit phone state
+  const [phoneLocal, setPhoneLocal] = useState('');
+
   const [availableClasses, setAvailableClasses] = useState([]);
   const [loadingClasses, setLoadingClasses] = useState(false);
   const [availableStreams, setAvailableStreams] = useState([]);
-  
+
   // UI State for error handling
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -21,8 +34,9 @@ const AddTeacherModal = ({ isOpen, onClose, onSave }) => {
   useEffect(() => {
     if (isOpen) {
       loadAvailableClasses();
-      setErrorMsg(''); // Clear errors on open
+      setErrorMsg('');
       setErrorField('');
+      setPhoneLocal('');
     }
   }, [isOpen]);
 
@@ -54,29 +68,52 @@ const AddTeacherModal = ({ isOpen, onClose, onSave }) => {
     }
   };
 
+  // 🆕 Phone handler
+  const handlePhoneChange = (e) => {
+    const digits = String(e.target.value).replace(/\D/g, '').slice(0, 9);
+    setPhoneLocal(digits);
+    setFormData(prev => ({
+      ...prev,
+      phone: digits ? `+254${digits}` : '',
+    }));
+    if (errorMsg) {
+      setErrorMsg('');
+      setErrorField('');
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMsg('');
     setErrorField('');
+
+    if (phoneLocal && phoneLocal.length !== 9) {
+      return setErrorMsg('Phone number must be 9 digits after +254');
+    }
+
     setSaving(true);
 
     try {
-      // Wait for the parent onSave function to complete
-      await onSave(formData);
-      
+      // Ensure the payload always uses the +254-prefixed phone
+      const payload = {
+        ...formData,
+        phone: phoneLocal ? `+254${phoneLocal}` : '',
+      };
+
+      await onSave(payload);
+
       // Only clear data IF successful
       setFormData({
         name: '', subject: '', email: '', phone: '', tscNumber: '',
         classAssigned: '', streamAssigned: '', canRecordSkills: true
       });
+      setPhoneLocal('');
       setAvailableStreams([]);
       onClose();
     } catch (err) {
-      // Error occurred: keep the data in the form fields!
       const msg = err.response?.data?.message || err.message || 'Failed to add teacher';
       setErrorMsg(msg);
 
-      // Highlight the field if it's a duplicate
       const lowerMsg = msg.toLowerCase();
       if (lowerMsg.includes('tsc')) {
         setErrorField('tscNumber');
@@ -94,8 +131,7 @@ const AddTeacherModal = ({ isOpen, onClose, onSave }) => {
       ...prev,
       [name]: type === 'checkbox' ? checked : value
     }));
-    
-    // Clear error when user starts typing again
+
     if (errorMsg) {
       setErrorMsg('');
       setErrorField('');
@@ -112,6 +148,7 @@ const AddTeacherModal = ({ isOpen, onClose, onSave }) => {
       name: '', subject: '', email: '', phone: '', tscNumber: '',
       classAssigned: '', streamAssigned: '', canRecordSkills: true
     });
+    setPhoneLocal('');
     setAvailableStreams([]);
     setErrorMsg('');
     setErrorField('');
@@ -128,7 +165,6 @@ const AddTeacherModal = ({ isOpen, onClose, onSave }) => {
           <button onClick={handleCancel} className="text-gray-500 hover:text-gray-700"><FiX className="w-6 h-6" /></button>
         </div>
 
-        {/* Error Banner */}
         {errorMsg && (
           <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm flex items-start gap-2">
             <FiAlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
@@ -151,29 +187,50 @@ const AddTeacherModal = ({ isOpen, onClose, onSave }) => {
             </div>
             <div>
               <label className="block text-gray-700 font-medium mb-2">Email Address *</label>
-              <input 
-                type="email" 
-                name="email" 
-                value={formData.email} 
-                onChange={handleChange} 
-                className={`input-field w-full ${errorField === 'email' ? 'border-red-500 bg-red-50' : ''}`} 
-                required 
+              <input
+                type="email"
+                name="email"
+                value={formData.email}
+                onChange={handleChange}
+                className={`input-field w-full ${errorField === 'email' ? 'border-red-500 bg-red-50' : ''}`}
+                required
               />
               {errorField === 'email' && <p className="text-xs text-red-600 mt-1">This email is already in use.</p>}
             </div>
+
+            {/* 🆕 Phone with +254 prefix */}
             <div>
               <label className="block text-gray-700 font-medium mb-2">Phone Number *</label>
-              <input type="tel" name="phone" value={formData.phone} onChange={handleChange} className="input-field w-full" required />
+              <div className="flex items-stretch border border-gray-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-blue-500">
+                <span className="px-3 py-2 bg-gray-100 text-gray-700 text-sm font-semibold border-r border-gray-300 flex items-center gap-1">
+                  <FiPhone className="w-3.5 h-3.5 text-gray-500" />
+                  +254
+                </span>
+                <input
+                  type="tel"
+                  inputMode="numeric"
+                  value={phoneLocal}
+                  onChange={handlePhoneChange}
+                  placeholder="712345678"
+                  maxLength={9}
+                  className="flex-1 px-3 py-2 text-sm outline-none border-0"
+                  required
+                />
+              </div>
+              <p className="text-[11px] text-gray-500 mt-1">
+                Enter the 9 digits only (e.g., 712345678). Full number will be +254712345678.
+              </p>
             </div>
+
             <div>
               <label className="block text-gray-700 font-medium mb-2">TSC Number *</label>
-              <input 
-                type="text" 
-                name="tscNumber" 
-                value={formData.tscNumber} 
-                onChange={handleChange} 
-                className={`input-field w-full ${errorField === 'tscNumber' ? 'border-red-500 bg-red-50' : ''}`} 
-                required 
+              <input
+                type="text"
+                name="tscNumber"
+                value={formData.tscNumber}
+                onChange={handleChange}
+                className={`input-field w-full ${errorField === 'tscNumber' ? 'border-red-500 bg-red-50' : ''}`}
+                required
               />
               {errorField === 'tscNumber' ? (
                 <p className="text-xs text-red-600 mt-1">This TSC number is already registered.</p>
@@ -217,9 +274,9 @@ const AddTeacherModal = ({ isOpen, onClose, onSave }) => {
           </div>
 
           <div className="flex space-x-3 mt-6">
-            <button 
-              type="submit" 
-              className="flex-1 btn-primary disabled:opacity-50" 
+            <button
+              type="submit"
+              className="flex-1 btn-primary disabled:opacity-50"
               disabled={saving}
             >
               {saving ? 'Saving...' : 'Save Teacher'}
