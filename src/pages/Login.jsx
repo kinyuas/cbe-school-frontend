@@ -43,7 +43,7 @@ const Login = () => {
     user,
     isAuthenticated,
     getHomeRoute,
-    setSession,           // 👈 new — see AuthContext diff below
+    setSession,
   } = useAuth();
 
   // Main State
@@ -132,7 +132,6 @@ const Login = () => {
         if (result?.requiresVerification) {
           setLoginStep('verification');
         } else if (result?.user) {
-          // Effect will navigate, but do it explicitly too
           const home = getHomeRoute();
           navigate(home && home !== '/login' ? home : '/login', { replace: true });
         }
@@ -147,10 +146,6 @@ const Login = () => {
       }
       // ── PARENT / PUPIL ────────────────────────────────────
       else if (portal === 'parent_pupil') {
-        // Backend endpoint expects `email` to carry the AdmNo and `loginType`
-        // to be 'parent' or 'pupil'. We call the API directly, then push the
-        // session into AuthContext so state + auth header + idle timers all
-        // update correctly. That's what makes the redirect actually work.
         const res = await api.post('/auth/login', {
           schoolCode,
           email: identifier,
@@ -159,11 +154,8 @@ const Login = () => {
         });
 
         if (res.data?.token && res.data?.user) {
-          // setSession sets localStorage, Authorization header, and context user
           setSession(res.data.token, res.data.user);
 
-          // Derive home route from the returned role so it's resilient even if
-          // getHomeRoute hasn't re-run with fresh state yet.
           const role = res.data.user.role;
           const home =
             role === 'parent' ? '/parent/dashboard' :
@@ -217,10 +209,13 @@ const Login = () => {
     return (
       <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-8">
+          {/* 🔷 EduNexa branded header */}
           <div className="text-center mb-6">
-            <div className="bg-gradient-to-r from-green-600 to-blue-600 p-3 rounded-full inline-block mb-3">
-              <FiKey className="w-8 h-8 text-white" />
-            </div>
+            <img
+              src={`${process.env.PUBLIC_URL}/logo192.png`}
+              alt="EduNexa"
+              className="w-16 h-16 mx-auto mb-3 object-contain drop-shadow-md"
+            />
             <h1 className="text-2xl font-bold text-gray-800 mb-2">Verify Login</h1>
             <p className="text-gray-600 text-sm">
               We sent a code to <span className="font-semibold text-green-600">{tempLoginData?.email}</span>
@@ -257,6 +252,14 @@ const Login = () => {
               </button>
             </div>
           </div>
+
+          {/* 🔷 EduNexa branded footer */}
+          <div className="mt-8 pt-4 border-t border-gray-200 text-center">
+            <p className="text-[10px] text-gray-400 leading-relaxed">
+              EduNexa — Connecting Schools. Empowering Education.<br />
+              Developed by Stancylus Kalong'o | Contact: 0746919850
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -267,13 +270,15 @@ const Login = () => {
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-blue-100 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 md:p-8">
 
-        {/* Header */}
+        {/* 🔷 EduNexa branded header */}
         <div className="text-center mb-8">
-          <div className="bg-gradient-to-r from-green-600 to-blue-600 p-3 rounded-full inline-block mb-3 shadow-lg">
-            <FiAward className="w-10 h-10 text-white" />
-          </div>
-          <h1 className="text-3xl font-bold text-gray-800 mb-1">CBE System</h1>
-          <p className="text-sm text-gray-500">Competency Based Education</p>
+          <img
+            src={`${process.env.PUBLIC_URL}/logo192.png`}
+            alt="EduNexa"
+            className="w-20 h-20 mx-auto mb-3 object-contain drop-shadow-lg"
+          />
+          <h1 className="text-3xl font-bold text-gray-800 mb-1">EduNexa</h1>
+          <p className="text-sm text-gray-500">Smart School Management Ecosystem</p>
         </div>
 
         {/* Portal Selection */}
@@ -465,10 +470,10 @@ const Login = () => {
           </form>
         )}
 
-        {/* Footer */}
+        {/* 🔷 EduNexa branded footer */}
         <div className="mt-8 pt-4 border-t border-gray-200 text-center">
           <p className="text-[10px] text-gray-400 leading-relaxed">
-            Fusion XE CBE System: Transforming Learning Through Technology.<br />
+            EduNexa — Connecting Schools. Empowering Education.<br />
             Developed by Stancylus Kalong'o | Contact: 0746919850
           </p>
         </div>

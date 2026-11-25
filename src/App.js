@@ -1,6 +1,5 @@
 // src/App.js
-// src/App.js — CORRECTED
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { QueryClientProvider } from '@tanstack/react-query';
@@ -56,9 +55,32 @@ import NotificationsPage from './pages/common/NotificationsPage';
 import PrivateRoute from './components/common/PrivateRoute';
 
 function App() {
+  // 🆕 Track online/offline status for the banner
+  const [online, setOnline] = useState(
+    typeof navigator !== 'undefined' ? navigator.onLine : true
+  );
+
+  useEffect(() => {
+    const up = () => setOnline(true);
+    const down = () => setOnline(false);
+    window.addEventListener('online', up);
+    window.addEventListener('offline', down);
+    return () => {
+      window.removeEventListener('online', up);
+      window.removeEventListener('offline', down);
+    };
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
+        {/* 🆕 Offline banner — visible on every screen (login + all portals) */}
+        {!online && (
+          <div className="fixed top-0 left-0 right-0 z-[9999] bg-amber-500 text-white text-center text-xs py-1 font-medium shadow-md">
+            You are offline — showing last saved data
+          </div>
+        )}
+
         <Router>
           <Toaster position="top-right" />
           <Routes>
@@ -124,12 +146,11 @@ function App() {
             </Route>
 
             <Route path="*" element={<Navigate to="/login" replace />} />
-            </Routes>
+          </Routes>
         </Router>
       </AuthProvider>
     </QueryClientProvider>
   );
 }
-
 
 export default App;

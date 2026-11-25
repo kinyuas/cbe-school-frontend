@@ -31,6 +31,11 @@ const ACTIVITY_THROTTLE_MS = 30 * 1000;        // 30s
 const LAST_ACTIVITY_KEY = 'lastActivityAt';
 const FCM_TOKEN_KEY = 'fcmToken';
 
+// 🆕 1-year persistent login for mobile roles
+const SESSION_EXPIRES_KEY = 'sessionExpiresAt';
+const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
+const LONG_SESSION_ROLES = ['teacher', 'parent', 'pupil'];
+
 // Roles that keep the original 1h idle logout
 const IDLE_ENFORCED_ROLES = ['admin', 'bursar', 'superadmin'];
 
@@ -189,6 +194,8 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     localStorage.removeItem(LAST_ACTIVITY_KEY);
+    // 🆕 Clear the 1-year expiry marker too
+    localStorage.removeItem(SESSION_EXPIRES_KEY);
     delete api.defaults.headers.common['Authorization'];
     setUser(null);
     setLoginStep('credentials');
@@ -222,6 +229,8 @@ export const AuthProvider = ({ children }) => {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       localStorage.removeItem(LAST_ACTIVITY_KEY);
+      // 🆕 Clear the 1-year expiry marker too
+      localStorage.removeItem(SESSION_EXPIRES_KEY);
       delete api.defaults.headers.common['Authorization'];
       setUser(null);
       setLoginStep('credentials');
@@ -343,6 +352,7 @@ export const AuthProvider = ({ children }) => {
       // Server replied but said "no user" → treat as normal auth loss
       localStorage.removeItem('token');
       localStorage.removeItem('user');
+      localStorage.removeItem(SESSION_EXPIRES_KEY);
       setUser(null);
       setLoading(false);
     } catch (error) {
@@ -371,6 +381,7 @@ export const AuthProvider = ({ children }) => {
       if (isAuthError(error)) {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
+        localStorage.removeItem(SESSION_EXPIRES_KEY);
         delete api.defaults.headers.common['Authorization'];
         setUser(null);
         setLoading(false);
@@ -400,7 +411,24 @@ export const AuthProvider = ({ children }) => {
 
     if (token && storedUser) {
       try {
-        setUser(JSON.parse(storedUser));
+        const parsedUser = JSON.parse(storedUser);
+
+        // 🆕 1-year session check for mobile roles (teacher/parent/pupil).
+        // If the marker exists and has passed → clear everything and go to login.
+        // If the marker is missing (legacy session from before this deploy) →
+        // treat as still valid; it will be re-stamped on next login.
+        const isLongSessionRole = LONG_SESSION_ROLES.includes(parsedUser.role);
+        const expiresAt = parseInt(localStorage.getItem(SESSION_EXPIRES_KEY) || '0', 10);
+        if (isLongSessionRole && expiresAt && Date.now() > expiresAt) {
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          localStorage.removeItem(SESSION_EXPIRES_KEY);
+          setUser(null);
+          setLoading(false);
+          return;
+        }
+
+        setUser(parsedUser);
         api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
         // Skip network validation entirely while offline — trust the
         // cached session and let the `online` listener below revalidate.
@@ -412,6 +440,7 @@ export const AuthProvider = ({ children }) => {
       } catch (error) {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
+        localStorage.removeItem(SESSION_EXPIRES_KEY);
         setUser(null);
         setLoading(false);
       }
@@ -444,6 +473,13 @@ export const AuthProvider = ({ children }) => {
       localStorage.setItem('token', token);
       localStorage.setItem('user', JSON.stringify(userObj));
       localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
+      // 🆕 1-year persistent login marker for teacher/parent/pupil
+      if (LONG_SESSION_ROLES.includes(userObj.role)) {
+        localStorage.setItem(SESSION_EXPIRES_KEY, String(Date.now() + ONE_YEAR_MS));
+      } else {
+        // Admin/bursar/superadmin → no long-lived marker
+        localStorage.removeItem(SESSION_EXPIRES_KEY);
+      }
     } catch (e) {
       console.warn('setSession: localStorage write failed', e);
     }
@@ -483,6 +519,12 @@ export const AuthProvider = ({ children }) => {
         localStorage.setItem('token', token);
         localStorage.setItem('user', JSON.stringify(user));
         localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
+        // 🆕 1-year marker for mobile roles (login() path)
+        if (LONG_SESSION_ROLES.includes(user.role)) {
+          localStorage.setItem(SESSION_EXPIRES_KEY, String(Date.now() + ONE_YEAR_MS));
+        } else {
+          localStorage.removeItem(SESSION_EXPIRES_KEY);
+        }
         api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
         setUser(user);
         toast.success('Login successful!');
@@ -529,6 +571,13 @@ export const AuthProvider = ({ children }) => {
         localStorage.setItem('token', token);
         localStorage.setItem('user', JSON.stringify(user));
         localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()));
+        // 🆕 1-year marker for mobile roles (verify-code path — usually admin/bursar
+        // so this will remove the key, but keeps logic symmetric & safe)
+        if (LONG_SESSION_ROLES.includes(user.role)) {
+          localStorage.setItem(SESSION_EXPIRES_KEY, String(Date.now() + ONE_YEAR_MS));
+        } else {
+          localStorage.removeItem(SESSION_EXPIRES_KEY);
+        }
         api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
         setUser(user);
         setLoginStep('credentials');

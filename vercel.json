@@ -1,28 +1,19 @@
 {
   "rewrites": [
-    {
-      "source": "/manifest.json",
-      "destination": "/manifest.json"
-    },
+    { "source": "/manifest.json", "destination": "/manifest.json" },
+    { "source": "/sw.js", "destination": "/sw.js" },
+    { "source": "/logo192.png", "destination": "/logo192.png" },
+    { "source": "/logo512.png", "destination": "/logo512.png" },
+    { "source": "/favicon.ico", "destination": "/favicon.ico" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "headers": [
     {
       "source": "/sw.js",
-      "destination": "/sw.js"
-    },
-    {
-      "source": "/logo192.png",
-      "destination": "/logo192.png"
-    },
-    {
-      "source": "/logo512.png",
-      "destination": "/logo512.png"
-    },
-    {
-      "source": "/favicon.ico",
-      "destination": "/favicon.ico"
-    },
-    {
-      "source": "/(.*)",
-      "destination": "/index.html"
+      "headers": [
+        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" },
+        { "key": "Service-Worker-Allowed", "value": "/" }
+      ]
     }
   ]
 }
